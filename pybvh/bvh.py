@@ -13,9 +13,9 @@ computation itself.
 from __future__ import annotations
 
 import copy
-from collections.abc import Iterable, Mapping, Sequence, Sized
+from collections.abc import Callable, Iterable, Mapping, Sequence, Sized
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple, cast, overload
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -140,20 +140,85 @@ def _motion_column_names(nodes: Sequence[BvhNode], mode: str) -> list[str]:
     raise ValueError(f"mode must be 'euler' or 'coordinates', got {mode!r}")
 
 
-def _checked_root_pos(value: npt.ArrayLike) -> npt.NDArray[np.float64]:
-    """``value`` as a float array, if it has the shape of ``root_pos``."""
-    arr = np.asarray(value, dtype=np.float64)
-    if arr.ndim != 2 or arr.shape[1] != 3:
-        raise ValueError(f"root_pos must have shape (F, 3), got {arr.shape}")
-    return arr
+class _SkeletonDim(NamedTuple):
+    """An axis of a motion array whose length the skeleton fixes."""
+
+    # The axis as a shape names it: ``(F, J, 3)``.
+    symbol: str
+    count: Callable[[Sequence[BvhNode]], int]
+    # What one index of the axis is, and what the skeleton has of it, as
+    # the error of a motion that does not fit the skeleton names them.
+    unit: str
+    skeleton_unit: str
+
+    def __str__(self) -> str:
+        return self.symbol
 
 
-def _checked_joint_angles(value: npt.ArrayLike) -> npt.NDArray[np.float64]:
-    """``value`` as a float array, if it has the shape of ``joint_angles``."""
-    arr = np.asarray(value, dtype=np.float64)
-    if arr.ndim != 3 or arr.shape[2] != 3:
-        raise ValueError(f"joint_angles must have shape (F, J, 3), got {arr.shape}")
-    return arr
+_JOINTS = _SkeletonDim(
+    symbol="J",
+    count=lambda nodes: sum(1 for node in nodes if not node.is_end_site()),
+    unit="joints",
+    skeleton_unit="non-end-site joints",
+)
+
+# How a motion array is interpolated between two frames: ``"linear"`` per
+# component, ``"euler"`` as rotations, each joint's three angles read in its
+# Euler order.
+_Interpolation = Literal["linear", "euler"]
+
+
+class _MotionArray(NamedTuple):
+    """One motion array of a clip, as the frame operations carry it.
+
+    ``name`` is the array's property, its keyword in the constructor and
+    in ``Bvh._set_motion`` and its key in a pickle's state; the clip holds
+    the array as ``_<name>``. ``frame_shape`` is the array's shape after
+    the frame axis: an int is a fixed length, a ``_SkeletonDim`` a
+    length the skeleton fixes.
+    """
+
+    name: str
+    frame_shape: tuple[int | _SkeletonDim, ...]
+    interpolation: _Interpolation
+
+    @property
+    def attribute(self) -> str:
+        """The clip attribute that holds the array."""
+        return f"_{self.name}"
+
+    @property
+    def skeleton_axes(self) -> list[tuple[int, _SkeletonDim]]:
+        """Each axis whose length the skeleton fixes, with its dim."""
+        return [
+            (axis, dim)
+            for axis, dim in enumerate(self.frame_shape, start=1)
+            if isinstance(dim, _SkeletonDim)
+        ]
+
+    def empty(self) -> npt.NDArray[np.float64]:
+        """The array of a clip built without motion: no frame, and 0 on
+        each skeleton dim, so that it binds no skeleton."""
+        shape = [0 if isinstance(dim, _SkeletonDim) else dim for dim in self.frame_shape]
+        return np.empty((0, *shape), dtype=np.float64)
+
+    def checked(self, value: npt.ArrayLike) -> npt.NDArray[np.float64]:
+        """``value`` as a float array, if it has this array's rank and fixed
+        lengths; the skeleton dims are checked against a skeleton by
+        ``Bvh._check_motion_fits_skeleton``."""
+        arr = np.asarray(value, dtype=np.float64)
+        fits = arr.ndim == 1 + len(self.frame_shape) and all(
+            isinstance(dim, _SkeletonDim) or arr.shape[axis] == dim
+            for axis, dim in enumerate(self.frame_shape, start=1)
+        )
+        if not fits:
+            shape = ", ".join(str(dim) for dim in ("F", *self.frame_shape))
+            raise ValueError(f"{self.name} must have shape ({shape}), got {arr.shape}")
+        return arr
+
+
+_ROOT_POS = _MotionArray(name="root_pos", frame_shape=(3,), interpolation="linear")
+_JOINT_ANGLES = _MotionArray(name="joint_angles", frame_shape=(_JOINTS, 3), interpolation="euler")
 
 
 def _node_pairs(pairs: object) -> list[tuple[NodeSelector, NodeSelector]]:
@@ -321,6 +386,13 @@ class Bvh:
         manually when constructing a Bvh from arrays.
     """
 
+    # The motion arrays, in the order the frame operations carry them. An
+    # operation that carries the arrays as they are (the shape checks, the
+    # derived clips and pickles, slicing, joins, splices, ``==``) reads them
+    # from here; the first one's frame count is the one the others must
+    # match.
+    _MOTION_ARRAYS: ClassVar[tuple[_MotionArray, ...]] = (_ROOT_POS, _JOINT_ANGLES)
+
     def __init__(
         self,
         nodes: list[BvhNode] | tuple[BvhNode, ...] | None = None,
@@ -369,20 +441,18 @@ class Bvh:
                 f"not supported. Expected 'XYZ', the order of every root_pos row."
             )
 
-        # ---------- Determine root_pos / joint_angles ----------
-        if (root_pos is None) != (joint_angles is None):
-            missing = "joint_angles" if joint_angles is None else "root_pos"
+        given = {"root_pos": root_pos, "joint_angles": joint_angles}
+        missing = [name for name, value in given.items() if value is None]
+        if missing and len(missing) < len(given):
             raise ValueError(
-                f"root_pos and joint_angles must be provided together; {missing} is missing."
+                f"{' and '.join(given)} must be provided together; {missing[0]} is missing."
             )
-        if root_pos is not None:
-            self.root_pos = np.asarray(root_pos, dtype=np.float64)
-            self.joint_angles = np.asarray(joint_angles, dtype=np.float64)
+        # All given or none: a clip built without motion holds the empty arrays.
+        for entry in self._MOTION_ARRAYS:
+            value = given.get(entry.name)
+            setattr(self, entry.attribute, entry.empty() if value is None else entry.checked(value))
+        if not missing:
             self._check_motion_fits_skeleton()
-        else:
-            # Empty object
-            self.root_pos = np.empty((0, 3), dtype=np.float64)
-            self.joint_angles = np.empty((0, 0, 3), dtype=np.float64)
 
         if world_up != "auto":
             self._world_up_override = _validate_axis_string(world_up)
@@ -410,19 +480,45 @@ class Bvh:
         """
         if nodes is None:
             nodes = self.nodes
-        if self._root_pos.shape[0] != self._joint_angles.shape[0]:
-            raise ValueError(
-                f"root_pos and joint_angles disagree on frame count: "
-                f"root_pos has {self._root_pos.shape[0]} frames, "
-                f"joint_angles has {self._joint_angles.shape[0]}."
-            )
-        joint_count = sum(1 for n in nodes if not n.is_end_site())
-        if self._joint_angles.shape[1] != joint_count:
-            raise ValueError(
-                f"joint_angles has {self._joint_angles.shape[1]} joints "
-                f"on axis 1, but the skeleton has {joint_count} "
-                f"non-end-site joints."
-            )
+        motion = self._motion()
+        first, *rest = self._MOTION_ARRAYS
+        frame_count = motion[first.name].shape[0]
+        for entry in rest:
+            if motion[entry.name].shape[0] != frame_count:
+                raise ValueError(
+                    f"{first.name} and {entry.name} disagree on frame count: "
+                    f"{first.name} has {frame_count} frames, "
+                    f"{entry.name} has {motion[entry.name].shape[0]}."
+                )
+        for entry in self._MOTION_ARRAYS:
+            for axis, dim in entry.skeleton_axes:
+                actual = motion[entry.name].shape[axis]
+                expected = dim.count(nodes)
+                if actual != expected:
+                    raise ValueError(
+                        f"{entry.name} has {actual} {dim.unit} "
+                        f"on axis {axis}, but the skeleton has {expected} "
+                        f"{dim.skeleton_unit}."
+                    )
+
+    def _motion(self) -> dict[str, npt.NDArray[np.float64]]:
+        """Each motion array the clip holds, by name, in list order: the
+        arrays themselves, not views or copies."""
+        return {entry.name: getattr(self, entry.attribute) for entry in self._MOTION_ARRAYS}
+
+    def _binds_skeleton(self) -> bool:
+        """Whether the motion binds the skeleton's joints.
+
+        A clip built without motion holds the empty arrays
+        (:meth:`_MotionArray.empty`) whatever its skeleton, with 0 on each
+        skeleton dim: there is no motion to fit, and it takes any skeleton.
+        """
+        motion = self._motion()
+        return any(
+            motion[entry.name].shape != entry.empty().shape
+            for entry in self._MOTION_ARRAYS
+            if entry.skeleton_axes
+        )
 
     @property
     def nodes(self) -> tuple[BvhNode, ...]:
@@ -518,7 +614,7 @@ class Bvh:
 
     @root_pos.setter
     def root_pos(self, value: npt.ArrayLike) -> None:
-        self._root_pos = _checked_root_pos(value)
+        self._root_pos = _ROOT_POS.checked(value)
         self._derived.user_replaced_motion()
 
     @property
@@ -541,15 +637,10 @@ class Bvh:
 
     @joint_angles.setter
     def joint_angles(self, value: npt.ArrayLike) -> None:
-        self._joint_angles = _checked_joint_angles(value)
+        self._joint_angles = _JOINT_ANGLES.checked(value)
         self._derived.user_replaced_motion()
 
-    def _set_motion(
-        self,
-        *,
-        root_pos: npt.ArrayLike | None = None,
-        joint_angles: npt.ArrayLike | None = None,
-    ) -> None:
+    def _set_motion(self, **motion: npt.ArrayLike) -> None:
         """Write motion as pybvh's own edits do, through no public setter.
 
         The transforms, ``a += b`` and the rebuild of a derived clip write
@@ -557,11 +648,16 @@ class Bvh:
         that the user replaced the motion, which starts the world-up guess
         again (ADR 0003), as setting the L/R mapping does for a guess of the
         clip's own (ADR 0004).
+
+        Takes any of the motion arrays by name (``_MOTION_ARRAYS``) and
+        leaves the others as they are.
         """
-        if root_pos is not None:
-            self._root_pos = _checked_root_pos(root_pos)
-        if joint_angles is not None:
-            self._joint_angles = _checked_joint_angles(joint_angles)
+        unknown = motion.keys() - {entry.name for entry in self._MOTION_ARRAYS}
+        if unknown:
+            raise TypeError(f"_set_motion() got no motion array named {sorted(unknown)}")
+        for entry in self._MOTION_ARRAYS:
+            if entry.name in motion:
+                setattr(self, entry.attribute, entry.checked(motion[entry.name]))
         self._derived.motion_changed()
 
     @property
@@ -622,11 +718,8 @@ class Bvh:
             return False
         if self.frame_time != other.frame_time:
             return False
-        if not np.array_equal(self.root_pos, other.root_pos):
-            return False
-        if not np.array_equal(self.joint_angles, other.joint_angles):
-            return False
-        return True
+        others = other._motion()
+        return all(np.array_equal(array, others[name]) for name, array in self._motion().items())
 
     def matches_hierarchy(
         self, other: Bvh, match_offsets: bool = True, atol: float = _OFFSET_ATOL
@@ -872,9 +965,12 @@ class Bvh:
             return NotImplemented  # type: ignore[return-value]
         self._check_same_skeleton(other)
         self._check_same_rate(other, "a += b")
+        others = other._motion()
         self._set_motion(
-            root_pos=np.concatenate([self.root_pos, other.root_pos], axis=0),
-            joint_angles=np.concatenate([self.joint_angles, other.joint_angles], axis=0),
+            **{
+                name: np.concatenate([array, others[name]], axis=0)
+                for name, array in self._motion().items()
+            }
         )
         if self.source_path != other.source_path:
             self.source_path = None
@@ -924,7 +1020,7 @@ class Bvh:
         self._check_same_rate(value, "a[i:j] = b")
 
         # --- length match (no resizing) ---
-        target_len = len(self.root_pos[s])
+        target_len = len(range(*s.indices(self.frame_count)))
         if target_len != value.frame_count:
             raise ValueError(
                 f"Cannot assign {value.frame_count} frames to a slice of "
@@ -934,8 +1030,9 @@ class Bvh:
             )
 
         # --- in-place splice, bypassing the setters ---
-        self._root_pos[s] = value.root_pos
-        self._joint_angles[s] = value.joint_angles
+        values = value._motion()
+        for name, array in self._motion().items():
+            array[s] = values[name]
         self._derived.user_replaced_motion()
 
     def copy(self, nodes: Sequence[BvhNode] | Sequence[Mapping[str, Any]] | None = None) -> Bvh:
@@ -998,19 +1095,14 @@ class Bvh:
         >>> edited = bvh.copy(nodes=table)
         """
         if nodes is None:
-            return self._derive_clip(
-                root_pos=self._root_pos.copy(), joint_angles=self._joint_angles.copy()
-            )
+            return self._derive_clip({name: array.copy() for name, array in self._motion().items()})
         new_nodes = _nodes_from_table_or_list(nodes, "nodes")
         # Every check runs before the copy is built, as in the constructor:
         # building it freezes the nodes, and a copy that raises must leave
         # a node list it was given editable, as a Bvh(...) that raises does.
         joints = [node for node in self.nodes if _is_joint(node)]
         new_joints = [node for node in new_nodes if _is_joint(node)]
-        # A clip built without motion holds (0, 0, 3) angles, which bind no
-        # joint: it takes any skeleton.
-        has_motion = self._joint_angles.shape[:2] != (0, 0)
-        if has_motion:
+        if self._binds_skeleton():
             self._check_motion_fits_skeleton(new_nodes)
             for joint, new_joint in zip(joints, new_joints, strict=True):
                 old_order = "".join(joint.rot_channels)
@@ -1057,9 +1149,7 @@ class Bvh:
             # names are all there is to go by.
             setting = _validated_lr_mapping(setting, new_names)
         edited = self._derive_clip(
-            root_pos=self._root_pos.copy(),
-            joint_angles=self._joint_angles.copy(),
-            nodes=new_nodes,
+            {name: array.copy() for name, array in self._motion().items()}, nodes=new_nodes
         )
         if isinstance(setting, dict):
             edited._set_lr_mapping_setting(setting)
@@ -1067,8 +1157,7 @@ class Bvh:
 
     def _derive_clip(
         self,
-        root_pos: npt.NDArray[np.float64],
-        joint_angles: npt.NDArray[np.float64],
+        motion: Mapping[str, npt.NDArray[np.float64]],
         nodes: list[BvhNode] | tuple[BvhNode, ...] | None = None,
     ) -> Bvh:
         """Build a clip from new primary state and this clip's settings.
@@ -1076,13 +1165,16 @@ class Bvh:
         The one way pybvh derives a clip (ADR 0003): the result carries what
         :meth:`__getstate__` lists, with the given motion and skeleton
         (default: a deep copy of this one's), and none of this clip's
-        derived state. The arrays are taken as they are, not copied; the
+        derived state. ``motion`` holds every motion array by name
+        (``_MOTION_ARRAYS``): an array it leaves out is refused, not taken
+        from this clip. The arrays are taken as they are, not copied; the
         caller hands over arrays no other clip holds.
         """
         state = self.__getstate__()
+        for entry in self._MOTION_ARRAYS:
+            del state[entry.name]
+        state.update(motion)
         state["nodes"] = copy.deepcopy(self.nodes) if nodes is None else nodes
-        state["root_pos"] = root_pos
-        state["joint_angles"] = joint_angles
         setting = state["lr_mapping_setting"]
         if isinstance(setting, dict):
             state["lr_mapping_setting"] = dict(setting)
@@ -1104,8 +1196,9 @@ class Bvh:
         guess = derived.inherited_world_up or derived.inferred_world_up
         return {
             "nodes": self.nodes,
-            "root_pos": self._root_pos,
-            "joint_angles": self._joint_angles,
+            # Keyed by the arrays' names, which are the keys pickles have
+            # always held: a pickle reads the same in earlier versions.
+            **self._motion(),
             "frame_time": self.frame_time,
             "source_path": self.source_path,
             "world_up_override": self._world_up_override,
@@ -1127,10 +1220,8 @@ class Bvh:
             source_path=state["source_path"],
             warn_on_world_up_disagreement=state["warn_on_world_up_disagreement"],
         )
-        self._set_motion(root_pos=state["root_pos"], joint_angles=state["joint_angles"])
-        # A clip built without motion holds (0, 0, 3) angles whatever its
-        # skeleton; there is no motion to fit, as in the constructor.
-        if self._joint_angles.shape[:2] != (0, 0):
+        self._set_motion(**{entry.name: state[entry.name] for entry in self._MOTION_ARRAYS})
+        if self._binds_skeleton():
             self._check_motion_fits_skeleton()
         self._world_up_override = state["world_up_override"]
         self._set_lr_mapping_setting(state["lr_mapping_setting"])
@@ -3226,7 +3317,7 @@ class Bvh:
         """
         s = slice(start, end, step)
         new_bvh = self._derive_clip(
-            root_pos=self._root_pos[s].copy(), joint_angles=self._joint_angles[s].copy()
+            {name: array[s].copy() for name, array in self._motion().items()}
         )
         # Adjust frame frequency if step changes the sampling rate
         if step is not None and abs(step) != 1:
@@ -3312,9 +3403,12 @@ class Bvh:
         self._check_same_skeleton(other)
         self._check_same_rate(other, "a + b")
 
+        others = other._motion()
         new_bvh = self._derive_clip(
-            root_pos=np.concatenate([self.root_pos, other.root_pos], axis=0),
-            joint_angles=np.concatenate([self.joint_angles, other.joint_angles], axis=0),
+            {
+                name: np.concatenate([array, others[name]], axis=0)
+                for name, array in self._motion().items()
+            }
         )
         if self.source_path != other.source_path:
             new_bvh.source_path = None
@@ -3416,7 +3510,7 @@ class Bvh:
             rotations.quat_to_rotmat(new_quats), self.euler_orders
         )
 
-        new_bvh = self._derive_clip(root_pos=new_root_pos, joint_angles=new_angles)
+        new_bvh = self._derive_clip({"root_pos": new_root_pos, "joint_angles": new_angles})
         new_bvh.frame_time = new_freq
         return new_bvh
 
@@ -3553,8 +3647,10 @@ class Bvh:
 
         # Selecting the kept columns makes a new array.
         new_bvh = self._derive_clip(
-            root_pos=self._root_pos.copy(),
-            joint_angles=self._joint_angles[:, kept_old_j_indices, :],
+            {
+                "root_pos": self._root_pos.copy(),
+                "joint_angles": self._joint_angles[:, kept_old_j_indices, :],
+            },
             nodes=new_nodes,
         )
         # A user-set L/R mapping keeps the pairs whose joints are both kept;

@@ -1,0 +1,229 @@
+"""Guard of the motion list: every frame operation carries every motion array.
+
+``Bvh`` keeps one private list of its motion arrays, and each operation that
+carries the arrays as they are (shape checks, derived clips, pickles, copies,
+slicing, joins, splices, equality) reads them from it. These tests run each
+operation once over the list as it is and once with a test-only third array
+registered in it, so that an array added to the list and missed by an
+operation fails here.
+"""
+
+from __future__ import annotations
+
+import pickle
+
+import numpy as np
+import pytest
+
+from pybvh import nodes_from_table
+from pybvh.bvh import Bvh, _MotionArray
+
+FRAMES = 6
+
+# A test-only motion array: two linear values per frame, no skeleton dim.
+EXTRA = _MotionArray(name="extra", frame_shape=(2,), interpolation="linear")
+
+
+@pytest.fixture(params=["as_is", "with_extra"])
+def motion_list(request, monkeypatch):
+    """The motion list the test runs over: as it is, or with ``EXTRA`` added."""
+    if request.param == "with_extra":
+        monkeypatch.setattr(Bvh, "_MOTION_ARRAYS", (*Bvh._MOTION_ARRAYS, EXTRA))
+    return Bvh._MOTION_ARRAYS
+
+
+def _skeleton_table():
+    return [
+        {"name": "Hips", "parent": None, "offset": [0, 0, 0], "rot_channels": "ZYX"},
+        {"name": "Spine", "parent": 0, "offset": [0, 1, 0], "rot_channels": "XYZ"},
+        {"name": "Head", "parent": 1, "offset": [0, 1, 0]},
+    ]
+
+
+JOINTS = 2
+
+
+def _frame_shape(entry):
+    """The entry's shape after the frame axis on the two-joint skeleton above."""
+    return tuple(dim if isinstance(dim, int) else JOINTS for dim in entry.frame_shape)
+
+
+def _tagged_motion(motion_list, first=0.0):
+    """One array per entry, each value telling its array, frame and component.
+
+    Frame ``f`` of the ``k``-th array holds ``first + 100 k + f`` plus a
+    fraction for the component, so a frame in the wrong place, a frame
+    taken from another array or an array left behind changes some value.
+    """
+    motion = {}
+    for k, entry in enumerate(motion_list):
+        shape = (FRAMES, *_frame_shape(entry))
+        components = np.arange(int(np.prod(shape[1:]))).reshape(shape[1:]) / 1000
+        frames = np.arange(FRAMES).reshape((FRAMES,) + (1,) * (len(shape) - 1))
+        motion[entry.name] = first + 100 * k + frames + components
+    return motion
+
+
+def _clip(motion, frame_time=0.1):
+    """A clip on the two-joint skeleton, holding *motion*."""
+    empty = Bvh(nodes=nodes_from_table(_skeleton_table()), frame_time=frame_time)
+    return empty._derive_clip(motion)
+
+
+def _assert_holds(clip, motion):
+    """Each array of *clip* equals the one *motion* names."""
+    assert clip._motion().keys() == motion.keys()
+    for name, expected in motion.items():
+        np.testing.assert_array_equal(clip._motion()[name], expected, err_msg=name)
+
+
+class TestShapeChecks:
+    def test_an_empty_clip_holds_no_frame_of_any_array(self, motion_list):
+        clip = Bvh(nodes=nodes_from_table(_skeleton_table()))
+        # No frame, and no joint: the shapes Bvh() has always given.
+        expected = {"root_pos": (0, 3), "joint_angles": (0, 0, 3), "extra": (0, 2)}
+        for entry in motion_list:
+            assert clip._motion()[entry.name].shape == expected[entry.name]
+
+    def test_a_clip_holds_every_array_it_is_built_with(self, motion_list):
+        motion = _tagged_motion(motion_list)
+        _assert_holds(_clip(motion), motion)
+
+    @pytest.mark.parametrize("position", [0, -1], ids=["first", "last"])
+    def test_a_wrong_shape_is_refused(self, motion_list, position):
+        entry = motion_list[position]
+        motion = _tagged_motion(motion_list)
+        motion[entry.name] = np.zeros((FRAMES, 5))
+        with pytest.raises(ValueError, match=f"{entry.name} must have shape"):
+            _clip(motion)
+
+    def test_a_wrong_frame_count_is_refused(self, motion_list):
+        motion = _tagged_motion(motion_list)
+        last = motion_list[-1].name
+        motion[last] = motion[last][:-1]
+        with pytest.raises(ValueError, match="disagree on frame count"):
+            _clip(motion)
+
+    def test_set_motion_replaces_each_array(self, motion_list):
+        clip = _clip(_tagged_motion(motion_list))
+        replacement = _tagged_motion(motion_list, first=0.5)
+        clip._set_motion(**replacement)
+        _assert_holds(clip, replacement)
+
+    def test_set_motion_refuses_an_array_not_in_the_list(self, motion_list):
+        clip = _clip(_tagged_motion(motion_list))
+        with pytest.raises(TypeError, match="no motion array named \\['root_pso'\\]"):
+            clip._set_motion(root_pso=np.zeros((FRAMES, 3)))
+
+    def test_set_motion_refuses_a_wrong_shape(self, motion_list):
+        clip = _clip(_tagged_motion(motion_list))
+        name = motion_list[-1].name
+        with pytest.raises(ValueError, match=f"{name} must have shape"):
+            clip._set_motion(**{name: np.zeros((FRAMES, 5, 5, 5))})
+
+
+class TestCarryingOperations:
+    def test_a_derived_clip_holds_the_arrays_it_is_given(self, motion_list):
+        source = _clip(_tagged_motion(motion_list))
+        motion = _tagged_motion(motion_list, first=0.25)
+        _assert_holds(source._derive_clip(motion), motion)
+
+    def test_a_pickle_round_trip_keeps_every_array(self, motion_list):
+        motion = _tagged_motion(motion_list)
+        _assert_holds(pickle.loads(pickle.dumps(_clip(motion))), motion)
+
+    def test_a_copy_keeps_every_array(self, motion_list):
+        motion = _tagged_motion(motion_list)
+        _assert_holds(_clip(motion).copy(), motion)
+
+    def test_a_copy_on_a_new_skeleton_keeps_every_array(self, motion_list):
+        motion = _tagged_motion(motion_list)
+        _assert_holds(_clip(motion).copy(nodes=_skeleton_table()), motion)
+
+    def test_a_copy_owns_its_arrays(self, motion_list):
+        motion = _tagged_motion(motion_list)
+        source = _clip(motion)
+        duplicate = source.copy()
+        for name in motion:
+            assert not np.shares_memory(duplicate._motion()[name], source._motion()[name])
+
+    @pytest.mark.parametrize(
+        "key",
+        [slice(1, 4), slice(0, None, 2), slice(None, None, -1), 3, -1],
+        ids=["step_1", "step_2", "reversed", "integer", "negative_integer"],
+    )
+    def test_slicing_keeps_the_selected_frames_of_every_array(self, motion_list, key):
+        motion = _tagged_motion(motion_list)
+        frames = slice(key, key + 1 or None) if isinstance(key, int) else key
+        expected = {name: array[frames] for name, array in motion.items()}
+        _assert_holds(_clip(motion)[key], expected)
+
+    def test_joining_appends_the_frames_of_every_array(self, motion_list):
+        first = _tagged_motion(motion_list)
+        second = _tagged_motion(motion_list, first=0.5)
+        expected = {name: np.concatenate([first[name], second[name]]) for name in first}
+        _assert_holds(_clip(first) + _clip(second), expected)
+
+    def test_joining_in_place_appends_the_frames_of_every_array(self, motion_list):
+        first = _tagged_motion(motion_list)
+        second = _tagged_motion(motion_list, first=0.5)
+        expected = {name: np.concatenate([first[name], second[name]]) for name in first}
+        clip = _clip(first)
+        clip += _clip(second)
+        _assert_holds(clip, expected)
+
+    def test_splicing_writes_the_frames_of_every_array(self, motion_list):
+        target = _tagged_motion(motion_list)
+        source = _tagged_motion(motion_list, first=0.5)
+        expected = {name: array.copy() for name, array in target.items()}
+        for name in expected:
+            expected[name][2:4] = source[name][0:2]
+        clip = _clip(target)
+        clip[2:4] = _clip(source)[0:2]
+        _assert_holds(clip, expected)
+
+    def test_equality_sees_a_difference_in_any_array(self, motion_list):
+        motion = _tagged_motion(motion_list)
+        for entry in motion_list:
+            changed = {name: array.copy() for name, array in motion.items()}
+            changed[entry.name][3] += 1.0
+            assert _clip(motion) != _clip(changed), entry.name
+        assert _clip(motion) == _clip(_tagged_motion(motion_list))
+
+
+class TestPickleFormat:
+    """The state a pickle holds keeps its keys, so pickles read both ways."""
+
+    def test_a_state_from_before_the_motion_list_unpickles(self):
+        # The keys of the state pybvh pickled before the motion list.
+        root_pos = np.arange(6.0).reshape(2, 3)
+        joint_angles = np.arange(12.0).reshape(2, 2, 3) / 10
+        state = {
+            "nodes": tuple(nodes_from_table(_skeleton_table())),
+            "root_pos": root_pos,
+            "joint_angles": joint_angles,
+            "frame_time": 0.1,
+            "source_path": None,
+            "world_up_override": None,
+            "world_up_guess": ("+y", "rest_up"),
+            "warn_on_world_up_disagreement": True,
+            "lr_mapping_setting": "names",
+        }
+        clip = Bvh.__new__(Bvh)
+        clip.__setstate__(state)
+        np.testing.assert_array_equal(clip.root_pos, root_pos)
+        np.testing.assert_array_equal(clip.joint_angles, joint_angles)
+
+    def test_a_state_keeps_the_keys_earlier_versions_read(self):
+        clip = _clip(_tagged_motion(Bvh._MOTION_ARRAYS))
+        assert set(clip.__getstate__()) == {
+            "nodes",
+            "root_pos",
+            "joint_angles",
+            "frame_time",
+            "source_path",
+            "world_up_override",
+            "world_up_guess",
+            "warn_on_world_up_disagreement",
+            "lr_mapping_setting",
+        }

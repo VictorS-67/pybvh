@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple, TextIO
 import numpy as np
 import numpy.typing as npt
 
-from .bvh import Bvh
+from .bvh import Bvh, _euler_blocks
 from .bvhnode import BvhNode, _is_joint, _pos_channels
 from .node_tree import nodes_from_table
 from .tools import _require_rate, _validate_bvh_path, _validate_frame_time
@@ -195,30 +195,31 @@ class _FrameColumns(NamedTuple):
 
 
 def _frame_columns(nodes: Sequence[BvhNode]) -> _FrameColumns:
-    """The column of each motion value in a frame line of ``nodes``' file."""
+    """The column of each motion value in a frame line of ``nodes``' file.
+
+    A frame line holds the blocks of ``to_df_dict``'s euler layout
+    (:func:`~pybvh.bvh._euler_blocks`), three columns each, in order.
+    """
     root_pos: list[int] = []
     translations: list[list[int]] = []
     angles: list[list[int]] = []
     rotating: list[int] = []
-    column = 0
-    for row, node in enumerate(node for node in nodes if _is_joint(node)):
-        if _pos_channels(node):
-            block = list(range(column, column + 3))
-            if node.is_root():
-                root_pos = block
-            else:
-                translations.append(block)
-            column += 3
-        if node.rot_channels:
-            rotating.append(row)
-            angles.append(list(range(column, column + 3)))
-            column += 3
+    blocks = _euler_blocks(nodes)
+    for index, block in enumerate(blocks):
+        columns = list(range(3 * index, 3 * index + 3))
+        if block.array == "root_pos":
+            root_pos = columns
+        elif block.array == "joint_translations":
+            translations.append(columns)
+        else:
+            rotating.append(block.row)
+            angles.append(columns)
     return _FrameColumns(
         np.array(root_pos, dtype=np.intp),
         np.array(translations, dtype=np.intp).reshape(-1, 3),
         np.array(angles, dtype=np.intp).reshape(-1, 3),
         np.array(rotating, dtype=np.intp),
-        column,
+        3 * len(blocks),
     )
 
 

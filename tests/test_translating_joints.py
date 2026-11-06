@@ -462,3 +462,68 @@ def test_a_three_channel_clip_reads_and_writes_as_before(relative, tmp_path):
     clip.write(out)
     assert hashlib.sha256(out.read_bytes()).hexdigest() == written_digest
     np.testing.assert_array_equal(clip.fk_topology.translation_idx, -1)
+
+
+# =============================================================================
+# Comparison
+# =============================================================================
+
+
+def _rotating_spine_twin(clip: Bvh) -> Bvh:
+    """``clip``'s skeleton with the spine declaring rotation channels only."""
+    table = clip.to_node_table()
+    del table[2]["pos_channels"]
+    return Bvh(
+        nodes=nodes_from_table(table),
+        root_pos=clip.root_pos,
+        joint_angles=clip.joint_angles,
+        joint_translations=clip.joint_translations[:, :1],
+        frame_time=clip.frame_time,
+    )
+
+
+class TestComparison:
+    def test_a_value_difference_breaks_equality_only(self):
+        clip = _clip()
+        other = _clip()
+        translations = other.joint_translations.copy()
+        translations[1, 1, 1] = 12.0
+        other.joint_translations = translations
+        assert clip != other
+        assert clip.matches_channels(other)
+        assert clip.matches_topology(other)
+        assert clip == _clip()
+
+    def test_another_set_of_translating_joints_breaks_both(self):
+        clip = _clip()
+        twin = _rotating_spine_twin(clip)
+        assert clip != twin
+        assert not clip.matches_channels(twin)
+        assert not twin.matches_channels(clip)
+        assert clip.matches_hierarchy(twin)
+
+    def test_joining_refuses_another_set_of_translating_joints(self):
+        clip = _clip()
+        twin = _rotating_spine_twin(clip)
+        message = "joint 'Spine' declares position channels 'XYZ' vs none"
+        with pytest.raises(ValueError, match=message):
+            clip + twin
+        with pytest.raises(ValueError, match=message):
+            clip += twin
+        with pytest.raises(ValueError, match=message):
+            clip[0:2] = twin
+
+    def test_joining_carries_the_translations(self):
+        first, second = _clip(), _clip(np.full((2, 2, 3), 7.0))
+        joined = first + second
+        np.testing.assert_array_equal(
+            joined.joint_translations,
+            np.concatenate([first.joint_translations, second.joint_translations]),
+        )
+
+    def test_batch_refuses_another_set_of_translating_joints(self):
+        from pybvh import batch_to_numpy
+
+        clip = _clip()
+        with pytest.raises(ValueError, match="declares position channels"):
+            batch_to_numpy([clip, _rotating_spine_twin(clip)])

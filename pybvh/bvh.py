@@ -855,7 +855,7 @@ class Bvh:
 
         See Also
         --------
-        matches_channels : Compare per-joint Euler rotation orders.
+        matches_channels : Compare per-joint position channels and Euler orders.
         matches_topology : Conjunction of hierarchy + channels.
         """
         if not isinstance(other, Bvh):
@@ -868,11 +868,11 @@ class Bvh:
     def matches_channels(self, other: Bvh) -> bool:
         """Whether ``self`` and ``other`` share the same channel layout.
 
-        Compares per-joint Euler rotation orders, joint by joint in node
-        order. The root's position channels are always ``XYZ``, the
-        order of a ``root_pos`` row, so they cannot differ: the
-        constructor accepts no other order, and :func:`~pybvh.read_bvh_file`
-        reads a file that declares another into ``XYZ``. This is a
+        Compares, joint by joint in node order, which joints declare
+        position channels (which joints translate) and each joint's
+        Euler rotation order. Only the declaration is compared, never the
+        values of :attr:`joint_translations`: a bone that stretches and
+        comes back still matches its own skeleton. This is a
         *serialization* property:
         clips with identical underlying rotations but different stored
         Euler orders have different channel layouts.
@@ -928,7 +928,8 @@ class Bvh:
         See Also
         --------
         matches_hierarchy : The hierarchy half (joints, parents, offsets).
-        matches_channels : The channel-layout half (per-joint Euler orders).
+        matches_channels : The channel-layout half (per-joint position channels
+            and Euler orders).
         """
         return self.matches_hierarchy(other) and self.matches_channels(other)
 
@@ -3430,7 +3431,8 @@ class Bvh:
         """Raise ``ValueError`` unless ``other`` has this clip's topology.
 
         The hierarchy (names, node kinds, parents, rest offsets within
-        ``1e-6``) and the channel layout (each joint's rotation order),
+        ``1e-6``) and the channel layout (which joints translate, each
+        joint's rotation order),
         as :meth:`matches_topology` compares them: ``+``, ``+=`` and slice
         assignment write ``other``'s motion onto this clip's bones, which
         would silently change it where the two skeletons differ. The
@@ -3488,8 +3490,8 @@ class Bvh:
         ----------
         other : Bvh
             Must have the same topology (:meth:`matches_topology`): the
-            same names, node kinds, parents, rest offsets within ``1e-6``
-            and rotation orders.
+            same names, node kinds, parents, rest offsets within ``1e-6``,
+            translating joints and rotation orders.
 
         Returns
         -------

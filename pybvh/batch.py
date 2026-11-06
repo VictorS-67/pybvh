@@ -474,6 +474,12 @@ def _channel_mismatch_message(
 ) -> str:
     """The diagnostic of a ``matches_channels`` failure: *difference*,
     between the two clips named, with the way to harmonize them."""
+    if difference.kind == "position_channels":
+        return (
+            f"Position-channel mismatch between {_clip_label(ref, ref_idx)} and "
+            f"{_clip_label(bvh, idx)} ({difference.message}): the clips translate "
+            f"different joints."
+        )
     return (
         f"Rotation-channel mismatch between {_clip_label(ref, ref_idx)} and "
         f"{_clip_label(bvh, idx)} ({difference.message}). For "

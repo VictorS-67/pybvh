@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import numpy as np
 import numpy.typing as npt
 
-from .bvhnode import BvhNode, _is_translating_joint
+from .bvhnode import BvhNode, _euler_order, _is_joint, _is_translating_joint
 from .rotations import euler_to_rotmat
 from .tools import _validate_axis_string
 
@@ -189,7 +189,9 @@ class FkTopology(_FkTopologyFields):
         -------
         FkTopology
             ``joint_idx`` counts up in node order, so ``euler_orders``
-            matches :attr:`Bvh.euler_orders` element for element.
+            matches :attr:`Bvh.euler_orders` element for element: a
+            static root (``CHANNELS 0``), which never rotates, reads
+            ``'XYZ'``.
             ``translation_idx`` counts up in node order over the
             translating joints, the order of :attr:`Bvh.joint_translations`'
             columns.
@@ -224,12 +226,12 @@ class FkTopology(_FkTopologyFields):
                         f"Node {node.name!r} (index {i}) has a parent that is not in the node list."
                     ) from None
 
-            if node.is_end_site():
-                joint_idx[i] = -1
-            else:
+            if _is_joint(node):
                 joint_idx[i] = joint_counter
-                euler_orders.append("".join(node.rot_channels))  # type: ignore[attr-defined]
+                euler_orders.append(_euler_order(node))
                 joint_counter += 1
+            else:
+                joint_idx[i] = -1
             if _is_translating_joint(node):
                 translation_idx[i] = translation_counter
                 translation_counter += 1

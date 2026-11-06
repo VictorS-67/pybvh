@@ -82,13 +82,21 @@ def read_bvh_file(
         If the file is malformed, for example if its ``Frame Time`` is
         missing, zero, negative, NaN or infinite, or if a joint declares
         other channels than 3 rotation channels, or 3 position + 3
-        rotation channels (the error names the joint).
+        rotation channels (the error names the joint). The root declares
+        3 position + 3 rotation channels, or none (``CHANNELS 0``).
 
     Notes
     -----
     BVH files store joint angles in degrees. pybvh holds them in
     radians, on :attr:`Bvh.joint_angles`. This function converts them on
     read. :func:`write_bvh_file` converts them back on write.
+
+    A root that declares ``CHANNELS 0`` (Blender's exporter writes one,
+    ``ROOT __0``, above an armature with several root bones) is a static
+    root (:meth:`~pybvh.bvhnode.BvhRoot.is_static`). It stays at its
+    ``OFFSET`` with no rotation: :attr:`Bvh.root_pos` holds its offset in
+    every frame, and its row of :attr:`Bvh.joint_angles` is zero.
+    :func:`write_bvh_file` writes it back as ``CHANNELS 0``.
 
     The reader normalizes three things, rather than preserving them
     verbatim. So a round-trip is lossless in *motion*, but not
@@ -174,12 +182,15 @@ class _FrameColumns(NamedTuple):
     Each joint's channel block, in node order: its position channels
     (``X Y Z``) if it has any, then its rotation channels in its Euler
     order. The reader puts a file's columns in this order, so both
-    directions read the same layout.
+    directions read the same layout. A static root (``CHANNELS 0``) has
+    no block: its ``root_pos`` is its offset and its row of
+    ``joint_angles`` is zero, in every frame.
     """
 
-    root_pos: npt.NDArray[np.intp]  # (3,)
+    root_pos: npt.NDArray[np.intp]  # (3,), or (0,) on a static root
     joint_translations: npt.NDArray[np.intp]  # (P, 3), in node order
-    joint_angles: npt.NDArray[np.intp]  # (J, 3), in node order
+    joint_angles: npt.NDArray[np.intp]  # (R, 3): the rotating joints, in node order
+    rotating_joints: npt.NDArray[np.intp]  # (R,): their rows of joint_angles
     width: int  # the values per frame
 
 
@@ -188,10 +199,9 @@ def _frame_columns(nodes: Sequence[BvhNode]) -> _FrameColumns:
     root_pos: list[int] = []
     translations: list[list[int]] = []
     angles: list[list[int]] = []
+    rotating: list[int] = []
     column = 0
-    for node in nodes:
-        if not _is_joint(node):
-            continue
+    for row, node in enumerate(node for node in nodes if _is_joint(node)):
         if _pos_channels(node):
             block = list(range(column, column + 3))
             if node.is_root():
@@ -199,12 +209,15 @@ def _frame_columns(nodes: Sequence[BvhNode]) -> _FrameColumns:
             else:
                 translations.append(block)
             column += 3
-        angles.append(list(range(column, column + 3)))
-        column += 3
+        if node.rot_channels:
+            rotating.append(row)
+            angles.append(list(range(column, column + 3)))
+            column += 3
     return _FrameColumns(
         np.array(root_pos, dtype=np.intp),
         np.array(translations, dtype=np.intp).reshape(-1, 3),
         np.array(angles, dtype=np.intp).reshape(-1, 3),
+        np.array(rotating, dtype=np.intp),
         column,
     )
 
@@ -227,10 +240,18 @@ def _bvh_from_parsed(
     node_list, frame_array, frame_time = parsed
     columns = _frame_columns(node_list)
     frame_array = frame_array.astype(np.float64)
-    root_pos = frame_array[:, columns.root_pos]
+    frame_count = len(frame_array)
+    if columns.root_pos.size:
+        root_pos = frame_array[:, columns.root_pos]
+    else:
+        # A static root stays at its offset.
+        root_pos = np.tile(node_list[0].offset, (frame_count, 1))
     joint_translations = frame_array[:, columns.joint_translations]
-    # BVH stores angles in degrees; pybvh holds them in radians.
-    joint_angles = np.deg2rad(frame_array[:, columns.joint_angles])
+    # A static root's row stays zero. BVH stores angles in degrees; pybvh
+    # holds them in radians.
+    joint_count = sum(1 for node in node_list if _is_joint(node))
+    joint_angles = np.zeros((frame_count, joint_count, 3))
+    joint_angles[:, columns.rotating_joints] = np.deg2rad(frame_array[:, columns.joint_angles])
     return Bvh(
         nodes=node_list,
         root_pos=root_pos,
@@ -617,10 +638,10 @@ def _read_node_block(
     num_pos = sum(1 for kind, _ in channels if kind == "pos")
     num_rot = len(channels) - num_pos
     if node_type == "root":
-        if num_pos != 3 or num_rot != 3:
+        if (num_pos, num_rot) not in ((3, 3), (0, 0)):
             raise ValueError(
-                f"root must have 3 position + 3 rotation channels, "
-                f"got {num_pos} position + {num_rot} rotation"
+                f"root must have 3 position + 3 rotation channels, or none "
+                f"(CHANNELS 0), got {num_pos} position + {num_rot} rotation"
             )
     elif (num_pos, num_rot) not in ((0, 3), (3, 3)):
         raise ValueError(
@@ -757,10 +778,15 @@ def write_bvh_file(
         if F > 0:
             columns = _frame_columns(bvh.nodes)
             motion = np.empty((F, columns.width), dtype=np.float64)
-            motion[:, columns.root_pos] = bvh.root_pos
+            # A static root has no column: its root_pos and its row of
+            # joint_angles are not written.
+            if columns.root_pos.size:
+                motion[:, columns.root_pos] = bvh.root_pos
             motion[:, columns.joint_translations] = bvh.joint_translations
             # pybvh stores angles in radians; BVH format requires degrees.
-            motion[:, columns.joint_angles] = np.rad2deg(bvh.joint_angles)
+            motion[:, columns.joint_angles] = np.rad2deg(
+                bvh.joint_angles[:, columns.rotating_joints]
+            )
             np.savetxt(f, motion, fmt="%.6f", delimiter=" ")
 
     if verbose:

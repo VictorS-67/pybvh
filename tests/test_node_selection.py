@@ -607,6 +607,7 @@ _INTEGERS_NOT_NODES = {
     ("analysis.zero_crossings", "axis"),
     ("features.feature_array_layout", "num_joints"),
     ("features.feature_array_layout", "num_feet"),
+    ("features.feature_array_layout", "num_translating_joints"),
 }
 
 

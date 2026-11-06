@@ -4117,6 +4117,7 @@ class Bvh:
         feet: Sequence[NodeSelector] | None = None,
         stencil: str = "central",
         pad: str = "edge",
+        include_joint_translations: bool = False,
     ) -> npt.NDArray[np.float64]:
         """Export motion as a flat feature array.  See :func:`pybvh.features.to_feature_array`."""
         from . import features
@@ -4131,6 +4132,7 @@ class Bvh:
             feet=feet,
             stencil=stencil,
             pad=pad,
+            include_joint_translations=include_joint_translations,
         )
 
     def feature_array_layout(
@@ -4139,6 +4141,7 @@ class Bvh:
         num_feet: int = 0,
         representation: str = "6d",
         include_root_pos: bool = True,
+        include_joint_translations: bool = False,
         include_velocities: bool = False,
         include_foot_contacts: bool = False,
     ) -> dict[str, slice]:
@@ -4148,8 +4151,10 @@ class Bvh:
         return features.feature_array_layout(
             num_joints=self.joint_count,
             num_feet=num_feet,
+            num_translating_joints=self._joint_translations.shape[1],
             representation=representation,
             include_root_pos=include_root_pos,
+            include_joint_translations=include_joint_translations,
             include_velocities=include_velocities,
             include_foot_contacts=include_foot_contacts,
         )

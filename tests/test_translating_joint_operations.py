@@ -203,3 +203,26 @@ class TestRetarget:
         )
         assert retargeted.nodes[1].offset.tolist() == [0.0, 90, 0]
         assert retargeted.joint_translations.tolist() == clip.joint_translations.tolist()
+
+
+class TestCopyOnANewSkeleton:
+    def test_it_refuses_to_move_position_channels_to_another_joint(self):
+        # Same count of translating joints, but Spine's column would be
+        # Hips' frames.
+        with pytest.raises(ValueError, match="'Hips'.*translat"):
+            _clip().copy(nodes=_rotating_hips_table())
+
+    def test_it_refuses_to_change_the_root_channel_set(self):
+        table = _table()
+        table[0]["pos_channels"] = []
+        table[0]["rot_channels"] = []
+        with pytest.raises(ValueError, match="channels of the root 'Reference'"):
+            _clip().copy(nodes=table)
+
+    def test_a_new_offset_leaves_the_frames_as_they_are(self):
+        # The frames are the joint's whole position: a new rest offset
+        # does not move it in any frame.
+        table = _table()
+        table[1]["offset"] = [0, 100, 0]
+        edited = _clip([0.0, 3]).copy(nodes=table)
+        assert edited.joint_translations.tolist() == [[[0.0, 90, 0]], [[3.0, 90, 0]]]

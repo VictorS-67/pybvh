@@ -353,6 +353,11 @@ def _build_rest_pose(bvh: Bvh) -> npt.NDArray[np.float64]:
     )
 
 
+def _channel_declaration(root: BvhRoot) -> str:
+    """The root's channel set as a ``CHANNELS`` line counts it."""
+    return "CHANNELS 0" if root.is_static() else "CHANNELS 6"
+
+
 def _check_centered(centered: str) -> None:
     """Raise ``ValueError`` unless *centered* is a centering mode."""
     centered_options = ["skeleton", "first", "world"]
@@ -1129,9 +1134,10 @@ class Bvh:
     def copy(self, nodes: Sequence[BvhNode] | Sequence[Mapping[str, Any]] | None = None) -> Bvh:
         """Return an independent copy, on this skeleton or on an edited one.
 
-        The node hierarchy, ``root_pos`` and ``joint_angles``,
-        ``frame_time``, ``source_path``, a manual ``world_up``, the warn
-        preference and a user-set L/R mapping are copied. Editing either
+        The node hierarchy, ``root_pos``, ``joint_angles`` and
+        ``joint_translations``, ``frame_time``, ``source_path``, a manual
+        ``world_up``, the warn preference and a user-set L/R mapping are
+        copied. Editing either
         clip afterwards, its arrays or its nodes, never affects the other.
         A guessed world up is inherited (see :attr:`world_up`). Values the
         clip computes from these (forward-kinematics positions, the floor
@@ -1154,7 +1160,10 @@ class Bvh:
             change, the joint count may not, and neither may a joint's
             Euler order, since the angles are only meaningful in the order
             they were recorded in (:meth:`change_euler_order` converts
-            them). A user-set L/R mapping follows its joints by position,
+            them). Neither may which joints translate, nor the root's
+            channel set: the motion was recorded on them. A translating
+            joint's frames are its whole position (ADR 0010), so a new
+            offset changes its rest pose only. A user-set L/R mapping follows its joints by position,
             under their new names, so each mapped joint's new name must be
             one no other joint carries (the mapping goes by name); one
             detected from the names is detected again from the new names.
@@ -1172,7 +1181,8 @@ class Bvh:
             If ``nodes`` is not one tree in depth-first order (see
             :func:`~pybvh.nodes_from_table`), has another number of joints
             than ``joint_angles`` has columns, changes a joint's Euler
-            order, or gives the root position channels other than XYZ; or
+            order, which joints translate or the root's channel set, or
+            gives the root position channels other than XYZ; or
             if it gives a joint of a user-set L/R mapping a name another
             joint carries too (on a clip without motion, which binds no
             joint, if it lacks a name the mapping uses).
@@ -1195,7 +1205,29 @@ class Bvh:
         new_joints = [node for node in new_nodes if _is_joint(node)]
         if self._binds_skeleton():
             self._check_motion_fits_skeleton(new_nodes)
+            root, new_root = self.root, new_nodes[0]
+            assert isinstance(new_root, BvhRoot)  # one tree, root first
+            if root.is_static() != new_root.is_static():
+                raise ValueError(
+                    f"nodes changes the channels of the root {root.name!r} "
+                    f"from {_channel_declaration(root)} to "
+                    f"{_channel_declaration(new_root)}, but the clip's motion "
+                    f"is recorded on {_channel_declaration(root)}."
+                )
             for joint, new_joint in zip(joints, new_joints, strict=True):
+                if _is_translating_joint(joint) != _is_translating_joint(new_joint):
+                    # A column of joint_translations is a joint's frames:
+                    # moving the position channels to another joint would
+                    # hand it frames recorded for this one.
+                    has, lacks = ("the clip", "nodes")
+                    if not _is_translating_joint(joint):
+                        has, lacks = lacks, has
+                    raise ValueError(
+                        f"nodes changes which joints translate: joint "
+                        f"{joint.name!r} declares position channels in {has} "
+                        f"but not in {lacks}, and joint_translations holds the "
+                        f"frames of the clip's own translating joints."
+                    )
                 old_order = "".join(joint.rot_channels)
                 new_order = "".join(new_joint.rot_channels)
                 if new_order != old_order:

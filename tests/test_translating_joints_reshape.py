@@ -163,3 +163,35 @@ class TestMirror:
         clip = read_bvh_file(SYNTHETIC / "synthetic_stretch.bvh")
         with pytest.raises(ValueError, match="LeftArm.*RightArm"):
             clip.mirror(lateral="x")
+
+
+# =============================================================================
+# Reorientation
+# =============================================================================
+
+
+def _stretch_clip() -> Bvh:
+    """Three translating joints whose translations change in every frame."""
+    clip = read_bvh_file(SYNTHETIC / "synthetic_stretch.bvh")
+    clip.world_up = "+y"
+    return clip
+
+
+class TestReorientation:
+    def test_world_up_rotates_the_positions(self):
+        clip = _stretch_clip()
+        turned = clip.reorient_world_up("+z")
+        # The quarter turn about X that carries +y onto +z: (x, y, z) -> (x, -z, y).
+        x, y, z = np.moveaxis(clip.node_positions(), -1, 0)
+        np.testing.assert_allclose(
+            turned.node_positions(), np.stack([x, -z, y], axis=-1), atol=1e-9
+        )
+
+    @pytest.mark.parametrize(
+        ("reorient", "axis"),
+        [("reorient_rest_up", "+z"), ("reorient_rest_forward", "+x")],
+    )
+    def test_a_rest_reorientation_keeps_the_positions(self, reorient, axis):
+        clip = _stretch_clip()
+        turned = getattr(clip, reorient)(axis)
+        np.testing.assert_allclose(turned.node_positions(), clip.node_positions(), atol=1e-9)

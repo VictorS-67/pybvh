@@ -1034,7 +1034,8 @@ def _apply_similarity_to_joints(
 
 
 def _reorient_rest(target: Bvh, R_fix: npt.NDArray[np.float64]) -> None:
-    """Rotate rest-pose offsets by ``R_fix``, compensating rotations in place.
+    """Rotate rest-pose offsets and joint translations by ``R_fix``,
+    compensating rotations in place.
 
     Shared core of :func:`reorient_rest_up` and
     :func:`reorient_rest_forward`.  FK positions are unchanged:
@@ -1045,8 +1046,9 @@ def _reorient_rest(target: Bvh, R_fix: npt.NDArray[np.float64]) -> None:
     """
     R_fix_inv = R_fix.T  # orthogonal → inverse = transpose
 
-    # 1. Rotate all offsets
+    # 1. Rotate all offsets, and the translations that stand in for them
     target._replace_offsets(target._offsets() @ R_fix.T)
+    target._set_motion(joint_translations=target.joint_translations @ R_fix.T)
 
     # 2. Compensate joint rotations so FK positions are unchanged
     joints = [n for n in target.nodes if not n.is_end_site()]
@@ -1073,7 +1075,7 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
     """Change the world coordinate system's vertical axis.
 
     Applies a global rotation to the entire animation (root translation,
-    skeleton offsets, root joint rotations) so the world vertical axis
+    skeleton offsets, joint translations, root joint rotations) so the world vertical axis
     changes from the current ``bvh.world_up`` to ``new_up``.  The character
     looks visually identical; only the coordinate system changes.
 
@@ -1123,8 +1125,9 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
     # 1. Rotate root positions
     target._set_motion(root_pos=(R @ target.root_pos.T).T)
 
-    # 2. Rotate all node offsets
+    # 2. Rotate all node offsets, and the translations that stand in for them
     target._replace_offsets(target._offsets() @ R.T)
+    target._set_motion(joint_translations=target.joint_translations @ R.T)
 
     # 3. Conjugate ALL joint rotations: R_j' = R @ R_j @ R^T
     #    This is the correct formula for a global scene rotation applied to
@@ -1159,7 +1162,8 @@ def reorient_rest_up(bvh: Bvh, new_up: str, inplace: Literal[False] = ...) -> Bv
 def reorient_rest_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | None:
     """Rotate the skeleton's rest-pose offsets so its own up (rest up) aligns
     with ``new_up``, compensating all joint rotations so that FK positions
-    are unchanged.
+    are unchanged. :attr:`~pybvh.bvh.Bvh.joint_translations` turn with the
+    offsets.
 
     This fixes files where the rest pose and animation disagree on the up
     axis (e.g. rest pose authored in Y-up but animation plays in Z-up).
@@ -1213,7 +1217,8 @@ def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: Literal[False] = 
 def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: bool = False) -> Bvh | None:
     """Rotate the skeleton's rest-pose offsets so the character faces
     ``new_forward``, compensating all joint rotations so FK positions are
-    unchanged.
+    unchanged. :attr:`~pybvh.bvh.Bvh.joint_translations` turn with the
+    offsets.
 
     The rotation is about the rest pose's own up,
     :attr:`~pybvh.bvh.Bvh.rest_up`: the rest pose turns in its own frame,

@@ -25,7 +25,7 @@ from . import rotations
 from ._orientation import (
     _resolve_lr_pairs,
 )
-from .bvhnode import BvhJoint
+from .bvhnode import BvhJoint, _is_translating_joint
 from .tools import (
     _AXIS_CHAR_TO_IDX,
     _axis_index_sign,
@@ -844,7 +844,9 @@ def mirror(
 
     Swaps left/right joint data and negates the appropriate rotation
     and position components so that the skeleton appears as a mirror
-    image.
+    image. :attr:`~pybvh.bvh.Bvh.joint_translations` are mirrored as the
+    offsets are: the lateral component negated, the columns of an L/R
+    pair swapped.
 
     Parameters
     ----------
@@ -879,8 +881,9 @@ def mirror(
     Raises
     ------
     ValueError
-        If no left/right pairs are available, or if an explicitly
-        passed ``lr_mapping`` names joints that don't exist.
+        If no left/right pairs are available, if an explicitly
+        passed ``lr_mapping`` names joints that don't exist, or if one
+        joint of an L/R pair translates and the other does not.
     """
     target = bvh if inplace else bvh.copy()
 
@@ -906,6 +909,26 @@ def mirror(
     joints = [n for n in target.nodes if isinstance(n, BvhJoint)]
     j_name2idx = {j.name: i for i, j in enumerate(joints)}
     lr_j_pairs = _resolve_lr_pairs(lr_mapping, j_name2idx, strict=explicit_mapping)
+
+    # A pair swaps its translation columns, so both joints of a pair
+    # translate or neither does: a one-sided pair has no column to swap
+    # into, and dropping or inventing position channels changes the
+    # skeleton's declaration.
+    translation_column = {
+        j_idx: column
+        for column, j_idx in enumerate(
+            j_idx for j_idx, joint in enumerate(joints) if _is_translating_joint(joint)
+        )
+    }
+    for lj, rj in lr_j_pairs:
+        if (lj in translation_column) != (rj in translation_column):
+            translating, other = (lj, rj) if lj in translation_column else (rj, lj)
+            raise ValueError(
+                f"Cannot mirror the L/R pair {joints[lj].name!r} / {joints[rj].name!r}: "
+                f"{joints[translating].name!r} declares position channels and "
+                f"{joints[other].name!r} does not. Mirroring swaps the pair's "
+                "translations, so both joints of a pair must translate or neither."
+            )
 
     # --- Detect lateral axis ---
     # Mirror is a skeleton operation (swap L/R joints, negate the lateral
@@ -952,7 +975,17 @@ def mirror(
         lateral_idx,
         rot_ch,
     )
-    target._set_motion(root_pos=new_root_pos, joint_angles=new_angles)
+    # Translations are positions, as offsets are: the lateral component is
+    # negated and the pairs swap their columns.
+    new_translations = target.joint_translations.copy()
+    new_translations[..., lateral_idx] *= -1
+    for lj, rj in lr_j_pairs:
+        if lj in translation_column:
+            lc, rc = translation_column[lj], translation_column[rj]
+            new_translations[:, [lc, rc]] = new_translations[:, [rc, lc]]
+    target._set_motion(
+        root_pos=new_root_pos, joint_angles=new_angles, joint_translations=new_translations
+    )
 
     # --- Step 2: Negate node offset lateral component for ALL nodes ---
     offsets = target._offsets()

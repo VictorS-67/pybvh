@@ -13,8 +13,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
-from pybvh import Bvh, nodes_from_table
+from pybvh import Bvh, nodes_from_table, read_bvh_file
 
 SYNTHETIC = Path(__file__).parent.parent / "bvh_data" / "synthetic"
 
@@ -126,3 +127,39 @@ class TestExtractJoints:
         extracted = clip.extract_joints(["Reference", "Chest"])
         assert extracted.joint_translations.shape == (_FRAMES, 0, 3)
         assert not extracted.nodes[1].pos_channels
+
+
+# =============================================================================
+# mirror
+# =============================================================================
+
+
+def _swap_side(name: str) -> str:
+    if name.startswith("Left"):
+        return "Right" + name[len("Left") :]
+    if name.startswith("Right"):
+        return "Left" + name[len("Right") :]
+    return name
+
+
+class TestMirror:
+    def test_a_symmetric_translating_pair_mirrors(self):
+        # Blender-style: both shoulders and both upper legs translate.
+        # Their translations move off the rest pose, unlike each other,
+        # so a swap without the negation (or the reverse) shows.
+        clip = read_bvh_file(SYNTHETIC / "blender_mixed.bvh")
+        rng = np.random.default_rng(5)
+        clip.joint_translations = clip.joint_translations + rng.uniform(
+            -3, 3, clip.joint_translations.shape
+        )
+        mirrored = clip.mirror(lateral="x")
+        source, result = _positions_by_name(clip), _positions_by_name(mirrored)
+        for name, positions in source.items():
+            expected = positions * [-1, 1, 1]
+            np.testing.assert_allclose(result[_swap_side(name)], expected, atol=1e-9, err_msg=name)
+
+    def test_a_pair_that_translates_on_one_side_is_refused(self):
+        # LeftArm translates, RightArm does not.
+        clip = read_bvh_file(SYNTHETIC / "synthetic_stretch.bvh")
+        with pytest.raises(ValueError, match="LeftArm.*RightArm"):
+            clip.mirror(lateral="x")

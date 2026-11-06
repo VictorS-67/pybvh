@@ -3696,6 +3696,16 @@ class Bvh:
         descendant via vector addition (valid at rest pose).  Their
         rotation contribution during animation is lost.
 
+        A kept joint keeps its position channels. A removed translating
+        joint's translation is summed into its nearest kept descendant,
+        per frame, in place of its offset, and that descendant becomes a
+        translating joint (see :attr:`joint_translations`); a removed
+        joint that does not translate adds its offset to every frame of a
+        translating descendant. So a kept joint's FK position is the
+        source's whenever the removed joints above it do not rotate. An
+        end site added below a childless kept joint reads the rest
+        offsets of the removed joints between them.
+
         The result lists its nodes in depth-first order, as a file
         would, so writing it and reading it back keeps
         :meth:`matches_hierarchy`. A kept joint left with nothing below
@@ -3734,14 +3744,8 @@ class Bvh:
         ValueError
             If the root is not among ``joints``, if :meth:`index` refuses
             an entry in joint space, or if two entries select the same
-            joint; or if the clip has a translating joint, which
-            extraction does not carry yet (#186).
+            joint.
         """
-        if self._joint_translations.shape[1]:
-            raise ValueError(
-                "extract_joints does not yet carry joint_translations: the clip has "
-                f"{self._joint_translations.shape[1]} translating joints (#186)."
-            )
         position_of_column = self._non_end_site_indices()
         kept = {
             id(self.nodes[position_of_column[column]])
@@ -3769,8 +3773,14 @@ class Bvh:
             if survives[i] or survivor_below[i]:
                 survivor_below[parent_position] = True
 
+        translation_column_of = {
+            id(node): column
+            for column, node in enumerate(n for n in self.nodes if _is_translating_joint(n))
+        }
+
         rows: list[dict[str, Any]] = []
         kept_old_j_indices: list[int] = []
+        new_translations: list[npt.NDArray[np.float64]] = []
         # Original joint (by identity: names repeat) -> its row index
         row_of: dict[int, int] = {}
 
@@ -3800,13 +3810,29 @@ class Bvh:
             else:
                 # Removed ancestors collapse into this joint's offset,
                 # summed up to the nearest kept one (the root at the latest).
-                acc_offset = node.offset.copy()
+                # Each frame sums the same chain, with a translating joint's
+                # translation in place of its offset; the joint translates
+                # when one joint of the chain does.
+                chain = [node]
                 walker = node.parent
                 while walker is not None and id(walker) not in kept:
-                    acc_offset = walker.offset + acc_offset
+                    chain.append(walker)
                     walker = walker.parent
                 row["parent"] = row_of[id(walker)]
-                row["offset"] = acc_offset
+                row["offset"] = np.sum([link.offset for link in chain], axis=0)
+                if any(_is_translating_joint(link) for link in chain):
+                    row["pos_channels"] = ["X", "Y", "Z"]
+                    new_translations.append(
+                        np.sum(
+                            [
+                                self._joint_translations[:, translation_column_of[id(link)]]
+                                if _is_translating_joint(link)
+                                else np.broadcast_to(link.offset, (self.frame_count, 3))
+                                for link in chain
+                            ],
+                            axis=0,
+                        )
+                    )
             row["rot_channels"] = node.rot_channels  # type: ignore[attr-defined]
 
             row_of[id(node)] = len(rows)
@@ -3827,7 +3853,9 @@ class Bvh:
             {
                 "root_pos": self._root_pos.copy(),
                 "joint_angles": self._joint_angles[:, kept_old_j_indices, :],
-                "joint_translations": self._joint_translations.copy(),
+                "joint_translations": np.stack(new_translations, axis=1)
+                if new_translations
+                else np.empty((self.frame_count, 0, 3)),
             },
             nodes=new_nodes,
         )

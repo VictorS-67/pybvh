@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import numpy.typing as npt
 
-from .bvh import Bvh, _euler_blocks, _motion_column_names
+from .bvh import Bvh, _euler_blocks, _motion_column_names, _static_root_pos
 from .bvhnode import BvhNode, _is_joint, _is_translating_joint
 from .io import _rate_with_fewest_decimals
 from .node_tree import _nodes_from_table_or_list
@@ -281,11 +281,9 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
 
     frame_count = frames.shape[0]
     # A static root declares no channels, so no column: it stays at its
-    # offset with no rotation.
+    # offset with no rotation. Another root's columns replace these.
     arrays = {
-        "root_pos": np.tile(np.asarray(nodes[0].offset, dtype=np.float64), (frame_count, 1))[
-            :, None
-        ],
+        "root_pos": _static_root_pos(nodes[0].offset, frame_count)[:, None],
         "joint_translations": np.zeros(
             (frame_count, sum(1 for n in nodes if _is_translating_joint(n)), 3)
         ),

@@ -405,6 +405,12 @@ def _build_rest_pose(bvh: Bvh) -> npt.NDArray[np.float64]:
     )
 
 
+def _static_root_pos(offset: npt.ArrayLike, frame_count: int) -> npt.NDArray[np.float64]:
+    """The ``root_pos`` of a static root (``CHANNELS 0``) at *offset*,
+    ``(frame_count, 3)``: it stays at its offset in every frame."""
+    return np.tile(np.asarray(offset, dtype=np.float64), (frame_count, 1))
+
+
 def _channel_declaration(root: BvhRoot) -> str:
     """The root's channel set as a ``CHANNELS`` line counts it."""
     return "CHANNELS 0" if root.is_static() else "CHANNELS 6"
@@ -1417,8 +1423,7 @@ class Bvh:
         motion = {name: array.copy() for name, array in self._motion().items()}
         new_root = new_nodes[0]
         if isinstance(new_root, BvhRoot) and new_root.is_static():
-            # A static root stands at its offset in every frame.
-            motion["root_pos"] = np.tile(new_root.offset, (self.frame_count, 1))
+            motion["root_pos"] = _static_root_pos(new_root.offset, self.frame_count)
         edited = self._derive_clip(motion, nodes=new_nodes)
         if isinstance(setting, dict):
             edited._set_lr_mapping_setting(setting)
@@ -1606,7 +1611,7 @@ class Bvh:
         if translations is not None:
             motion["joint_translations"] = translations
         if self.root.is_static():
-            motion["root_pos"] = np.tile(offsets[0], (self.frame_count, 1))
+            motion["root_pos"] = _static_root_pos(offsets[0], self.frame_count)
         if motion:
             self._set_motion(**motion)
 

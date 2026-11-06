@@ -500,7 +500,7 @@ def angular_velocities(
     if not in_frames:
         _require_rate(bvh.frame_time, "angular_velocities()", offers_in_frames=True)
 
-    _, R = bvh.to_rotmat()  # (F, J, 3, 3)
+    R = bvh.to_rotmat()  # (F, J, 3, 3)
     F = R.shape[0]
 
     def _finalize(omega: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:

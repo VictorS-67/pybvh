@@ -3289,40 +3289,38 @@ class Bvh:
             return None
         return target
 
-    def to_rotmat(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    def to_rotmat(self) -> npt.NDArray[np.float64]:
         """
-        Convert all per-joint Euler angles in self.frames to rotation matrices.
+        Convert the per-joint Euler angles to rotation matrices.
 
         Returns
         -------
-        root_pos : ndarray, shape (num_frames, 3)
-            Root position for each frame.
         joint_rotmats : ndarray, shape (num_frames, num_joints, 3, 3)
             Rotation matrix for each joint in each frame.
             Joint order matches ``self.joint_names`` / ``self.joint_index``.
 
         Notes
         -----
+        The conversions carry rotations only: :attr:`root_pos` and
+        :attr:`joint_translations` are read from the clip as they are.
+
         When multiple rotation representations are needed (e.g. 6D for
         the model and quaternions for runtime SLERP), call ``to_rotmat``
         once and apply the relevant ``rotations.rotmat_to_*`` primitives
-        directly — forward kinematics runs once instead of per
+        directly — the Euler conversion runs once instead of per
         representation.
         """
-        joint_rotmats = rotations.euler_to_rotmat(self.joint_angles, self.euler_orders)
-        return self.root_pos.copy(), joint_rotmats
+        return rotations.euler_to_rotmat(self.joint_angles, self.euler_orders)
 
-    def to_6d(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    def to_6d(self) -> npt.NDArray[np.float64]:
         """
-        Convert all per-joint Euler angles to 6D rotation representation.
+        Convert the per-joint Euler angles to the 6D rotation representation.
 
         The 6D representation (Zhou et al., CVPR 2019) is continuous and
         well-suited for neural network training.
 
         Returns
         -------
-        root_pos : ndarray, shape (num_frames, 3)
-            Root position for each frame.
         joint_rot6d : ndarray, shape (num_frames, num_joints, 6)
             6D rotation for each joint in each frame.
 
@@ -3331,20 +3329,16 @@ class Bvh:
         When multiple representations are needed, call :meth:`to_rotmat`
         once and apply :func:`pybvh.rotations.rotmat_to_rot6d` /
         ``rotmat_to_quat`` / ``rotmat_to_axisangle`` directly to avoid
-        running FK more than once.
+        running the Euler conversion more than once.
         """
-        root_pos, joint_rotmats = self.to_rotmat()
-        joint_rot6d = rotations.rotmat_to_rot6d(joint_rotmats)
-        return root_pos, joint_rot6d
+        return rotations.rotmat_to_rot6d(self.to_rotmat())
 
-    def to_quat(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    def to_quat(self) -> npt.NDArray[np.float64]:
         """
-        Convert all per-joint Euler angles to quaternions.
+        Convert the per-joint Euler angles to quaternions.
 
         Returns
         -------
-        root_pos : ndarray, shape (num_frames, 3)
-            Root position for each frame.
         joint_quats : ndarray, shape (num_frames, num_joints, 4)
             Quaternion (w, x, y, z) for each joint in each frame, in
             canonical form (``w >= 0``).
@@ -3362,11 +3356,11 @@ class Bvh:
 
         See :meth:`to_rotmat` for the multi-representation reuse pattern.
         """
-        return self.root_pos.copy(), _euler_to_quat(self.joint_angles, self.euler_orders)
+        return _euler_to_quat(self.joint_angles, self.euler_orders)
 
-    def to_axisangle(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    def to_axisangle(self) -> npt.NDArray[np.float64]:
         """
-        Convert all per-joint Euler angles to axis-angle vectors.
+        Convert the per-joint Euler angles to axis-angle vectors.
 
         The axis-angle representation is the unit rotation axis scaled
         by the rotation angle in radians.  Used in SMPL/SMPL-X body
@@ -3374,8 +3368,6 @@ class Bvh:
 
         Returns
         -------
-        root_pos : ndarray, shape (num_frames, 3)
-            Root position for each frame.
         joint_aa : ndarray, shape (num_frames, num_joints, 3)
             Axis-angle vector for each joint in each frame.
 
@@ -3383,60 +3375,78 @@ class Bvh:
         -----
         See :meth:`to_rotmat` for the multi-representation reuse pattern.
         """
-        root_pos, joint_rotmats = self.to_rotmat()
-        joint_aa = rotations.rotmat_to_axisangle(joint_rotmats)
-        return root_pos, joint_aa
+        return rotations.rotmat_to_axisangle(self.to_rotmat())
 
-    def _set_from_rotmats(
+    def _from_rotations(
         self,
-        root_pos: npt.NDArray[np.float64],
-        joint_rotmats: npt.NDArray[np.float64],
+        method: str,
         param_name: str,
-    ) -> None:
-        """Shared validation + Euler conversion + assignment for the ``from_*`` importers.
+        rotation: npt.ArrayLike,
+        to_rotmat: Callable[[npt.NDArray[np.float64]], npt.NDArray[np.float64]],
+        inplace: object,
+    ) -> Bvh | None:
+        """The ``from_*`` conversions: check, convert to Euler, write ``joint_angles``.
 
-        Writes into ``self`` — callers pass their ``target`` (self or a
-        copy). Euler conversion is vectorized across joints in one
-        per-joint-order :func:`pybvh.rotations.rotmat_to_euler` call.
+        *method* and *param_name* name the caller and its rotation
+        argument in the errors; *to_rotmat* turns the array into rotation
+        matrices. Writes through the ``joint_angles`` setter, so the call
+        is a user motion replacement.
         """
-        if root_pos.shape[0] != joint_rotmats.shape[0]:
+        if not isinstance(inplace, (bool, np.bool_)):
+            # A call of the old signature, from_*(root_pos, rotation), lands
+            # its rotation array here.
+            raise TypeError(
+                f"{method} takes the rotation array only: "
+                f"{method}({param_name}, inplace=False), got {type(inplace).__name__} "
+                f"for inplace. It keeps root_pos and joint_translations; to set "
+                f"the root position too, assign bvh.root_pos, or build a new clip "
+                f"with Bvh(nodes=..., root_pos=..., joint_angles=...)."
+            )
+        joint_rotmats = to_rotmat(np.asarray(rotation, dtype=np.float64))
+        if joint_rotmats.ndim != 4:
             raise ValueError(
-                f"Frame count mismatch: root_pos has {root_pos.shape[0]} frames "
-                f"but joint data has {joint_rotmats.shape[0]} frames"
+                f"Expected {param_name} with a frame axis and a joint axis before "
+                f"the rotation, got shape {np.shape(rotation)}"
+            )
+        if joint_rotmats.shape[0] != self.frame_count:
+            raise ValueError(
+                f"{param_name} has {joint_rotmats.shape[0]} frames, but the clip has "
+                f"{self.frame_count}: {method} replaces the rotations of the clip's "
+                f"frames and keeps their count."
             )
         if joint_rotmats.shape[1] != self.joint_count:
             raise ValueError(
                 f"Expected {self.joint_count} joints in {param_name}, got {joint_rotmats.shape[1]}"
             )
         new_angles = rotations.rotmat_to_euler(joint_rotmats, self.euler_orders)
-        self.root_pos = root_pos
-        self.joint_angles = new_angles
+        if np.any(new_angles[:, :1] != 0):
+            self._refuse_static_root(f"{method} rotates the root")
+        target = self if inplace else self.copy()
+        target.joint_angles = new_angles
+        if inplace:
+            return None
+        return target
 
     @overload
-    def from_rotmat(
-        self, root_pos: npt.ArrayLike, joint_rotmats: npt.ArrayLike, *, inplace: Literal[True]
-    ) -> None: ...
+    def from_rotmat(self, joint_rotmats: npt.ArrayLike, *, inplace: Literal[True]) -> None: ...
     @overload
-    def from_rotmat(
-        self, root_pos: npt.ArrayLike, joint_rotmats: npt.ArrayLike, inplace: Literal[False] = ...
-    ) -> Bvh: ...
-    def from_rotmat(
-        self, root_pos: npt.ArrayLike, joint_rotmats: npt.ArrayLike, inplace: bool = False
-    ) -> Bvh | None:
+    def from_rotmat(self, joint_rotmats: npt.ArrayLike, inplace: Literal[False] = ...) -> Bvh: ...
+    def from_rotmat(self, joint_rotmats: npt.ArrayLike, inplace: bool = False) -> Bvh | None:
         """
-        Set motion data from root positions and rotation matrices.
+        Set the joint rotations from rotation matrices.
 
-        Converts rotation matrices back to Euler angles using each joint's
-        rot_channels order, then writes into root_pos and joint_angles.
-        Inverse of :meth:`to_rotmat`.
+        Converts rotation matrices to Euler angles in each joint's
+        rot_channels order and writes :attr:`joint_angles`. Inverse of
+        :meth:`to_rotmat`. :attr:`root_pos` and :attr:`joint_translations`
+        stay as they are; to replace them too, assign them, or build a new
+        clip with the :class:`Bvh` constructor. Like an assignment of
+        :attr:`joint_angles`, the call starts the world-up guess again.
 
         Parameters
         ----------
-        root_pos : array_like, shape (num_frames, 3)
-            Root position per frame.
         joint_rotmats : array_like, shape (num_frames, num_joints, 3, 3)
-            Rotation matrix per joint per frame.
-            Joint order must match self.nodes (end sites excluded).
+            Rotation matrix per joint per frame. The frame count must be
+            the clip's. Joint order must match ``self.joint_names``.
         inplace : bool
             If True, modify self and return None.
             If False, return a modified copy while leaving self unchanged.
@@ -3445,39 +3455,40 @@ class Bvh:
         -------
         None or Bvh
             None if inplace, otherwise a new Bvh object.
+
+        Raises
+        ------
+        TypeError
+            If ``inplace`` is not a bool, as in a call of the old
+            signature ``from_rotmat(root_pos, joint_rotmats)``.
+        ValueError
+            If the frame or joint count does not match the clip, or if
+            the rotations turn a static root (``CHANNELS 0``).
         """
-        target = self if inplace else self.copy()
-        root_pos_arr = np.asarray(root_pos, dtype=np.float64)
-        joint_rotmats_arr = np.asarray(joint_rotmats, dtype=np.float64)
-        target._set_from_rotmats(root_pos_arr, joint_rotmats_arr, "joint_rotmats")
-        if inplace:
-            return None
-        return target
+        return self._from_rotations(
+            "from_rotmat", "joint_rotmats", joint_rotmats, lambda r: r, inplace
+        )
 
     @overload
-    def from_6d(
-        self, root_pos: npt.ArrayLike, joint_rot6d: npt.ArrayLike, *, inplace: Literal[True]
-    ) -> None: ...
+    def from_6d(self, joint_rot6d: npt.ArrayLike, *, inplace: Literal[True]) -> None: ...
     @overload
-    def from_6d(
-        self, root_pos: npt.ArrayLike, joint_rot6d: npt.ArrayLike, inplace: Literal[False] = ...
-    ) -> Bvh: ...
-    def from_6d(
-        self, root_pos: npt.ArrayLike, joint_rot6d: npt.ArrayLike, inplace: bool = False
-    ) -> Bvh | None:
+    def from_6d(self, joint_rot6d: npt.ArrayLike, inplace: Literal[False] = ...) -> Bvh: ...
+    def from_6d(self, joint_rot6d: npt.ArrayLike, inplace: bool = False) -> Bvh | None:
         """
-        Set motion data from root positions and 6D rotation data.
+        Set the joint rotations from 6D rotation data.
 
-        Converts 6D rotations back to Euler angles using each joint's
-        rot_channels order, then writes into root_pos and joint_angles.
+        Converts 6D rotations to Euler angles in each joint's
+        rot_channels order and writes :attr:`joint_angles`. Inverse of
+        :meth:`to_6d`. :attr:`root_pos` and :attr:`joint_translations`
+        stay as they are; to replace them too, assign them, or build a new
+        clip with the :class:`Bvh` constructor. Like an assignment of
+        :attr:`joint_angles`, the call starts the world-up guess again.
 
         Parameters
         ----------
-        root_pos : array_like, shape (num_frames, 3)
-            Root position per frame.
         joint_rot6d : array_like, shape (num_frames, num_joints, 6)
-            6D rotation per joint per frame.
-            Joint order must match self.nodes (end sites excluded).
+            6D rotation per joint per frame. The frame count must be the
+            clip's. Joint order must match ``self.joint_names``.
         inplace : bool
             If True, modify self and return None.
             If False, return a modified copy while leaving self unchanged.
@@ -3486,41 +3497,41 @@ class Bvh:
         -------
         None or Bvh
             None if inplace, otherwise a new Bvh object.
+
+        Raises
+        ------
+        TypeError
+            If ``inplace`` is not a bool, as in a call of the old
+            signature ``from_6d(root_pos, joint_rot6d)``.
+        ValueError
+            If the frame or joint count does not match the clip, or if
+            the rotations turn a static root (``CHANNELS 0``).
         """
-        target = self if inplace else self.copy()
-        root_pos_arr = np.asarray(root_pos, dtype=np.float64)
-        joint_rot6d_arr = np.asarray(joint_rot6d, dtype=np.float64)
-        target._set_from_rotmats(
-            root_pos_arr, rotations.rot6d_to_rotmat(joint_rot6d_arr), "joint_rot6d"
+        return self._from_rotations(
+            "from_6d", "joint_rot6d", joint_rot6d, rotations.rot6d_to_rotmat, inplace
         )
-        if inplace:
-            return None
-        return target
 
     @overload
-    def from_quat(
-        self, root_pos: npt.ArrayLike, joint_quats: npt.ArrayLike, *, inplace: Literal[True]
-    ) -> None: ...
+    def from_quat(self, joint_quats: npt.ArrayLike, *, inplace: Literal[True]) -> None: ...
     @overload
-    def from_quat(
-        self, root_pos: npt.ArrayLike, joint_quats: npt.ArrayLike, inplace: Literal[False] = ...
-    ) -> Bvh: ...
-    def from_quat(
-        self, root_pos: npt.ArrayLike, joint_quats: npt.ArrayLike, inplace: bool = False
-    ) -> Bvh | None:
+    def from_quat(self, joint_quats: npt.ArrayLike, inplace: Literal[False] = ...) -> Bvh: ...
+    def from_quat(self, joint_quats: npt.ArrayLike, inplace: bool = False) -> Bvh | None:
         """
-        Set motion data from root positions and quaternion data.
+        Set the joint rotations from quaternions.
 
-        Converts quaternions back to Euler angles using each joint's
-        rot_channels order, then writes into root_pos and joint_angles.
+        Converts quaternions to Euler angles in each joint's
+        rot_channels order and writes :attr:`joint_angles`. Inverse of
+        :meth:`to_quat`. :attr:`root_pos` and :attr:`joint_translations`
+        stay as they are; to replace them too, assign them, or build a new
+        clip with the :class:`Bvh` constructor. Like an assignment of
+        :attr:`joint_angles`, the call starts the world-up guess again.
 
         Parameters
         ----------
-        root_pos : array_like, shape (num_frames, 3)
-            Root position per frame.
         joint_quats : array_like, shape (num_frames, num_joints, 4)
-            Quaternion (w, x, y, z) per joint per frame.
-            Joint order must match self.nodes (end sites excluded).
+            Quaternion (w, x, y, z) per joint per frame. The frame count
+            must be the clip's. Joint order must match
+            ``self.joint_names``.
         inplace : bool
             If True, modify self and return None.
             If False, return a modified copy while leaving self unchanged.
@@ -3529,41 +3540,41 @@ class Bvh:
         -------
         None or Bvh
             None if inplace, otherwise a new Bvh object.
+
+        Raises
+        ------
+        TypeError
+            If ``inplace`` is not a bool, as in a call of the old
+            signature ``from_quat(root_pos, joint_quats)``.
+        ValueError
+            If the frame or joint count does not match the clip, or if
+            the rotations turn a static root (``CHANNELS 0``).
         """
-        target = self if inplace else self.copy()
-        root_pos_arr = np.asarray(root_pos, dtype=np.float64)
-        joint_quats_arr = np.asarray(joint_quats, dtype=np.float64)
-        target._set_from_rotmats(
-            root_pos_arr, rotations.quat_to_rotmat(joint_quats_arr), "joint_quats"
+        return self._from_rotations(
+            "from_quat", "joint_quats", joint_quats, rotations.quat_to_rotmat, inplace
         )
-        if inplace:
-            return None
-        return target
 
     @overload
-    def from_axisangle(
-        self, root_pos: npt.ArrayLike, joint_aa: npt.ArrayLike, *, inplace: Literal[True]
-    ) -> None: ...
+    def from_axisangle(self, joint_aa: npt.ArrayLike, *, inplace: Literal[True]) -> None: ...
     @overload
-    def from_axisangle(
-        self, root_pos: npt.ArrayLike, joint_aa: npt.ArrayLike, inplace: Literal[False] = ...
-    ) -> Bvh: ...
-    def from_axisangle(
-        self, root_pos: npt.ArrayLike, joint_aa: npt.ArrayLike, inplace: bool = False
-    ) -> Bvh | None:
+    def from_axisangle(self, joint_aa: npt.ArrayLike, inplace: Literal[False] = ...) -> Bvh: ...
+    def from_axisangle(self, joint_aa: npt.ArrayLike, inplace: bool = False) -> Bvh | None:
         """
-        Set motion data from root positions and axis-angle data.
+        Set the joint rotations from axis-angle vectors.
 
-        Converts axis-angle vectors back to Euler angles using each joint's
-        rot_channels order, then writes into root_pos and joint_angles.
+        Converts axis-angle vectors to Euler angles in each joint's
+        rot_channels order and writes :attr:`joint_angles`. Inverse of
+        :meth:`to_axisangle`. :attr:`root_pos` and
+        :attr:`joint_translations` stay as they are; to replace them too,
+        assign them, or build a new clip with the :class:`Bvh`
+        constructor. Like an assignment of :attr:`joint_angles`, the call
+        starts the world-up guess again.
 
         Parameters
         ----------
-        root_pos : array_like, shape (num_frames, 3)
-            Root position per frame.
         joint_aa : array_like, shape (num_frames, num_joints, 3)
-            Axis-angle vector per joint per frame.
-            Joint order must match self.nodes (end sites excluded).
+            Axis-angle vector per joint per frame. The frame count must be
+            the clip's. Joint order must match ``self.joint_names``.
         inplace : bool
             If True, modify self and return None.
             If False, return a modified copy while leaving self unchanged.
@@ -3572,16 +3583,19 @@ class Bvh:
         -------
         None or Bvh
             None if inplace, otherwise a new Bvh object.
+
+        Raises
+        ------
+        TypeError
+            If ``inplace`` is not a bool, as in a call of the old
+            signature ``from_axisangle(root_pos, joint_aa)``.
+        ValueError
+            If the frame or joint count does not match the clip, or if
+            the rotations turn a static root (``CHANNELS 0``).
         """
-        target = self if inplace else self.copy()
-        root_pos_arr = np.asarray(root_pos, dtype=np.float64)
-        joint_aa_arr = np.asarray(joint_aa, dtype=np.float64)
-        target._set_from_rotmats(
-            root_pos_arr, rotations.axisangle_to_rotmat(joint_aa_arr), "joint_aa"
+        return self._from_rotations(
+            "from_axisangle", "joint_aa", joint_aa, rotations.axisangle_to_rotmat, inplace
         )
-        if inplace:
-            return None
-        return target
 
     # ----------------------------------------------------------------
     # Frame slicing, concatenation, and resampling

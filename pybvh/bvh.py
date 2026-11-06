@@ -837,15 +837,30 @@ class Bvh:
     def _set_motion(self, **motion: npt.ArrayLike) -> None:
         """Write motion as pybvh's own edits do, through no public setter.
 
-        The transforms, ``a += b`` and the rebuild of a derived clip write
-        here and report that the motion changed. The public setters report
-        that the user replaced the motion, which starts the world-up guess
-        again (ADR 0003), as setting the L/R mapping does for a guess of the
-        clip's own (ADR 0004).
+        The transforms and ``a += b`` write here and report that the
+        motion changed. The public setters report that the user replaced
+        the motion, which starts the world-up guess again (ADR 0003), as
+        setting the L/R mapping does for a guess of the clip's own (ADR
+        0004).
 
         Takes any of the motion arrays by name (``_MOTION_ARRAYS``) and
-        leaves the others as they are.
+        leaves the others as they are. On a clip built without motion, an
+        array with no frame is written as the empty array
+        (:meth:`_MotionArray.empty`): an edit that reads the motion with
+        the skeleton's dims (:meth:`_motion_on_skeleton`) leaves the clip
+        without motion, binding no skeleton.
         """
+        if not self._binds_skeleton():
+            empty = {entry.name: entry.empty() for entry in self._MOTION_ARRAYS}
+            motion = {
+                name: empty[name] if name in empty and len(np.asarray(array)) == 0 else array
+                for name, array in motion.items()
+            }
+        self._write_motion(motion)
+
+    def _write_motion(self, motion: Mapping[str, npt.ArrayLike]) -> None:
+        """Write the motion arrays *motion* names, as they are, and report
+        that the motion changed; the rebuild of a derived clip writes here."""
         unknown = motion.keys() - {entry.name for entry in self._MOTION_ARRAYS}
         if unknown:
             raise TypeError(f"_set_motion() got no motion array named {sorted(unknown)}")
@@ -853,6 +868,28 @@ class Bvh:
             if entry.name in motion:
                 setattr(self, entry.attribute, entry.checked(motion[entry.name]))
         self._derived.motion_changed()
+
+    def _motion_on_skeleton(self) -> dict[str, npt.NDArray[np.float64]]:
+        """Each motion array by name, with the skeleton's length on each
+        skeleton dim.
+
+        A clip built without motion holds the empty arrays, with 0 on each
+        skeleton dim (:meth:`_binds_skeleton`); an operation that walks the
+        skeleton's joints reads their rows here, where those arrays have
+        no frame and the skeleton's dims. A clip with motion gives its
+        arrays themselves.
+        """
+        motion = self._motion()
+        if self._binds_skeleton():
+            return motion
+        for entry in self._MOTION_ARRAYS:
+            if entry.skeleton_axes:
+                dims = [
+                    dim.count(self.nodes) if isinstance(dim, _SkeletonDim) else dim
+                    for dim in entry.frame_shape
+                ]
+                motion[entry.name] = np.empty((0, *dims))
+        return motion
 
     @property
     def frame_count(self) -> int:
@@ -1462,7 +1499,9 @@ class Bvh:
         if "joint_translations" not in state:
             # Pickled before joints translated (#186): none of them does.
             state = {**state, "joint_translations": np.empty((len(state["root_pos"]), 0, 3))}
-        self._set_motion(**{entry.name: state[entry.name] for entry in self._MOTION_ARRAYS})
+        # As they are: a derived clip holds the arrays it is given, a
+        # clip with no frame those of its skeleton or the empty ones.
+        self._write_motion({entry.name: state[entry.name] for entry in self._MOTION_ARRAYS})
         if self._binds_skeleton():
             self._check_motion_fits_skeleton()
         self._world_up_override = state["world_up_override"]
@@ -1543,8 +1582,9 @@ class Bvh:
         root (``CHANNELS 0``) stands at its offset in every frame, so its
         ``root_pos`` follows its new offset.
         """
+        current = self._motion_on_skeleton()["joint_translations"]
         if translations is None:
-            if self._joint_translations.shape[1] != 0:
+            if current.shape[1] != 0:
                 raise TypeError(
                     "_replace_offsets() needs translations= on a clip with "
                     "translating joints: their frames replace their offsets, "
@@ -1552,10 +1592,10 @@ class Bvh:
                 )
         else:
             translations = _JOINT_TRANSLATIONS.checked(translations)
-            if translations.shape != self._joint_translations.shape:
+            if translations.shape != current.shape:
                 raise ValueError(
                     f"translations has shape {translations.shape}, but "
-                    f"joint_translations has {self._joint_translations.shape}."
+                    f"joint_translations has {current.shape}."
                 )
         offsets = np.asarray(offsets, dtype=np.float64)
         table = nodes_to_table(self.nodes)
@@ -2428,12 +2468,13 @@ class Bvh:
         """
         positions = self._derived.node_positions
         if positions is None:
+            motion = self._motion_on_skeleton()
             positions = frames_to_node_positions(
                 self,
-                root_pos=self.root_pos,
-                joint_angles=self.joint_angles,
+                root_pos=motion["root_pos"],
+                joint_angles=motion["joint_angles"],
                 centered="world",
-                joint_translations=self.joint_translations,
+                joint_translations=motion["joint_translations"],
             )
             self._derived.node_positions = positions
         return positions
@@ -2671,10 +2712,11 @@ class Bvh:
         ``_rot`` columns are the rad→deg-converted view of the internal
         radians-valued :attr:`joint_angles`.
         """
+        motion = self._motion_on_skeleton()
         arrays = {
-            "root_pos": self.root_pos[:, None],
-            "joint_translations": self.joint_translations,
-            "joint_angles": np.rad2deg(self.joint_angles),
+            "root_pos": motion["root_pos"][:, None],
+            "joint_translations": motion["joint_translations"],
+            "joint_angles": np.rad2deg(motion["joint_angles"]),
         }
         blocks = _euler_blocks(self.nodes)
         flat = np.empty((self.frame_count, 3 * len(blocks)))
@@ -3169,7 +3211,10 @@ class Bvh:
         # A translating joint keeps its displacement from its rest pose:
         # its frames move by the change of its offset (#186).
         translating = [i for i, node in enumerate(self.nodes) if _is_translating_joint(node)]
-        translations = self.joint_translations + (offsets - self._offsets())[translating]
+        translations = (
+            self._motion_on_skeleton()["joint_translations"]
+            + (offsets - self._offsets())[translating]
+        )
 
         target = self if inplace else self.copy()
         target._replace_offsets(offsets, translations=translations)
@@ -3215,7 +3260,8 @@ class Bvh:
         # to its new offset, which a later scaling would scale twice.
         target._set_motion(root_pos=target.root_pos * factor)
         target._replace_offsets(
-            target._offsets() * factor, translations=target.joint_translations * factor
+            target._offsets() * factor,
+            translations=target._motion_on_skeleton()["joint_translations"] * factor,
         )
         if inplace:
             return None
@@ -3309,14 +3355,16 @@ class Bvh:
             joint_rows[j_idx]["rot_channels"] = new_order
         new_nodes = nodes_from_table(table)
 
+        # The array the clip holds (the public view is read-only), or on a
+        # clip without motion one with no frame to convert.
+        angles = target._motion_on_skeleton()["joint_angles"]
         for j_idx in joint_indices:
             old_order = old_orders[j_idx]
             if old_order == new_order:
                 continue
-            # Convert: old Euler → rotmat → new Euler, then write back
-            # (private array — the public view is read-only).
-            R = rotations.euler_to_rotmat(target.joint_angles[:, j_idx], old_order)
-            target._joint_angles[:, j_idx] = rotations.rotmat_to_euler(R, new_order)
+            # Convert: old Euler → rotmat → new Euler, then write back.
+            R = rotations.euler_to_rotmat(angles[:, j_idx], old_order)
+            angles[:, j_idx] = rotations.rotmat_to_euler(R, new_order)
         target._replace_skeleton(new_nodes)
 
         if inplace:
@@ -3946,6 +3994,8 @@ class Bvh:
         # node's flag before its parent reads it, since parents precede
         # their children in ``nodes``.
         survives = [survives_extraction(node) for node in self.nodes]
+        # The rows of the joints, which a clip without motion holds too.
+        motion = self._motion_on_skeleton()
         position = {id(node): i for i, node in enumerate(self.nodes)}
         survivor_below = [False] * len(self.nodes)
         for i in range(len(self.nodes) - 1, 0, -1):
@@ -4005,7 +4055,7 @@ class Bvh:
                     new_translations.append(
                         np.sum(
                             [
-                                self._joint_translations[:, translation_column_of[id(link)]]
+                                motion["joint_translations"][:, translation_column_of[id(link)]]
                                 if _is_translating_joint(link)
                                 else np.broadcast_to(link.offset, (self.frame_count, 3))
                                 for link in chain
@@ -4032,7 +4082,7 @@ class Bvh:
         new_bvh = self._derive_clip(
             {
                 "root_pos": self._root_pos.copy(),
-                "joint_angles": self._joint_angles[:, kept_old_j_indices, :],
+                "joint_angles": motion["joint_angles"][:, kept_old_j_indices, :],
                 "joint_translations": np.stack(new_translations, axis=1)
                 if new_translations
                 else np.empty((self.frame_count, 0, 3)),

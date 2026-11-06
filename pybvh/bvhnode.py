@@ -383,7 +383,9 @@ class BvhJoint(BvhNode):
                 children_list.append(f"{child.__str__()}")
             else:
                 children_list.append(f"BvhJoint({child.__str__()})")
-        return f"BvhJoint(name = {self.name}, offset = {self.offset}, rot_channels = {self.rot_channels}, children = {str(children_list)}, parent = {self.parent})"
+        # The root and a translating joint show their position channels.
+        pos = f"pos_channels = {self.pos_channels}, " if self.pos_channels or self.is_root() else ""
+        return f"{type(self).__name__}(name = {self.name}, offset = {self.offset}, {pos}rot_channels = {self.rot_channels}, children = {str(children_list)}, parent = {self.parent})"
 
     def _check_channels(self, value: str | Sequence[str]) -> tuple[str, ...]:
         # A string of 3 characters or a sequence (a list, a tuple) of 3
@@ -434,6 +436,26 @@ def _is_joint(node: BvhNode) -> TypeGuard[BvhJoint]:
     BvhJoint)`` is the stricter alternative: it would skip such a node.
     """
     return not node.is_end_site()
+
+
+def _is_translating_joint(node: BvhNode) -> bool:
+    """Whether ``node`` is a joint other than the root that declares position channels.
+
+    Such a joint's position relative to its parent is a column of
+    ``Bvh.joint_translations`` in each frame, in place of its ``offset``.
+    The root's position channels are ``root_pos``, not a translation.
+    """
+    return _is_joint(node) and not node.is_root() and bool(_pos_channels(node))
+
+
+def _pos_channels(node: BvhNode) -> tuple[str, ...]:
+    """``node``'s position channels, ``()`` on a node without any.
+
+    A node class of the caller's own that answers ``False`` to
+    :meth:`BvhNode.is_end_site` counts as a joint (see :func:`_is_joint`)
+    and may carry no ``pos_channels``: it only rotates.
+    """
+    return tuple(getattr(node, "pos_channels", ()))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -533,17 +555,6 @@ class BvhRoot(BvhJoint):
 
     def __str__(self) -> str:
         return f"ROOT {self.name}"
-
-    def __repr__(self) -> str:
-        super_str = super().__repr__()
-        # the parent classe repr is f'BvhJoint(name = {self.name}, offset = {self.offset},
-        #  rot_channels = {self.rot_channels}, children = {str(children_list)}, parent = {self.parent})'
-        super_str_list = super_str.split(",")
-        super_str_list[0] = f"BvhRoot(name = {self.name}"
-        super_str_list.insert(2, f" pos_channels = {self.pos_channels}")
-        return ",".join(super_str_list)
-        # return f'BvhRoot(name = {self.name}, offset = {self.offset}, pos_channels = {self.pos_channels},
-        #  rot_channels = {self.rot_channels}, children = {str(children_list)}, parent = {self.parent})'
 
     def is_root(self) -> bool:
         """Always ``True``.

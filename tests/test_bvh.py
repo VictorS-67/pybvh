@@ -2696,8 +2696,8 @@ class TestReadWriteReadEquality:
         with pytest.raises(ValueError, match="frame time"):
             read_bvh_file(p)
 
-    def test_six_channel_non_root_joint_raises(self, tmp_path):
-        """Layouts pybvh doesn't model get a clear error instead of silent corruption."""
+    def test_six_channel_non_root_joint_reads(self, tmp_path):
+        """A joint's position channels are its position relative to its parent (#186)."""
         content = (
             "HIERARCHY\n"
             "ROOT Hips\n"
@@ -2717,12 +2717,13 @@ class TestReadWriteReadEquality:
             "MOTION\n"
             "Frames: 1\n"
             "Frame Time: 0.033333\n"
-            "0 0 0 0 0 0 0 0 0 0 0 0\n"
+            "0 0 0 0 0 0 0 12 0 0 0 0\n"
         )
         p = tmp_path / "six_channel_joint.bvh"
         p.write_text(content)
-        with pytest.raises(ValueError, match="position channels on non-root"):
-            read_bvh_file(str(p))
+        clip = read_bvh_file(str(p))
+        np.testing.assert_array_equal(clip.joint_translations, [[[0, 12, 0]]])
+        np.testing.assert_array_equal(clip.node_positions()[0, 1], [0, 12, 0])
 
 
 # =============================================================================
@@ -4161,6 +4162,7 @@ class TestInheritedWorldUp:
     ASSIGNMENTS = {
         "root_pos": lambda b: setattr(b, "root_pos", b.root_pos),
         "joint_angles": lambda b: setattr(b, "joint_angles", b.joint_angles),
+        "joint_translations": lambda b: setattr(b, "joint_translations", b.joint_translations),
         "setitem": lambda b: b.__setitem__(0, b[1]),
     }
 

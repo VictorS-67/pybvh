@@ -55,7 +55,7 @@ from ._orientation import (
 
 # Re-exported: pybvh.bvh has long served every node class, end sites included.
 from .bvhnode import BvhEndSite as BvhEndSite
-from .bvhnode import BvhJoint, BvhNode, BvhRoot, NodeSelector, _is_joint
+from .bvhnode import BvhJoint, BvhNode, BvhRoot, NodeSelector, _is_joint, _is_translating_joint
 from .node_tree import (
     _OFFSET_ATOL,
     _channel_difference,
@@ -171,6 +171,13 @@ _JOINTS = _SkeletonDim(
     skeleton_unit="non-end-site joints",
 )
 
+_TRANSLATING_JOINTS = _SkeletonDim(
+    symbol="P",
+    count=lambda nodes: sum(1 for node in nodes if _is_translating_joint(node)),
+    unit="translating joints",
+    skeleton_unit="joints other than the root with position channels",
+)
+
 # How a motion array is interpolated between two frames: ``"linear"`` per
 # component, ``"euler"`` as rotations, each joint's three angles read in its
 # Euler order.
@@ -235,6 +242,25 @@ class _MotionArray(NamedTuple):
 
 _ROOT_POS = _MotionArray(name="root_pos", frame_shape=(3,), interpolation="linear")
 _JOINT_ANGLES = _MotionArray(name="joint_angles", frame_shape=(_JOINTS, 3), interpolation="euler")
+_JOINT_TRANSLATIONS = _MotionArray(
+    name="joint_translations", frame_shape=(_TRANSLATING_JOINTS, 3), interpolation="linear"
+)
+
+
+def _check_array_fits_skeleton(
+    entry: _MotionArray, array: npt.NDArray[np.float64], nodes: Sequence[BvhNode]
+) -> None:
+    """Raise ``ValueError`` unless each skeleton dim of ``array`` has the
+    length ``nodes`` gives it."""
+    for axis, dim in entry.skeleton_axes:
+        actual = array.shape[axis]
+        expected = dim.count(nodes)
+        if actual != expected:
+            raise ValueError(
+                f"{entry.name} has {actual} {dim.unit} "
+                f"on axis {axis}, but the skeleton has {expected} "
+                f"{dim.skeleton_unit}."
+            )
 
 
 def _node_pairs(pairs: object) -> list[tuple[NodeSelector, NodeSelector]]:
@@ -314,12 +340,16 @@ def _validated_lr_mapping(mapping: dict[str, str], joint_names: Sequence[str]) -
 
 
 def _build_rest_pose(bvh: Bvh) -> npt.NDArray[np.float64]:
-    """FK of ``bvh``'s skeleton with every angle zero and the root at the origin."""
+    """FK of ``bvh``'s skeleton with every angle zero, the root at the origin
+    and each translating joint at its offset, the rest pose (ADR 0010)."""
     return frames_to_node_positions(
         bvh,
         root_pos=np.zeros(3),
         joint_angles=np.zeros((bvh.joint_count, 3), dtype=np.float64),
         centered="skeleton",
+        joint_translations=np.array(
+            [node.offset for node in bvh.nodes if _is_translating_joint(node)], dtype=np.float64
+        ).reshape(-1, 3),
     )
 
 
@@ -344,10 +374,13 @@ class Bvh:
     """Container for BVH motion-capture data.
 
     The hierarchy is stored as a tuple of ``BvhNode`` objects (one per
-    joint / end-site).  Motion data is stored as two structured arrays:
+    joint / end-site).  Motion data is stored as three arrays:
 
     - ``root_pos``:     shape ``(F, 3)``    — root translation per frame
     - ``joint_angles``: shape ``(F, J, 3)`` — Euler angles **in radians** per joint per frame
+    - ``joint_translations``: shape ``(F, P, 3)`` — per frame, the position
+      relative to its parent of each joint other than the root that
+      declares position channels (P = 0 on most skeletons)
 
     ``Bvh`` is a sequence of frames: ``len(bvh) == frame_count`` and
     ``bvh[i]`` returns frame ``i`` as a one-frame Bvh. For joint or node
@@ -376,6 +409,11 @@ class Bvh:
         Euler angles in **radians** per joint per frame. (BVH files
         store angles in degrees; the deg↔rad conversion happens at the
         I/O boundary in :func:`read_bvh_file` / :func:`write_bvh_file`.)
+    joint_translations : ndarray, shape (F, P, 3)
+        Per frame, the position relative to its parent of each
+        translating joint (see :attr:`joint_translations`). Optional in
+        the constructor: omitted, it is ``(F, 0, 3)``, for a skeleton
+        whose joints other than the root only rotate.
     frame_time : float
         Duration of one frame in seconds.
     frame_count : int
@@ -407,7 +445,11 @@ class Bvh:
     # derived clips and pickles, slicing, joins, splices, ``==``) reads them
     # from here; the first one's frame count is the one the others must
     # match.
-    _MOTION_ARRAYS: ClassVar[tuple[_MotionArray, ...]] = (_ROOT_POS, _JOINT_ANGLES)
+    _MOTION_ARRAYS: ClassVar[tuple[_MotionArray, ...]] = (
+        _ROOT_POS,
+        _JOINT_ANGLES,
+        _JOINT_TRANSLATIONS,
+    )
 
     def __init__(
         self,
@@ -419,6 +461,7 @@ class Bvh:
         lr_mapping: dict[str, str] | None = None,
         source_path: str | None = None,
         warn_on_world_up_disagreement: bool = True,
+        joint_translations: npt.ArrayLike | None = None,
     ) -> None:
         # The derived state exists before any property setter runs, so the
         # setters can report their change unconditionally. Each value in it
@@ -451,9 +494,17 @@ class Bvh:
 
         given = {"root_pos": root_pos, "joint_angles": joint_angles}
         missing = [name for name, value in given.items() if value is None]
-        if missing and len(missing) < len(given):
+        if missing and (len(missing) < len(given) or joint_translations is not None):
             raise ValueError(
-                f"{' and '.join(given)} must be provided together; {missing[0]} is missing."
+                f"{' and '.join(given)} must be provided together, and with "
+                f"joint_translations when it is given; {missing[0]} is missing."
+            )
+        if not missing:
+            # Omitted, no joint translates: P = 0 in every frame.
+            given["joint_translations"] = (
+                np.empty((len(np.asarray(root_pos)), 0, 3))
+                if joint_translations is None
+                else joint_translations
             )
         # All given or none: a clip built without motion holds the empty arrays.
         for entry in self._MOTION_ARRAYS:
@@ -499,15 +550,7 @@ class Bvh:
                     f"{entry.name} has {motion[entry.name].shape[0]}."
                 )
         for entry in self._MOTION_ARRAYS:
-            for axis, dim in entry.skeleton_axes:
-                actual = motion[entry.name].shape[axis]
-                expected = dim.count(nodes)
-                if actual != expected:
-                    raise ValueError(
-                        f"{entry.name} has {actual} {dim.unit} "
-                        f"on axis {axis}, but the skeleton has {expected} "
-                        f"{dim.skeleton_unit}."
-                    )
+            _check_array_fits_skeleton(entry, motion[entry.name], nodes)
 
     def _motion(self) -> dict[str, npt.NDArray[np.float64]]:
         """Each motion array the clip holds, by name, in list order: the
@@ -648,6 +691,40 @@ class Bvh:
         self._joint_angles = _JOINT_ANGLES.checked(value)
         self._derived.user_replaced_motion()
 
+    @property
+    def joint_translations(self) -> npt.NDArray[np.float64]:
+        """Per-frame positions of the translating joints, shape ``(F, P, 3)``.
+
+        A translating joint is a joint other than the root whose
+        ``CHANNELS`` line declares 3 position channels besides its 3
+        rotation channels (its ``pos_channels`` is ``('X', 'Y', 'Z')``).
+        Column *p* holds the *p*-th such joint in :attr:`nodes` order: its
+        position relative to its parent, in its parent's frame, as the
+        file's values (``X Y Z``), not the difference from its offset.
+        In each frame they replace the joint's ``offset``, which is the
+        rest pose only (ADR 0010): a joint with ``OFFSET 0 10 0`` and the
+        values ``0 12 0`` is 12 above its parent, not 22. P = 0 on a
+        skeleton whose joints other than the root only rotate.
+
+        Returns a **read-only view** of the underlying array, like
+        :attr:`root_pos`. To replace the whole array, assign via the
+        setter (``bvh.joint_translations = new_arr``); the shape must
+        fit the skeleton (``ValueError`` otherwise), and the assignment
+        starts the world-up guess again, as for :attr:`root_pos`.
+        """
+        view = self._joint_translations.view()
+        view.flags.writeable = False
+        return view
+
+    @joint_translations.setter
+    def joint_translations(self, value: npt.ArrayLike) -> None:
+        checked = _JOINT_TRANSLATIONS.checked(value)
+        # The skeleton fixes P whatever the motion's frame count, which the
+        # setters leave to the caller, as for root_pos and joint_angles.
+        _check_array_fits_skeleton(_JOINT_TRANSLATIONS, checked, self.nodes)
+        self._joint_translations = checked
+        self._derived.user_replaced_motion()
+
     def _set_motion(self, **motion: npt.ArrayLike) -> None:
         """Write motion as pybvh's own edits do, through no public setter.
 
@@ -717,7 +794,9 @@ class Bvh:
         Hierarchy (names, parents, offsets, end sites) is compared via
         :meth:`matches_hierarchy` with ``atol=0``, so offsets must be
         equal exactly, channel layout via
-        :meth:`matches_channels`. ``source_path`` is ignored.
+        :meth:`matches_channels`, and the motion (:attr:`root_pos`,
+        :attr:`joint_angles`, :attr:`joint_translations`) in every frame,
+        exactly. ``source_path`` is ignored.
         """
         if not isinstance(other, Bvh):
             return NotImplemented
@@ -776,7 +855,7 @@ class Bvh:
 
         See Also
         --------
-        matches_channels : Compare per-joint Euler rotation orders.
+        matches_channels : Compare per-joint position channels and Euler orders.
         matches_topology : Conjunction of hierarchy + channels.
         """
         if not isinstance(other, Bvh):
@@ -789,11 +868,11 @@ class Bvh:
     def matches_channels(self, other: Bvh) -> bool:
         """Whether ``self`` and ``other`` share the same channel layout.
 
-        Compares per-joint Euler rotation orders, joint by joint in node
-        order. The root's position channels are always ``XYZ``, the
-        order of a ``root_pos`` row, so they cannot differ: the
-        constructor accepts no other order, and :func:`~pybvh.read_bvh_file`
-        reads a file that declares another into ``XYZ``. This is a
+        Compares, joint by joint in node order, which joints declare
+        position channels (which joints translate) and each joint's
+        Euler rotation order. Only the declaration is compared, never the
+        values of :attr:`joint_translations`: a bone that stretches and
+        comes back still matches its own skeleton. This is a
         *serialization* property:
         clips with identical underlying rotations but different stored
         Euler orders have different channel layouts.
@@ -849,7 +928,8 @@ class Bvh:
         See Also
         --------
         matches_hierarchy : The hierarchy half (joints, parents, offsets).
-        matches_channels : The channel-layout half (per-joint Euler orders).
+        matches_channels : The channel-layout half (per-joint position channels
+            and Euler orders).
         """
         return self.matches_hierarchy(other) and self.matches_channels(other)
 
@@ -1238,6 +1318,9 @@ class Bvh:
             source_path=state["source_path"],
             warn_on_world_up_disagreement=state["warn_on_world_up_disagreement"],
         )
+        if "joint_translations" not in state:
+            # Pickled before joints translated (#186): none of them does.
+            state = {**state, "joint_translations": np.empty((len(state["root_pos"]), 0, 3))}
         self._set_motion(**{entry.name: state[entry.name] for entry in self._MOTION_ARRAYS})
         if self._binds_skeleton():
             self._check_motion_fits_skeleton()
@@ -2171,7 +2254,11 @@ class Bvh:
         positions = self._derived.node_positions
         if positions is None:
             positions = frames_to_node_positions(
-                self, root_pos=self.root_pos, joint_angles=self.joint_angles, centered="world"
+                self,
+                root_pos=self.root_pos,
+                joint_angles=self.joint_angles,
+                centered="world",
+                joint_translations=self.joint_translations,
             )
             self._derived.node_positions = positions
         return positions
@@ -2252,12 +2339,14 @@ class Bvh:
                 joint_angles=self.joint_angles[actual],
                 centered="first",
                 world_up=self.world_up,
+                joint_translations=self.joint_translations[actual],
             )
         return frames_to_node_positions(
             self,
             root_pos=self.root_pos[actual],
             joint_angles=self.joint_angles[actual],
             centered=centered,
+            joint_translations=self.joint_translations[actual],
         )
 
     def joint_positions(
@@ -3342,7 +3431,8 @@ class Bvh:
         """Raise ``ValueError`` unless ``other`` has this clip's topology.
 
         The hierarchy (names, node kinds, parents, rest offsets within
-        ``1e-6``) and the channel layout (each joint's rotation order),
+        ``1e-6``) and the channel layout (which joints translate, each
+        joint's rotation order),
         as :meth:`matches_topology` compares them: ``+``, ``+=`` and slice
         assignment write ``other``'s motion onto this clip's bones, which
         would silently change it where the two skeletons differ. The
@@ -3400,8 +3490,8 @@ class Bvh:
         ----------
         other : Bvh
             Must have the same topology (:meth:`matches_topology`): the
-            same names, node kinds, parents, rest offsets within ``1e-6``
-            and rotation orders.
+            same names, node kinds, parents, rest offsets within ``1e-6``,
+            translating joints and rotation orders.
 
         Returns
         -------
@@ -3592,8 +3682,14 @@ class Bvh:
         ValueError
             If the root is not among ``joints``, if :meth:`index` refuses
             an entry in joint space, or if two entries select the same
-            joint.
+            joint; or if the clip has a translating joint, which
+            extraction does not carry yet (#186).
         """
+        if self._joint_translations.shape[1]:
+            raise ValueError(
+                "extract_joints does not yet carry joint_translations: the clip has "
+                f"{self._joint_translations.shape[1]} translating joints (#186)."
+            )
         position_of_column = self._non_end_site_indices()
         kept = {
             id(self.nodes[position_of_column[column]])
@@ -3679,6 +3775,7 @@ class Bvh:
             {
                 "root_pos": self._root_pos.copy(),
                 "joint_angles": self._joint_angles[:, kept_old_j_indices, :],
+                "joint_translations": self._joint_translations.copy(),
             },
             nodes=new_nodes,
         )

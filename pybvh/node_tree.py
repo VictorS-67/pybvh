@@ -20,7 +20,16 @@ from typing import Any, Literal, NamedTuple, cast
 
 import numpy as np
 
-from .bvhnode import BvhEndSite, BvhJoint, BvhNode, BvhRoot, _is_empty_order, _is_joint
+from .bvhnode import (
+    BvhEndSite,
+    BvhJoint,
+    BvhNode,
+    BvhRoot,
+    _is_empty_order,
+    _is_joint,
+    _is_translating_joint,
+    _pos_channels,
+)
 
 
 def _walk_depth_first(root: BvhNode) -> Iterator[tuple[BvhNode, BvhNode | None]]:
@@ -152,8 +161,8 @@ def _check_node_tree(nodes: Sequence[BvhNode]) -> None:
 #              site) and its parent: _hierarchy_difference(atol=None)
 #   rest pose  the graph, and each rest offset within an absolute tolerance:
 #              _hierarchy_difference(atol=...), atol=0 for exact
-#   channels   the joint count, and each joint's rotation order:
-#              _channel_difference
+#   channels   the joint count, and each joint's position channels (which
+#              joints translate) and rotation order: _channel_difference
 #
 # Bvh.matches_hierarchy, matches_channels and matches_topology ask whether
 # there is a difference; +, += and slice assignment raise with it; batch puts
@@ -167,7 +176,14 @@ def _check_node_tree(nodes: Sequence[BvhNode]) -> None:
 _OFFSET_ATOL = 1e-6
 
 _DifferenceKind = Literal[
-    "node_count", "name", "node_kind", "parent", "offset", "joint_count", "rotation_order"
+    "node_count",
+    "name",
+    "node_kind",
+    "parent",
+    "offset",
+    "joint_count",
+    "position_channels",
+    "rotation_order",
 ]
 
 
@@ -231,9 +247,10 @@ def _channel_difference(
 ) -> _NodeTreeDifference | None:
     """The first difference between two node trees' channel layouts, or ``None``.
 
-    The joint count, then each joint's rotation order, joint by joint in
-    node order (the order of ``joint_angles``' columns). The root's
-    position channels are not compared: a ``Bvh`` accepts only ``XYZ``.
+    The joint count, then, joint by joint in node order (the order of
+    ``joint_angles``' columns), each joint's position channels and its
+    rotation order. The position channels say which joints translate,
+    the declaration, never the values of ``joint_translations``.
     """
     our_joints = [node for node in ours if _is_joint(node)]
     their_joints = [node for node in theirs if _is_joint(node)]
@@ -242,6 +259,15 @@ def _channel_difference(
             "joint_count", f"joint count {len(our_joints)} vs {len(their_joints)}"
         )
     for a, b in zip(our_joints, their_joints, strict=True):
+        if _pos_channels(a) != _pos_channels(b):
+            declared = [
+                repr("".join(_pos_channels(node))) if _pos_channels(node) else "none"
+                for node in (a, b)
+            ]
+            return _NodeTreeDifference(
+                "position_channels",
+                f"joint {a.name!r} declares position channels {declared[0]} vs {declared[1]}",
+            )
         if tuple(a.rot_channels) != tuple(b.rot_channels):
             return _NodeTreeDifference(
                 "rotation_order",
@@ -387,7 +413,7 @@ def nodes_to_table(nodes: Sequence[BvhNode]) -> list[dict[str, Any]]:
         }
         # On the root always; on a joint only when it translates, so the
         # table of a skeleton whose joints only rotate has no such key.
-        if node.is_root() or getattr(node, "pos_channels", ()):
+        if node.is_root() or _is_translating_joint(node):
             entry["pos_channels"] = list(node.pos_channels)  # type: ignore[attr-defined]
         if not node.is_end_site():
             entry["rot_channels"] = list(node.rot_channels)  # type: ignore[attr-defined]

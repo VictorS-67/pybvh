@@ -475,10 +475,13 @@ def frames_to_node_positions(
             raise ValueError(
                 "root_pos and joint_angles must be provided when skeleton is not a Bvh object."
             )
-        root_pos = source_bvh.root_pos
-        joint_angles = source_bvh.joint_angles
+        # The clip's motion through its frame-count check, which the
+        # setters leave to the caller.
+        motion = source_bvh._motion()
+        root_pos = motion["root_pos"]
+        joint_angles = motion["joint_angles"]
         if joint_translations is None:
-            joint_translations = source_bvh.joint_translations
+            joint_translations = motion["joint_translations"]
 
     root_pos_arr: npt.NDArray[np.float64] = np.asarray(root_pos, dtype=np.float64)
     joint_angles_arr: npt.NDArray[np.float64] = np.asarray(joint_angles, dtype=np.float64)

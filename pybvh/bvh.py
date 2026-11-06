@@ -626,7 +626,6 @@ class Bvh:
         if nodes is None:
             nodes = self.nodes
         motion = self._motion()
-        _check_frame_counts(self._MOTION_ARRAYS, motion)
         for entry in self._MOTION_ARRAYS:
             _check_array_fits_skeleton(entry, motion[entry.name], nodes)
 
@@ -661,7 +660,30 @@ class Bvh:
 
     def _motion(self) -> dict[str, npt.NDArray[np.float64]]:
         """Each motion array the clip holds, by name, in list order: the
-        arrays themselves, not views or copies."""
+        arrays themselves, not views or copies.
+
+        The one way an operation reads the clip's motion. Raises
+        ``ValueError`` if the arrays disagree on frame count, which the
+        setters leave possible so that a user replaces the arrays one at a
+        time: no operation then reads one array against the frames of
+        another, where NumPy would broadcast a one-frame array across them
+        or the shorter array would cut the frames short.
+        """
+        motion = self._motion_unchecked()
+        _check_frame_counts(self._MOTION_ARRAYS, motion)
+        return motion
+
+    def _motion_unchecked(self) -> dict[str, npt.NDArray[np.float64]]:
+        """Each motion array the clip holds, as :meth:`_motion` gives them,
+        with no frame-count check.
+
+        For the readers that a clip whose arrays disagree on frame count
+        must not stop: the frame count itself, the question whether the
+        motion binds the skeleton (which reads skeleton dims only),
+        equality (which compares shapes before values) and the check of an
+        edit's result (:meth:`_write_motion`). An operation reads
+        :meth:`_motion`.
+        """
         return {entry.name: getattr(self, entry.attribute) for entry in self._MOTION_ARRAYS}
 
     def _binds_skeleton(self) -> bool:
@@ -671,7 +693,7 @@ class Bvh:
         (:meth:`_MotionArray.empty`) whatever its skeleton, with 0 on each
         skeleton dim: there is no motion to fit, and it takes any skeleton.
         """
-        motion = self._motion()
+        motion = self._motion_unchecked()
         return any(
             motion[entry.name].shape != entry.empty().shape
             for entry in self._MOTION_ARRAYS
@@ -885,13 +907,26 @@ class Bvh:
 
     def _write_motion(self, motion: Mapping[str, npt.ArrayLike]) -> None:
         """Write the motion arrays *motion* names, as they are, and report
-        that the motion changed; the rebuild of a derived clip writes here."""
+        that the motion changed; the rebuild of a derived clip writes here.
+
+        Raises ``ValueError``, before writing anything, if the clip's arrays
+        would disagree on frame count after the write: pybvh's own edits
+        never leave such a clip, and an edit that reads one array of a clip
+        whose arrays disagree, as ``translate_root`` reads ``root_pos``, is
+        refused here.
+        """
         unknown = motion.keys() - {entry.name for entry in self._MOTION_ARRAYS}
         if unknown:
             raise TypeError(f"_set_motion() got no motion array named {sorted(unknown)}")
+        written = {
+            entry.name: entry.checked(motion[entry.name])
+            for entry in self._MOTION_ARRAYS
+            if entry.name in motion
+        }
+        _check_frame_counts(self._MOTION_ARRAYS, {**self._motion_unchecked(), **written})
         for entry in self._MOTION_ARRAYS:
-            if entry.name in motion:
-                setattr(self, entry.attribute, entry.checked(motion[entry.name]))
+            if entry.name in written:
+                setattr(self, entry.attribute, written[entry.name])
         self._derived.motion_changed()
 
     def _motion_on_skeleton(self) -> dict[str, npt.NDArray[np.float64]]:
@@ -904,13 +939,10 @@ class Bvh:
         no frame and the skeleton's dims. A clip with motion gives its
         arrays themselves.
 
-        Raises ``ValueError`` if the arrays disagree on frame count, which
-        the setters leave possible: an operation that packs the arrays into
-        frame columns reads them here, so it never broadcasts one array
-        across the frames of another.
+        Raises ``ValueError`` if the arrays disagree on frame count, as
+        :meth:`_motion` does.
         """
         motion = self._motion()
-        _check_frame_counts(self._MOTION_ARRAYS, motion)
         if self._binds_skeleton():
             return motion
         for entry in self._MOTION_ARRAYS:
@@ -925,8 +957,9 @@ class Bvh:
     @property
     def frame_count(self) -> int:
         """Number of frames (computed from root_pos)."""
-        # The first motion array's frame count, which the others match.
-        return len(self._motion()[self._MOTION_ARRAYS[0].name])
+        # The first motion array's frame count, which the others match
+        # unless the setters left them disagreeing (see _motion).
+        return len(self._motion_unchecked()[self._MOTION_ARRAYS[0].name])
 
     @property
     def root(self) -> BvhRoot:
@@ -983,9 +1016,12 @@ class Bvh:
             return False
         if self.frame_time != other.frame_time:
             return False
-        other_motion = other._motion()
+        # Unchecked: array_equal compares shapes first, so a clip whose
+        # arrays disagree on frame count compares without a broadcast.
+        other_motion = other._motion_unchecked()
         return all(
-            np.array_equal(array, other_motion[name]) for name, array in self._motion().items()
+            np.array_equal(array, other_motion[name])
+            for name, array in self._motion_unchecked().items()
         )
 
     def matches_hierarchy(
@@ -1287,6 +1323,11 @@ class Bvh:
         self._check_same_skeleton(value)
         self._check_same_rate(value, "a[i:j] = b")
 
+        # Read before the length check, which reads each clip's frame count:
+        # on a clip whose arrays disagree it has none to compare.
+        motion = self._motion()
+        other_motion = value._motion()
+
         # --- length match (no resizing) ---
         target_len = len(range(*s.indices(self.frame_count)))
         if target_len != value.frame_count:
@@ -1298,8 +1339,7 @@ class Bvh:
             )
 
         # --- in-place splice, bypassing the setters ---
-        other_motion = value._motion()
-        for name, array in self._motion().items():
+        for name, array in motion.items():
             array[s] = other_motion[name]
         self._derived.user_replaced_motion()
 
@@ -2416,7 +2456,8 @@ class Bvh:
         world at a frame (ADR 0004): the root's heading and the facing
         chain's heading stage read it.
         """
-        return rotations.euler_to_rotmat(self.joint_angles[frames, 0], _euler_order(self.root))
+        joint_angles = self._motion()["joint_angles"]
+        return rotations.euler_to_rotmat(joint_angles[frames, 0], _euler_order(self.root))
 
     def facing_frame(self):
         """Per-frame facing basis as continuous unit vectors.
@@ -2580,28 +2621,29 @@ class Bvh:
                 f"{self.frame_count} frames. Use frame=None for all frames."
             )
         actual = frame if frame >= 0 else frame + self.frame_count
+        motion = self._motion()
         if self._derived.node_positions is not None:
             world_frame = self._derived.node_positions[actual]
             if centered == "world":
                 return world_frame.copy()
             if centered == "skeleton":
-                return world_frame - self.root_pos[actual]
-            return world_frame - _ground_plane_offset(self.root_pos[actual], self.world_up)
+                return world_frame - motion["root_pos"][actual]
+            return world_frame - _ground_plane_offset(motion["root_pos"][actual], self.world_up)
         if centered == "first":
             return frames_to_node_positions(
                 self,
-                root_pos=self.root_pos[actual],
-                joint_angles=self.joint_angles[actual],
+                root_pos=motion["root_pos"][actual],
+                joint_angles=motion["joint_angles"][actual],
                 centered="first",
                 world_up=self.world_up,
-                joint_translations=self.joint_translations[actual],
+                joint_translations=motion["joint_translations"][actual],
             )
         return frames_to_node_positions(
             self,
-            root_pos=self.root_pos[actual],
-            joint_angles=self.joint_angles[actual],
+            root_pos=motion["root_pos"][actual],
+            joint_angles=motion["joint_angles"][actual],
             centered=centered,
-            joint_translations=self.joint_translations[actual],
+            joint_translations=motion["joint_translations"][actual],
         )
 
     def joint_positions(
@@ -3533,16 +3575,19 @@ class Bvh:
                 f"the root position too, assign bvh.root_pos, or build a new clip "
                 f"with Bvh(nodes=..., root_pos=..., joint_angles=...)."
             )
+        # Through the motion's check: on a clip whose arrays disagree on
+        # frame count, the clip has no frame count to hold the rotations to.
+        frame_count = len(self._motion()["joint_angles"])
         joint_rotmats = to_rotmat(np.asarray(rotation, dtype=np.float64))
         if joint_rotmats.ndim != 4:
             raise ValueError(
                 f"Expected {param_name} with a frame axis and a joint axis before "
                 f"the rotation, got shape {np.shape(rotation)}"
             )
-        if joint_rotmats.shape[0] != self.frame_count:
+        if joint_rotmats.shape[0] != frame_count:
             raise ValueError(
                 f"{param_name} has {joint_rotmats.shape[0]} frames, but the clip has "
-                f"{self.frame_count}: {method} replaces the rotations of the clip's "
+                f"{frame_count}: {method} replaces the rotations of the clip's "
                 f"frames and keeps their count."
             )
         if joint_rotmats.shape[1] != self.joint_count:

@@ -4,8 +4,9 @@
 carries the arrays as they are (shape checks, derived clips, pickles, copies,
 slicing, joins, splices, equality) or interpolates them (resampling, dropped
 frames) reads them from it. These tests run each operation once over the list
-as it is and once with a test-only third array registered in it, so that an
-array added to the list and missed by an operation fails here.
+as it is and once with a test-only array added to it, so that an
+array added to the list and missed by an operation fails here. The last class
+runs every operation on a clip with one array of the list a frame short.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import pickle
 import numpy as np
 import pytest
 
-from pybvh import nodes_from_table, transforms
+from pybvh import frames_to_node_positions, nodes_from_table, transforms
 from pybvh.bvh import Bvh, _MotionArray
 
 FRAMES = 6
@@ -394,3 +395,134 @@ class TestPickleFormat:
             "warn_on_world_up_disagreement",
             "lr_mapping_setting",
         }
+
+
+# --- A clip whose arrays disagree on frame count -----------------------------
+#
+# The setters check no frame count, so that a user replaces the arrays one at
+# a time; every operation that reads the motion then refuses a clip whose
+# arrays disagree, with the motion list's ``ValueError``, instead of
+# broadcasting one array across the frames of another.
+
+
+def _disagreeing_clip(entry):
+    """``_clip`` over the tagged motion, with *entry*'s array one frame short.
+
+    Written to the attribute, as the array's setter writes it, so that the
+    test-only array is shortened as the others are. World up is set, so
+    that no operation raises through the world-up guess, which runs
+    forward kinematics.
+    """
+    clip = _clip(_tagged_motion(Bvh._MOTION_ARRAYS))
+    clip.world_up = "+y"
+    setattr(clip, entry.attribute, getattr(clip, entry.attribute)[:-1].copy())
+    return clip
+
+
+def _held_arrays(clip):
+    """A copy of each array *clip* holds, read past every check."""
+    return {entry.name: getattr(clip, entry.attribute).copy() for entry in Bvh._MOTION_ARRAYS}
+
+
+def _write(clip, tmp_path):
+    clip.write(tmp_path / "clip.bvh")
+
+
+def _from_rotmat_inplace(clip, tmp_path):
+    rotmats = np.tile(np.eye(3), (FRAMES, clip.joint_count, 1, 1))
+    clip.from_rotmat(rotmats, inplace=True)
+
+
+SINGLE_CLIP_OPERATIONS = {
+    "copy": lambda clip, _: clip.copy(),
+    "copy_on_nodes": lambda clip, _: clip.copy(nodes=_skeleton_table()),
+    "pickle": lambda clip, _: pickle.dumps(clip),
+    "slice": lambda clip, _: clip[1:3],
+    "integer_index": lambda clip, _: clip[0],
+    "resample": lambda clip, _: clip.resample(20.0),
+    "perturb_speed": lambda clip, _: transforms.perturb_speed(clip, 1.5),
+    "drop_frames": lambda clip, _: _drop_with_method(clip),
+    "drop_frames_inplace": lambda clip, _: _drop_with_transform_inplace(clip),
+    "translate_root_inplace": lambda clip, _: transforms.translate_root(
+        clip, [1.0, 0.0, 0.0], inplace=True
+    ),
+    "add_rotation_noise_inplace": lambda clip, _: transforms.add_rotation_noise(
+        clip, 1.0, rng=np.random.default_rng(0), inplace=True
+    ),
+    "add_position_noise_inplace": lambda clip, _: transforms.add_position_noise(
+        clip, 1.0, rng=np.random.default_rng(0), inplace=True
+    ),
+    "rotate_vertical_inplace": lambda clip, _: transforms.rotate_vertical(clip, 30.0, inplace=True),
+    "reorient_world_up_inplace": lambda clip, _: transforms.reorient_world_up(
+        clip, "+z", inplace=True
+    ),
+    "scale_inplace": lambda clip, _: clip.scale(2.0, inplace=True),
+    "retarget_inplace": lambda clip, _: clip.retarget(
+        Bvh(nodes=nodes_from_table(_skeleton_table())), inplace=True
+    ),
+    "change_euler_order_inplace": lambda clip, _: clip.change_euler_order("XYZ", inplace=True),
+    "from_rotmat_inplace": _from_rotmat_inplace,
+    "extract_joints": lambda clip, _: clip.extract_joints(["Hips"]),
+    "node_positions": lambda clip, _: clip.node_positions(),
+    "node_positions_first_frame": lambda clip, _: clip.node_positions(frame=0),
+    "node_positions_last_frame_centered_first": lambda clip, _: clip.node_positions(
+        frame=-1, centered="first"
+    ),
+    "frames_to_node_positions": lambda clip, _: frames_to_node_positions(clip),
+    "root_trajectory": lambda clip, _: clip.root_trajectory(),
+    "to_df_dict": lambda clip, _: clip.to_df_dict(),
+    "write": _write,
+    "to_feature_array": lambda clip, _: clip.to_feature_array(),
+}
+
+
+def _join(clip, other):
+    return clip + other
+
+
+def _join_in_place(clip, other):
+    clip += other
+
+
+def _splice_all(clip, other):
+    clip[:] = other
+
+
+TWO_CLIP_OPERATIONS = {
+    "join": _join,
+    "join_in_place": _join_in_place,
+    "splice_all": _splice_all,
+}
+
+
+class TestDisagreeingFrameCounts:
+    """Each operation refuses a clip whose arrays disagree, before it changes anything."""
+
+    @pytest.mark.parametrize("operation", list(SINGLE_CLIP_OPERATIONS))
+    def test_an_operation_refuses_it(self, motion_list, operation, tmp_path):
+        for entry in motion_list:
+            clip = _disagreeing_clip(entry)
+            before = _held_arrays(clip)
+            with pytest.raises(ValueError, match="disagree on frame count"):
+                SINGLE_CLIP_OPERATIONS[operation](clip, tmp_path)
+            for name, array in _held_arrays(clip).items():
+                np.testing.assert_array_equal(array, before[name], err_msg=f"{entry.name}: {name}")
+
+    @pytest.mark.parametrize("side", ["self", "other"])
+    @pytest.mark.parametrize("operation", list(TWO_CLIP_OPERATIONS))
+    def test_a_two_clip_operation_refuses_it_on_either_side(self, motion_list, operation, side):
+        for entry in motion_list:
+            disagreeing = _disagreeing_clip(entry)
+            agreeing = _clip(_tagged_motion(motion_list, first=0.5))
+            agreeing.world_up = "+y"
+            clip, other = (disagreeing, agreeing) if side == "self" else (agreeing, disagreeing)
+            before = _held_arrays(clip)
+            with pytest.raises(ValueError, match="disagree on frame count"):
+                TWO_CLIP_OPERATIONS[operation](clip, other)
+            for name, array in _held_arrays(clip).items():
+                np.testing.assert_array_equal(array, before[name], err_msg=f"{entry.name}: {name}")
+
+    def test_equality_compares_it_without_raising(self, motion_list):
+        for entry in motion_list:
+            assert _disagreeing_clip(entry) == _disagreeing_clip(entry), entry.name
+            assert _disagreeing_clip(entry) != _clip(_tagged_motion(motion_list)), entry.name

@@ -3791,6 +3791,46 @@ class TestWhatACopyCarries:
         assert computations.fk == 2
 
 
+class TestAPickleFromBefore186:
+    """A clip pickled before joints translated (#186) loads whole: its nodes
+    have the channels they had then. The pickle was made by pybvh at
+    f605ef9 (tests/fixtures/README.md)."""
+
+    FIXTURES = Path(__file__).parent / "fixtures"
+    SOURCES = {
+        "bvh_test1": BVH_DATA_DIR / "bvh_test1.bvh",
+        "root_and_child": FIXTURES / "pre_186_root_and_child.bvh",
+    }
+
+    @pytest.fixture
+    def clips(self):
+        return pickle.loads((self.FIXTURES / "pre_186_clips.pickle").read_bytes())
+
+    @pytest.mark.parametrize("name", SOURCES)
+    def test_its_nodes_have_a_repr(self, clips, name):
+        assert "pos_channels = ('X', 'Y', 'Z')" in repr(clips[name].nodes)
+
+    @pytest.mark.parametrize("name", SOURCES)
+    def test_only_its_root_has_position_channels(self, clips, name):
+        clip = clips[name]
+        assert clip.root.pos_channels == ("X", "Y", "Z")
+        assert not clip.root.is_static()
+        joints = [node for node in clip.nodes[1:] if not node.is_end_site()]
+        assert joints
+        for joint in joints:
+            assert joint.pos_channels == ()
+
+    @pytest.mark.parametrize("name", SOURCES)
+    def test_it_equals_a_fresh_read_and_moves_the_same(self, clips, name):
+        fresh = read_bvh_file(self.SOURCES[name])
+        clip = clips[name]
+        assert clip == fresh
+        assert clip.joint_translations.shape == (clip.frame_count, 0, 3)
+        for field, value in clip.fk_topology._asdict().items():
+            np.testing.assert_array_equal(value, getattr(fresh.fk_topology, field))
+        np.testing.assert_array_equal(clip.node_positions(), fresh.node_positions())
+
+
 class TestCopyWithNodes:
     """`copy(nodes=...)` is a copy on a skeleton the caller edited, bound to
     the motion by position."""

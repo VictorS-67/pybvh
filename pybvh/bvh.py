@@ -128,29 +128,73 @@ def _euler_to_quat(
     return rotations.rotmat_to_quat(rotations.euler_to_rotmat(angles, orders))
 
 
+class _EulerBlock(NamedTuple):
+    """Three motion columns of one joint in ``to_df_dict``'s euler mode."""
+
+    # The joint's column label, unique over the joints.
+    label: str
+    # The axes in column order, and the kind, ``"pos"`` or ``"rot"``.
+    axes: tuple[str, ...]
+    kind: str
+    # The motion array the values come from and the joint's row in it:
+    # ``"root_pos"`` (row unused), ``"joint_translations"`` or ``"joint_angles"``.
+    array: str
+    row: int
+
+
+def _euler_blocks(nodes: Sequence[BvhNode]) -> list[_EulerBlock]:
+    """The column blocks of the euler layout of *nodes*, in column order.
+
+    Per joint in node order, its position block if it declares position
+    channels (the root's from ``root_pos``, another joint's from its row
+    of ``joint_translations``), then its rotation block, from its row of
+    ``joint_angles``. The layout is that of a frame line in a file
+    (``io._frame_columns``): a clip whose joints other than the root only
+    rotate gets the root's position block then each joint's rotation
+    block, and a static root, which declares no channels, gets none.
+    """
+    joints = [node for node in nodes if isinstance(node, BvhJoint)]
+    root = joints[0]
+    if not isinstance(root, BvhRoot):
+        raise ValueError(f"nodes[0] must be the BvhRoot, got {type(root).__name__}")
+    labels = _unique_labels([joint.name for joint in joints])
+    blocks: list[_EulerBlock] = []
+    translating = 0
+    for row, (label, joint) in enumerate(zip(labels, joints, strict=True)):
+        if joint.is_root() and joint.pos_channels:
+            blocks.append(_EulerBlock(label, tuple(joint.pos_channels), "pos", "root_pos", 0))
+        elif _is_translating_joint(joint):
+            blocks.append(
+                _EulerBlock(
+                    label, tuple(joint.pos_channels), "pos", "joint_translations", translating
+                )
+            )
+            translating += 1
+        if joint.rot_channels:
+            blocks.append(_EulerBlock(label, tuple(joint.rot_channels), "rot", "joint_angles", row))
+    return blocks
+
+
 def _motion_column_names(nodes: Sequence[BvhNode], mode: str) -> list[str]:
     """Column names of the motion *nodes* carry, in either ``to_df_dict`` mode.
 
-    ``'euler'`` names the flat layout of ``root_pos`` and ``joint_angles``:
-    ``<root>_<axis>_pos`` per position channel, then ``<joint>_<axis>_rot``
-    per rotation channel for each joint in node order, end sites having
-    none. ``'coordinates'`` names ``<node>_<axis>`` for X, Y and Z per
-    node, end sites included. ``time`` is not a motion column and is not
-    listed. Node names are made unique with :func:`_unique_labels` over
-    the nodes the mode lists, before the axis and kind are appended, so
-    the same joint can be ``Arm`` in one mode and ``Arm.1`` in the other
-    when an earlier end site shares its name.
+    ``'euler'`` names the blocks of :func:`_euler_blocks`: per joint in
+    node order, ``<joint>_<axis>_pos`` per position channel if the joint
+    declares any, then ``<joint>_<axis>_rot`` per rotation channel, end
+    sites having none. ``'coordinates'`` names ``<node>_<axis>`` for X,
+    Y and Z per node, end sites included. ``time`` is not a motion
+    column and is not listed. Node names are made unique with
+    :func:`_unique_labels` over the nodes the mode lists, before the
+    axis and kind are appended, so the same joint can be ``Arm`` in one
+    mode and ``Arm.1`` in the other when an earlier end site shares its
+    name.
     """
     if mode == "euler":
-        joints = [node for node in nodes if isinstance(node, BvhJoint)]
-        root = joints[0]
-        if not isinstance(root, BvhRoot):
-            raise ValueError(f"nodes[0] must be the BvhRoot, got {type(root).__name__}")
-        labels = _unique_labels([joint.name for joint in joints])
-        names = [f"{labels[0]}_{ax}_pos" for ax in root.pos_channels]
-        for label, joint in zip(labels, joints, strict=True):
-            names.extend(f"{label}_{ax}_rot" for ax in joint.rot_channels)
-        return names
+        return [
+            f"{block.label}_{ax}_{block.kind}"
+            for block in _euler_blocks(nodes)
+            for ax in block.axes
+        ]
     if mode == "coordinates":
         labels = _unique_labels([node.name for node in nodes])
         return [f"{label}_{ax}" for label in labels for ax in ("X", "Y", "Z")]
@@ -2464,11 +2508,16 @@ class Bvh:
         ----------
         mode : str, optional
             ``'euler'`` (default): the motion as a file carries it, in
-            degrees: ``<root>_<axis>_pos`` per position channel of the
-            root, then ``<joint>_<axis>_rot`` per rotation channel of
-            each joint in :attr:`nodes` order, so the columns after
-            ``time`` are the flat layout of :attr:`root_pos` and
-            :attr:`joint_angles`. :func:`~pybvh.df_to_bvh` and
+            degrees, per joint in :attr:`nodes` order:
+            ``<joint>_<axis>_pos`` per position channel if the joint
+            declares any (the root's from :attr:`root_pos`, another
+            joint's from :attr:`joint_translations`), then
+            ``<joint>_<axis>_rot`` per rotation channel, the columns of
+            a frame line in a file. A joint that does not translate has
+            no ``_pos`` columns, and a static root (``CHANNELS 0``) no
+            columns at all; a clip whose joints other than the root only
+            rotate gets the root's ``_pos`` columns, then each joint's
+            ``_rot`` columns. :func:`~pybvh.df_to_bvh` and
             :meth:`from_df` read this form back.
             ``'coordinates'``: the posed positions of
             :meth:`node_positions`, ``<node>_X``, ``<node>_Y`` and
@@ -2526,12 +2575,15 @@ class Bvh:
         ``_rot`` columns are the rad→deg-converted view of the internal
         radians-valued :attr:`joint_angles`.
         """
-        joint_angles_deg = np.rad2deg(self.joint_angles)
-        # The width is spelled out: NumPy cannot infer -1 from no frames.
-        flat = np.concatenate(
-            [self.root_pos, joint_angles_deg.reshape(self.frame_count, 3 * self.joint_count)],
-            axis=1,
-        )
+        arrays = {
+            "root_pos": self.root_pos[:, None],
+            "joint_translations": self.joint_translations,
+            "joint_angles": np.rad2deg(self.joint_angles),
+        }
+        blocks = _euler_blocks(self.nodes)
+        flat = np.empty((self.frame_count, 3 * len(blocks)))
+        for i, block in enumerate(blocks):
+            flat[:, 3 * i : 3 * i + 3] = arrays[block.array][:, block.row]
         return self._timed_columns(_motion_column_names(self.nodes, "euler"), flat)
 
     def _get_df_constructor_spatial_coord(
@@ -3690,6 +3742,16 @@ class Bvh:
         descendant via vector addition (valid at rest pose).  Their
         rotation contribution during animation is lost.
 
+        A kept joint keeps its position channels. A removed translating
+        joint's translation is summed into its nearest kept descendant,
+        per frame, in place of its offset, and that descendant becomes a
+        translating joint (see :attr:`joint_translations`); a removed
+        joint that does not translate adds its offset to every frame of a
+        translating descendant. So a kept joint's FK position is the
+        source's whenever the removed joints above it do not rotate. An
+        end site added below a childless kept joint reads the rest
+        offsets of the removed joints between them.
+
         The result lists its nodes in depth-first order, as a file
         would, so writing it and reading it back keeps
         :meth:`matches_hierarchy`. A kept joint left with nothing below
@@ -3728,14 +3790,8 @@ class Bvh:
         ValueError
             If the root is not among ``joints``, if :meth:`index` refuses
             an entry in joint space, or if two entries select the same
-            joint; or if the clip has a translating joint, which
-            extraction does not carry yet (#186).
+            joint.
         """
-        if self._joint_translations.shape[1]:
-            raise ValueError(
-                "extract_joints does not yet carry joint_translations: the clip has "
-                f"{self._joint_translations.shape[1]} translating joints (#186)."
-            )
         position_of_column = self._non_end_site_indices()
         kept = {
             id(self.nodes[position_of_column[column]])
@@ -3763,8 +3819,14 @@ class Bvh:
             if survives[i] or survivor_below[i]:
                 survivor_below[parent_position] = True
 
+        translation_column_of = {
+            id(node): column
+            for column, node in enumerate(n for n in self.nodes if _is_translating_joint(n))
+        }
+
         rows: list[dict[str, Any]] = []
         kept_old_j_indices: list[int] = []
+        new_translations: list[npt.NDArray[np.float64]] = []
         # Original joint (by identity: names repeat) -> its row index
         row_of: dict[int, int] = {}
 
@@ -3794,13 +3856,29 @@ class Bvh:
             else:
                 # Removed ancestors collapse into this joint's offset,
                 # summed up to the nearest kept one (the root at the latest).
-                acc_offset = node.offset.copy()
+                # Each frame sums the same chain, with a translating joint's
+                # translation in place of its offset; the joint translates
+                # when one joint of the chain does.
+                chain = [node]
                 walker = node.parent
                 while walker is not None and id(walker) not in kept:
-                    acc_offset = walker.offset + acc_offset
+                    chain.append(walker)
                     walker = walker.parent
                 row["parent"] = row_of[id(walker)]
-                row["offset"] = acc_offset
+                row["offset"] = np.sum([link.offset for link in chain], axis=0)
+                if any(_is_translating_joint(link) for link in chain):
+                    row["pos_channels"] = ["X", "Y", "Z"]
+                    new_translations.append(
+                        np.sum(
+                            [
+                                self._joint_translations[:, translation_column_of[id(link)]]
+                                if _is_translating_joint(link)
+                                else np.broadcast_to(link.offset, (self.frame_count, 3))
+                                for link in chain
+                            ],
+                            axis=0,
+                        )
+                    )
             row["rot_channels"] = node.rot_channels  # type: ignore[attr-defined]
 
             row_of[id(node)] = len(rows)
@@ -3821,7 +3899,9 @@ class Bvh:
             {
                 "root_pos": self._root_pos.copy(),
                 "joint_angles": self._joint_angles[:, kept_old_j_indices, :],
-                "joint_translations": self._joint_translations.copy(),
+                "joint_translations": np.stack(new_translations, axis=1)
+                if new_translations
+                else np.empty((self.frame_count, 0, 3)),
             },
             nodes=new_nodes,
         )
@@ -4163,6 +4243,7 @@ class Bvh:
         feet: Sequence[NodeSelector] | None = None,
         stencil: str = "central",
         pad: str = "edge",
+        include_joint_translations: bool = False,
     ) -> npt.NDArray[np.float64]:
         """Export motion as a flat feature array.  See :func:`pybvh.features.to_feature_array`."""
         from . import features
@@ -4177,6 +4258,7 @@ class Bvh:
             feet=feet,
             stencil=stencil,
             pad=pad,
+            include_joint_translations=include_joint_translations,
         )
 
     def feature_array_layout(
@@ -4185,6 +4267,7 @@ class Bvh:
         num_feet: int = 0,
         representation: str = "6d",
         include_root_pos: bool = True,
+        include_joint_translations: bool = False,
         include_velocities: bool = False,
         include_foot_contacts: bool = False,
     ) -> dict[str, slice]:
@@ -4194,8 +4277,10 @@ class Bvh:
         return features.feature_array_layout(
             num_joints=self.joint_count,
             num_feet=num_feet,
+            num_translating_joints=self._joint_translations.shape[1],
             representation=representation,
             include_root_pos=include_root_pos,
+            include_joint_translations=include_joint_translations,
             include_velocities=include_velocities,
             include_foot_contacts=include_foot_contacts,
         )

@@ -535,4 +535,4 @@ class TestComparison:
 
         clip = _clip()
         with pytest.raises(ValueError, match="declares position channels"):
-            batch_to_numpy([clip, _rotating_spine_twin(clip)])
+            batch_to_numpy([clip, _rotating_spine_twin(clip)], include_joint_translations=True)

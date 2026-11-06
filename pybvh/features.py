@@ -24,8 +24,10 @@ def feature_array_layout(
     *,
     num_joints: int,
     num_feet: int = 0,
+    num_translating_joints: int = 0,
     representation: str = "6d",
     include_root_pos: bool = True,
+    include_joint_translations: bool = False,
     include_velocities: bool = False,
     include_foot_contacts: bool = False,
 ) -> dict[str, slice]:
@@ -45,19 +47,24 @@ def feature_array_layout(
     num_feet : int, optional
         Number of feet for contact detection.  Required (>0)
         when ``include_foot_contacts=True``.
+    num_translating_joints : int, optional
+        Number of translating joints, ``P`` of
+        :attr:`Bvh.joint_translations <pybvh.bvh.Bvh.joint_translations>`.
+        Used only when ``include_joint_translations=True``; with ``0``
+        the block is empty.
     representation : str, optional
         Rotation representation: ``'euler'``, ``'axisangle'`` (3 values
         per joint), ``'quat'`` (4), ``'6d'`` (6, default),
         ``'rotmat'`` (9).
-    include_root_pos, include_velocities, include_foot_contacts : bool
+    include_root_pos, include_joint_translations, include_velocities, include_foot_contacts : bool
         Mirror the flags of :func:`to_feature_array`.
 
     Returns
     -------
     dict
         ``{block_name: slice}`` with keys drawn from
-        ``{"root_pos", "rotations", "velocities", "foot_contacts"}``
-        depending on the flags.
+        ``{"root_pos", "joint_translations", "rotations", "velocities",
+        "foot_contacts"}`` depending on the flags, in that column order.
 
     Notes
     -----
@@ -90,6 +97,10 @@ def feature_array_layout(
     if include_root_pos:
         layout["root_pos"] = slice(cursor, cursor + 3)
         cursor += 3
+    if include_joint_translations:
+        translation_width = num_translating_joints * 3
+        layout["joint_translations"] = slice(cursor, cursor + translation_width)
+        cursor += translation_width
     rot_width = num_joints * K
     layout["rotations"] = slice(cursor, cursor + rot_width)
     cursor += rot_width
@@ -113,11 +124,13 @@ def to_feature_array(
     feet: Sequence[NodeSelector] | None = None,
     stencil: str = "central",
     pad: str = "edge",
+    include_joint_translations: bool = False,
 ) -> npt.NDArray[np.float64]:
     """Export motion as a single flat feature array for ML pipelines.
 
-    Composes root position, joint rotations, velocities, and foot
-    contacts into a single ``(F, D)`` array ready for model input.
+    Composes root position, joint translations, joint rotations,
+    velocities, and foot contacts into a single ``(F, D)`` array ready
+    for model input.
 
     Parameters
     ----------
@@ -164,6 +177,15 @@ def to_feature_array(
         frame from each end for ``stencil="central"``, and the last
         frame for ``stencil="forward"`` (a forward difference labels
         frame ``i``, so the final frame has no velocity).
+    include_joint_translations : bool, optional
+        If True, include :attr:`Bvh.joint_translations
+        <pybvh.bvh.Bvh.joint_translations>` flattened per frame
+        (``3 * P`` columns, after the root position): per translating
+        joint, in node order, its ``X Y Z`` position relative to its
+        parent, the file's values. ``centered`` does not apply to them.
+        A clip with no translating joint (``P = 0``) gets an empty
+        block. Default False: the array is then the same whether or not
+        the clip has translating joints.
 
     Returns
     -------
@@ -205,6 +227,11 @@ def to_feature_array(
             parts.append(bvh.root_pos - _ground_plane_offset(bvh.root_pos[0], bvh.world_up))
         else:  # "world"
             parts.append(bvh.root_pos)
+
+    # Joint translations — each relative to its parent, so ``centered``
+    # leaves them alone.
+    if include_joint_translations:
+        parts.append(bvh.joint_translations.reshape(bvh.frame_count, -1))
 
     # Joint rotations
     if representation == "euler":

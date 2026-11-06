@@ -154,3 +154,16 @@ def test_from_starts_the_world_up_guess_again():
     sliced = tilted[5:]
     assert sliced.world_up == "+z"
     assert sliced.from_quat(sliced.to_quat()).world_up == "+y"
+
+
+def test_the_guides_ml_pipeline_runs():
+    """The "Typical ML pipeline" example of the guide builds the predicted
+    clip with the constructor, here from a stand-in model that predicts a
+    shorter clip than its input."""
+    guide = (Path(__file__).parent.parent / "docs" / "guide" / "choosing-rotations.md").read_text()
+    section = guide.split("## Typical ML pipeline", 1)[1]
+    code = section.split("```python\n", 1)[1].split("```", 1)[0]
+    code = code.replace('"walk.bvh"', repr(str(BVH_DATA_DIR / "bvh_test1.bvh")))
+    namespace = {"model": lambda root_pos, rot6d: (root_pos[:50], rot6d[:50])}
+    exec(code, namespace)
+    np.testing.assert_allclose(namespace["q_pred"], namespace["q_gt"][:50], atol=1e-10)

@@ -30,9 +30,9 @@ The `centered` parameter picks the coordinate frame. See [Core Concepts](../guid
 ## Rotation representations
 
 ```python
-root_pos, quats = bvh.to_quat()         # (F, J, 4)
-root_pos, rot6d = bvh.to_6d()           # (F, J, 6)
-root_pos, aa = bvh.to_axisangle()    # (F, J, 3)
+quats = bvh.to_quat()      # (F, J, 4)
+rot6d = bvh.to_6d()        # (F, J, 6)
+aa = bvh.to_axisangle()    # (F, J, 3)
 ```
 
 To pick one, read [Choosing a Representation](../guide/choosing-rotations.md). For the full conversion API, read [Rotation Representations & SE(3)](../guide/rotations.md).

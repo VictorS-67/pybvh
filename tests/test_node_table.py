@@ -10,6 +10,8 @@ message names the entry it rejects.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 
 import numpy as np
@@ -310,10 +312,12 @@ class TestNodesFromTableRejects:
         with pytest.raises(ValueError, match=rf"entry {index} \('{name}'\).*{key} None"):
             nodes_from_table(table)
 
-    def test_pos_channels_on_a_joint(self):
+    @pytest.mark.parametrize("empty", [[], (), ""])
+    def test_empty_pos_channels_on_a_joint(self, empty):
+        """One spelling per state: a joint that only rotates omits the key."""
         table = _two_end_sites_table()
-        table[1]["pos_channels"] = ["X", "Y", "Z"]
-        with pytest.raises(ValueError, match=r"entry 1 \('Hand'\).*pos_channels.*root"):
+        table[1]["pos_channels"] = empty
+        with pytest.raises(ValueError, match=r"entry 1 \('Hand'\) has pos_channels \[\].*omits"):
             nodes_from_table(table)
 
     def test_pos_channels_on_an_end_site(self):
@@ -398,3 +402,251 @@ class TestNodesFromTableLeniency:
         table = _two_end_sites_table()
         del table[0]["parent"]
         assert nodes_from_table(table)[0].parent is None
+
+
+# =============================================================================
+# The entry table of #186: position channels on any joint, a static root
+# =============================================================================
+
+
+def _translating_joint_table():
+    """The two-end-sites rig whose joint 'Hand' declares position channels."""
+    table = _two_end_sites_table()
+    table[1] = {
+        "name": "Hand",
+        "parent": 0,
+        "offset": np.array([0.0, 1.0, 0.0]),
+        "pos_channels": ["X", "Y", "Z"],
+        "rot_channels": ["Z", "Y", "X"],
+    }
+    return table
+
+
+def _translating_joint_rig():
+    root = BvhRoot("Hips", [0, 0, 0], "XYZ", "ZYX", [])
+    hand = _attach(root, BvhJoint("Hand", [0, 1, 0], "ZYX", [], pos_channels="XYZ"))
+    _attach(hand, BvhEndSite("EndSiteHand", [1, 0, 0]))
+    _attach(hand, BvhEndSite("EndSiteHand", [0, 0, 2]))
+    return [root, hand, hand.children[0], hand.children[1]]
+
+
+class TestTranslatingJoint:
+    """A non-root joint with ``pos_channels: ['X', 'Y', 'Z']`` and an order."""
+
+    def test_the_table_builds_it(self):
+        hand = nodes_from_table(_translating_joint_table())[1]
+        assert type(hand) is BvhJoint
+        assert hand.pos_channels == ("X", "Y", "Z")
+        assert hand.rot_channels == ("Z", "Y", "X")
+
+    def test_a_hand_built_node_list_holds_it(self):
+        bvh = Bvh(_translating_joint_rig())
+        assert bvh.nodes[1].pos_channels == ("X", "Y", "Z")
+
+    def test_the_table_round_trips(self):
+        table = nodes_to_table(nodes_from_table(_translating_joint_table()))
+        assert table[1]["pos_channels"] == ["X", "Y", "Z"]
+        assert list(table[1]) == ["name", "parent", "offset", "pos_channels", "rot_channels"]
+
+    def test_bvh_to_node_table_writes_it(self):
+        table = Bvh(_translating_joint_rig()).to_node_table()
+        assert table[1]["pos_channels"] == ["X", "Y", "Z"]
+
+
+def _static_root_table():
+    """A CHANNELS 0 root above the two-end-sites rig's joint."""
+    table = _two_end_sites_table()
+    table[0]["pos_channels"] = []
+    table[0]["rot_channels"] = []
+    return table
+
+
+def _static_root_rig():
+    root = BvhRoot("Hips", [0, 0, 0], (), (), [])
+    hand = _attach(root, BvhJoint("Hand", [0, 1, 0], "ZYX", []))
+    _attach(hand, BvhEndSite("EndSiteHand", [1, 0, 0]))
+    _attach(hand, BvhEndSite("EndSiteHand", [0, 0, 2]))
+    return [root, hand, hand.children[0], hand.children[1]]
+
+
+class TestStaticRoot:
+    """A root with ``pos_channels: []`` and ``rot_channels: []`` (CHANNELS 0)."""
+
+    def test_the_table_builds_it(self):
+        root = nodes_from_table(_static_root_table())[0]
+        assert type(root) is BvhRoot
+        assert root.pos_channels == ()
+        assert root.rot_channels == ()
+        assert root.is_static()
+
+    def test_a_root_with_channels_is_not_static(self):
+        assert not nodes_from_table(_two_end_sites_table())[0].is_static()
+
+    def test_a_hand_built_node_list_holds_it(self):
+        bvh = Bvh(_static_root_rig())
+        assert bvh.root.is_static()
+
+    def test_the_table_round_trips(self):
+        table = nodes_to_table(nodes_from_table(_static_root_table()))
+        assert table[0]["pos_channels"] == []
+        assert table[0]["rot_channels"] == []
+
+    def test_bvh_to_node_table_writes_it(self):
+        table = Bvh(_static_root_rig()).to_node_table()
+        assert table[0]["pos_channels"] == [] and table[0]["rot_channels"] == []
+
+
+class TestEntryTableRefusals:
+    """Each refusal of the entry table names the entry, or the node."""
+
+    @pytest.mark.parametrize(
+        "pos, rot",
+        [
+            pytest.param([], ["Z", "Y", "X"], id="pos_empty"),
+            pytest.param(["X", "Y", "Z"], [], id="rot_empty"),
+            pytest.param(None, [], id="rot_empty_pos_absent"),
+        ],
+    )
+    def test_a_root_with_one_order_empty(self, pos, rot):
+        table = _two_end_sites_table()
+        if pos is None:
+            del table[0]["pos_channels"]
+        else:
+            table[0]["pos_channels"] = pos
+        table[0]["rot_channels"] = rot
+        with pytest.raises(ValueError, match=r"entry 0 \('Hips'\).*both.*or neither"):
+            nodes_from_table(table)
+
+    @pytest.mark.parametrize("pos, rot", [((), "ZYX"), ("XYZ", ())])
+    def test_a_hand_built_root_with_one_order_empty(self, pos, rot):
+        with pytest.raises(ValueError, match=r"Root 'Hips'.*both.*or neither"):
+            BvhRoot("Hips", [0, 0, 0], pos, rot, [])
+
+    def test_a_root_emptied_by_one_assignment_is_refused_by_bvh(self):
+        """The setters let a root pass through one order empty; Bvh does not."""
+        nodes = _two_end_sites_rig()
+        nodes[0].rot_channels = ()
+        with pytest.raises(ValueError, match=r"Root 'Hips'.*both.*or neither"):
+            Bvh(nodes)
+
+    def test_a_root_turned_static_by_two_assignments(self):
+        nodes = _two_end_sites_rig()
+        nodes[0].rot_channels = ()
+        nodes[0].pos_channels = ()
+        assert Bvh(nodes).root.is_static()
+
+    def test_a_joint_without_rotation_channels(self):
+        table = _translating_joint_table()
+        table[1]["rot_channels"] = []
+        with pytest.raises(ValueError, match=r"entry 1 \('Hand'\).*channels"):
+            nodes_from_table(table)
+
+    @pytest.mark.parametrize("empty", [[], ()])
+    def test_empty_pos_channels_on_an_end_site(self, empty):
+        table = _two_end_sites_table()
+        table[2]["pos_channels"] = empty
+        with pytest.raises(ValueError, match=r"entry 2 \('EndSiteHand'\).*pos_channels.*end site"):
+            nodes_from_table(table)
+
+    @pytest.mark.parametrize("index, name", [(0, "Hips"), (1, "Hand")])
+    @pytest.mark.parametrize("order", ["ZYX", ["Y", "X", "Z"]])
+    def test_a_position_order_other_than_xyz(self, index, name, order):
+        table = _translating_joint_table()
+        table[index]["pos_channels"] = order
+        with pytest.raises(
+            ValueError,
+            match=rf"entry {index} \('{name}'\).*position channel order .* is not supported\. "
+            rf"Expected 'XYZ'",
+        ):
+            nodes_from_table(table)
+
+    def test_a_hand_built_joint_with_a_position_order_other_than_xyz(self):
+        with pytest.raises(
+            ValueError, match=r"order 'ZXY' on joint 'Hand' is not supported\. Expected 'XYZ'"
+        ):
+            BvhJoint("Hand", [0, 1, 0], "ZYX", [], pos_channels="ZXY")
+
+    def test_a_hand_built_root_with_a_position_order_other_than_xyz(self):
+        with pytest.raises(
+            ValueError,
+            match=r"root position channel order 'ZYX' is not supported\. Expected 'XYZ'.*'Hips'",
+        ):
+            BvhRoot("Hips", pos_channels="ZYX")
+
+    def test_pos_channels_none_on_a_joint(self):
+        table = _translating_joint_table()
+        table[1]["pos_channels"] = None
+        with pytest.raises(ValueError, match=r"entry 1 \('Hand'\).*pos_channels None"):
+            nodes_from_table(table)
+
+
+def _as_json(table):
+    return json.dumps(
+        [{**entry, "offset": np.asarray(entry["offset"]).tolist()} for entry in table]
+    )
+
+
+# Each pair holds every row of the entry table: the two-end-sites rig a root
+# with channels, a rotating joint and end sites; the others a translating
+# joint and a static root.
+_ENTRY_TABLE_RIGS = [
+    pytest.param(_two_end_sites_rig, _two_end_sites_table, id="root_rotating_joint_end_sites"),
+    pytest.param(_translating_joint_rig, _translating_joint_table, id="translating_joint"),
+    pytest.param(_static_root_rig, _static_root_table, id="static_root"),
+]
+
+
+class TestEntryTableRoundTrip:
+    @pytest.mark.parametrize("rig, table", _ENTRY_TABLE_RIGS)
+    def test_a_hand_built_node_list_gives_the_table(self, rig, table):
+        assert _as_json(nodes_to_table(rig())) == _as_json(table())
+
+    @pytest.mark.parametrize("rig, table", _ENTRY_TABLE_RIGS)
+    def test_the_table_gives_back_the_same_nodes(self, rig, table):
+        nodes = rig()
+        rebuilt = nodes_from_table(nodes_to_table(nodes))
+        assert [type(n) for n in rebuilt] == [type(n) for n in nodes]
+        assert _as_json(nodes_to_table(rebuilt)) == _as_json(nodes_to_table(nodes))
+        for before, after in zip(nodes, rebuilt, strict=True):
+            for attribute in ("pos_channels", "rot_channels"):
+                assert getattr(after, attribute, None) == getattr(before, attribute, None)
+
+
+# The SHA-256 of each clip's node table as JSON (offsets as lists), computed
+# on the code before #186 let a joint other than the root translate. A table
+# of today's clips must not change: pos_channels stays on the root only.
+_TABLE_DIGESTS_BEFORE_186 = {
+    "bvh_data/bvh_test1.bvh": "5470628d5644396c01a4f4e18ad91f0fb80fb7b01f386762fca3c07435bbb5c8",
+    "bvh_data/bvh_test2.bvh": "7d563e900a6a5443cd5d3fd36c532c7803594a4e4e06377e1a9511bcb37a5d7f",
+    "bvh_data/bvh_test3.bvh": "6568b02d93786ea39b290ae0ae3733cca3366cff1e0c6d4a8848131f1d0abca5",
+    "bvh_data/bvh_test4.bvh": "5470628d5644396c01a4f4e18ad91f0fb80fb7b01f386762fca3c07435bbb5c8",
+    "bvh_data/cmu_12_01_walk.bvh": (
+        "493ae9b1ac426b39e4edc8e0489ec8ce9e5fa1275a40238f61c649fdaf7bd4e8"
+    ),
+    "bvh_data/standard_skeleton.bvh": (
+        "51ab720756687ff66bb4b5cc4f7f9c92e5a8203be27654c1da46622908b3089f"
+    ),
+    "bvh_data/synthetic/bvh_synthetic_lying_down.bvh": (
+        "5470628d5644396c01a4f4e18ad91f0fb80fb7b01f386762fca3c07435bbb5c8"
+    ),
+    "bvh_data/synthetic/reference_props_rotation_only.bvh": (
+        "1dd9cd0c3aa5ead64352e048d91bb304fdb1c129fc3d4871c538cafe278cd019"
+    ),
+    "bvh_data/synthetic/rotation_only_control.bvh": (
+        "b6ef97068290508d192d5c0b5afd267bb18ca3dd2f3172f92f3655542537d69d"
+    ),
+    "tests/fixtures/full_precision_frame_time.bvh": (
+        "d0714b55df3d9d3d9556ea4d8463341b35640ea97ddad816682ecd31085a92c5"
+    ),
+    "tests/fixtures/rotation_first_root.bvh": (
+        "dd413c6f7c1812d238177e16a1bb2815ac5e85f9d904bd2f684f70b4684ce5f4"
+    ),
+}
+
+
+@pytest.mark.filterwarnings("ignore:Rest pose suggests world up")
+@pytest.mark.parametrize("relative", sorted(_TABLE_DIGESTS_BEFORE_186))
+def test_the_node_table_of_a_fixture_clip_is_unchanged(relative):
+    table = read_bvh_file(BVH_DATA.parent / relative).to_node_table()
+    digest = hashlib.sha256(_as_json(table).encode()).hexdigest()
+    assert digest == _TABLE_DIGESTS_BEFORE_186[relative]

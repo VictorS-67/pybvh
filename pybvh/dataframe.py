@@ -145,8 +145,8 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
           ``dict`` per node in depth-first order with ``name``,
           ``parent`` (the index of the parent's entry, ``None`` on the
           root), ``offset``, ``rot_channels`` on the root and joints and
-          ``pos_channels`` on the root; an entry without ``rot_channels``
-          is an end site. :func:`~pybvh.nodes_from_table` defines the
+          ``pos_channels`` on the root and translating joints; an entry
+          without ``rot_channels`` is an end site. :func:`~pybvh.nodes_from_table` defines the
           format, its two leniencies and what it rejects.
         * A **node list** of ``BvhRoot``, ``BvhJoint`` and ``BvhEndSite``
           objects in depth-first order, such as :attr:`Bvh.nodes`. It is

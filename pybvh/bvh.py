@@ -449,14 +449,6 @@ class Bvh:
         self.frame_time = frame_time
         self.source_path = source_path
 
-        # Validate that root position channels are standard XYZ
-        pos_order = "".join(self.root.pos_channels)
-        if pos_order != "XYZ":
-            raise ValueError(
-                f"Non-standard root position channel order {pos_order!r} is "
-                f"not supported. Expected 'XYZ', the order of every root_pos row."
-            )
-
         given = {"root_pos": root_pos, "joint_angles": joint_angles}
         missing = [name for name, value in given.items() if value is None]
         if missing and len(missing) < len(given):
@@ -2439,8 +2431,8 @@ class Bvh:
         entry per node in :attr:`nodes` order, each with ``name``,
         ``parent`` (the index of the parent's entry, ``None`` on the
         root), ``offset``, ``rot_channels`` on the root and joints and
-        ``pos_channels`` on the root; an entry without ``rot_channels``
-        is an end site. Position is identity, so two end sites under one
+        ``pos_channels`` on the root and translating joints; an entry
+        without ``rot_channels`` is an end site. Position is identity, so two end sites under one
         joint and joints sharing a name are carried as they are, which
         no name-keyed export can do. :func:`~pybvh.nodes_to_table`
         defines the format and names its conventions;

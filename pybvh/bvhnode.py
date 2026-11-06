@@ -40,7 +40,7 @@ def _frozen_error(node: BvhNode, attribute: str) -> AttributeError:
 
 def _is_empty_order(value: object) -> bool:
     """Whether a channel order is given as empty (``[]``, ``()``, ``''``)."""
-    return isinstance(value, (str, Sequence)) and len(value) == 0
+    return isinstance(value, Sequence) and len(value) == 0
 
 
 class BvhNode:

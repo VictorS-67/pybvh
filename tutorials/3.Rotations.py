@@ -388,16 +388,14 @@ print(f"||q_noisy|| = {np.linalg.norm(q_noisy):.4f}  (a valid unit quaternion ha
 #
 # So far we've used the low-level `pybvh.rotations` functions on small NumPy arrays. In practice, you'll want to convert an entire BVH animation at once. The `Bvh` class provides convenience methods that handle every joint's individual Euler order and return nicely organized arrays.
 #
-# All `to_*` methods return a tuple `(root_pos, joint_data)`:
-# - `root_pos` — `(F, 3)`: root translation per frame
-# - `joint_data` — `(F, J, *)`: rotation data per joint per frame (last dim depends on representation)
+# Each `to_*` method returns the rotations only, one array of shape `(F, J, *)`: the rotation of each joint in each frame (the last dimensions depend on the representation). The root position stays on `bvh.root_pos`.
 
 # %%
 # Get the same animation in all four representations
-_, rotmats = bvh.to_rotmat()
-_, rot6d = bvh.to_6d()
-_, quats = bvh.to_quat()
-_, axisang = bvh.to_axisangle()
+rotmats = bvh.to_rotmat()
+rot6d = bvh.to_6d()
+quats = bvh.to_quat()
+axisang = bvh.to_axisangle()
 
 print(f"Rotation matrices: {rotmats.shape}")
 print(f"6D:                {rot6d.shape}")
@@ -407,7 +405,7 @@ print(f"Axis-angle:        {axisang.shape}")
 # %% [markdown]
 # ## Round-trip verification
 #
-# The corresponding `from_*` methods write rotation data back into a `Bvh` object. Going **out** to any representation and **back** should preserve the motion exactly (within float precision). Let's verify this on real data by checking that the spatial coordinates of the skeleton are preserved through the round trip:
+# The corresponding `from_*` methods take the rotation array back. They return a copy of the clip with new `joint_angles` (or change the clip itself with `inplace=True`), and keep its `root_pos`. Going **out** to any representation and **back** should preserve the motion exactly (within float precision). Let's verify this on real data by checking that the spatial coordinates of the skeleton are preserved through the round trip:
 
 # %%
 spatial_before = bvh.node_positions()
@@ -418,9 +416,8 @@ for name, get_fn_name, set_fn_name in [
     ("quaternion", "to_quat", "from_quat"),
     ("axis-angle", "to_axisangle", "from_axisangle"),
 ]:
-    test = bvh.copy()
-    root_pos, joint_data = getattr(test, get_fn_name)()
-    getattr(test, set_fn_name)(root_pos, joint_data)
+    joint_data = getattr(bvh, get_fn_name)()
+    test = getattr(bvh, set_fn_name)(joint_data)
     err = np.max(np.abs(spatial_before - test.node_positions()))
     results[name] = err
 
@@ -491,10 +488,10 @@ print(f"\nSpatial coordinates preserved? {np.allclose(spatial_orig, spatial_unif
 # | `to_6d()` | Euler → 6D `(F, J, 6)` |
 # | `to_quat()` | Euler → quaternions `(F, J, 4)` |
 # | `to_axisangle()` | Euler → axis-angle `(F, J, 3)` |
-# | `from_rotmat(root_pos, joint_rotmats)` | Rotation matrices → Euler (writes back into frames) |
-# | `from_6d(root_pos, joint_rot6d)` | 6D → Euler |
-# | `from_quat(root_pos, joint_quats)` | Quaternion → Euler |
-# | `from_axisangle(root_pos, joint_aa)` | Axis-angle → Euler |
+# | `from_rotmat(joint_rotmats)` | Rotation matrices → Euler (writes `joint_angles`, keeps `root_pos`) |
+# | `from_6d(joint_rot6d)` | 6D → Euler |
+# | `from_quat(joint_quats)` | Quaternion → Euler |
+# | `from_axisangle(joint_aa)` | Axis-angle → Euler |
 # | `change_euler_order(order, joint=name, inplace)` | Change one joint's Euler order |
 # | `change_euler_order(order, inplace)` | Unify all joints to one Euler order |
 

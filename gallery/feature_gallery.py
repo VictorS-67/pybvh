@@ -707,7 +707,7 @@ gp.fig_relative_transform(bvh, FRAME, twist)
 # **`rotation_geodesic_distance`** — the shortest angular distance between two orientations. Left: two orientation triads and the angle between them. Right: the geodesic distance of the root's orientation at each frame from frame 0.
 
 # %%
-_, rotmats = bvh.to_rotmat()
+rotmats = bvh.to_rotmat()
 root_R = rotmats[:, 0]
 geo = np.degrees(
     rotations.rotation_geodesic_distance(np.broadcast_to(root_R[0], root_R.shape), root_R)

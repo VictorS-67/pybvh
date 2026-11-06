@@ -134,6 +134,48 @@ class TestExtractJoints:
 # =============================================================================
 
 
+def _static_root_pair_table() -> list[dict]:
+    """A static root, a translating Hips and a translating arm pair, not
+    placed alike: the right arm's offset is not the left's reflection."""
+    arm = {"parent": 1, "pos_channels": "XYZ", "rot_channels": "ZYX"}
+    return [
+        {
+            "name": "Armature",
+            "parent": None,
+            "offset": [1, 0, 2],
+            "pos_channels": [],
+            "rot_channels": [],
+        },
+        {
+            "name": "Hips",
+            "parent": 0,
+            "offset": [0, 90, 0],
+            "pos_channels": "XYZ",
+            "rot_channels": "ZYX",
+        },
+        {**arm, "name": "LeftArm", "offset": [12, 40, 0]},
+        {"parent": 2, "offset": [20, 0, 0]},
+        {**arm, "name": "RightArm", "offset": [-10, 40, 0]},
+        {"parent": 4, "offset": [-20, 0, 0]},
+    ]
+
+
+def _static_root_pair_clip() -> Bvh:
+    rng = np.random.default_rng(7)
+    nodes = nodes_from_table(_static_root_pair_table())
+    angles = rng.uniform(-1, 1, (_FRAMES, 4, 3))
+    angles[:, 0] = 0.0
+    rest = [[0, 90, 0], [12, 40, 0], [-10, 40, 0]]
+    return Bvh(
+        nodes=nodes,
+        root_pos=np.tile([1.0, 0, 2], (_FRAMES, 1)),
+        joint_angles=angles,
+        joint_translations=rng.uniform(-3, 3, (_FRAMES, 3, 3)) + rest,
+        frame_time=0.1,
+        world_up="+y",
+    )
+
+
 def _swap_side(name: str) -> str:
     if name.startswith("Left"):
         return "Right" + name[len("Left") :]
@@ -157,6 +199,30 @@ class TestMirror:
         for name, positions in source.items():
             expected = positions * [-1, 1, 1]
             np.testing.assert_allclose(result[_swap_side(name)], expected, atol=1e-9, err_msg=name)
+
+    def test_a_static_root_stays_static_at_its_mirrored_offset(self, tmp_path):
+        clip = _static_root_pair_clip()
+        mirrored = clip.mirror(lateral="x")
+        assert mirrored.root.is_static()
+        assert mirrored.root.offset.tolist() == [-1.0, 0, 2]
+        assert mirrored.root_pos.tolist() == [[-1.0, 0, 2]] * _FRAMES
+        np.testing.assert_array_equal(mirrored.joint_angles[:, 0], 0.0)
+        source, result = _positions_by_name(clip), _positions_by_name(mirrored)
+        for name, positions in source.items():
+            expected = positions * [-1, 1, 1]
+            np.testing.assert_allclose(result[_swap_side(name)], expected, atol=1e-9, err_msg=name)
+        first, second = tmp_path / "first.bvh", tmp_path / "second.bvh"
+        mirrored.write(first, verbose=False)
+        read_bvh_file(first).write(second, verbose=False)
+        assert first.read_bytes() == second.read_bytes()
+
+    def test_a_clip_without_motion_mirrors_its_skeleton(self):
+        clip = Bvh(nodes=_static_root_pair_clip().nodes, world_up="+y")
+        mirrored = clip.mirror(lateral="x")
+        assert mirrored.frame_count == 0
+        assert mirrored.joint_translations.shape == (0, 0, 3)
+        left = mirrored.nodes[mirrored.index("LeftArm", space="node")]
+        assert left.offset.tolist() == [10.0, 40, 0]
 
     def test_a_pair_that_translates_on_one_side_is_refused(self):
         # LeftArm translates, RightArm does not.

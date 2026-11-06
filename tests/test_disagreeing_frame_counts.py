@@ -14,6 +14,7 @@ import pytest
 from six_channel_fixtures import reference_hips_table
 
 from pybvh import Bvh, nodes_from_table
+from pybvh.features import to_feature_array
 
 FRAMES = 4
 
@@ -62,3 +63,8 @@ class TestDisagreeingFrameCounts:
         with pytest.raises(ValueError, match="disagree on frame count"):
             clip.write(path)
         assert path.read_text() == "an earlier file"
+
+    def test_the_feature_array_refuses_the_clip(self, array, frames):
+        clip = _disagreeing_clip(array, frames)
+        with pytest.raises(ValueError, match="disagree on frame count"):
+            to_feature_array(clip, include_joint_translations=True)

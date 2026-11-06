@@ -458,6 +458,18 @@ def _pos_channels(node: BvhNode) -> tuple[str, ...]:
     return tuple(getattr(node, "pos_channels", ()))
 
 
+def _euler_order(joint: BvhJoint) -> str:
+    """``joint``'s Euler order as a string, ``'XYZ'`` on a static root.
+
+    A static root declares no rotation channel, and its row of
+    ``Bvh.joint_angles`` is zero in every frame: every order gives it the
+    identity. It reads ``'XYZ'`` so that every column of ``joint_angles``
+    has an order, which the rotation conversions and forward kinematics
+    require.
+    """
+    return "".join(joint.rot_channels) or "XYZ"
+
+
 # ---------------------------------------------------------------------------------------------
 
 

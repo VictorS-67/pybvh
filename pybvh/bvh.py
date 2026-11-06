@@ -55,7 +55,15 @@ from ._orientation import (
 
 # Re-exported: pybvh.bvh has long served every node class, end sites included.
 from .bvhnode import BvhEndSite as BvhEndSite
-from .bvhnode import BvhJoint, BvhNode, BvhRoot, NodeSelector, _is_joint, _is_translating_joint
+from .bvhnode import (
+    BvhJoint,
+    BvhNode,
+    BvhRoot,
+    NodeSelector,
+    _euler_order,
+    _is_joint,
+    _is_translating_joint,
+)
 from .node_tree import (
     _OFFSET_ATOL,
     _channel_difference,
@@ -2170,8 +2178,7 @@ class Bvh:
         world at a frame (ADR 0004): the root's heading and the facing
         chain's heading stage read it.
         """
-        root_order = self.nodes[0].rot_channels  # type: ignore[attr-defined]
-        return rotations.euler_to_rotmat(self.joint_angles[frames, 0], root_order)
+        return rotations.euler_to_rotmat(self.joint_angles[frames, 0], _euler_order(self.root))
 
     def facing_frame(self):
         """Per-frame facing basis as continuous unit vectors.
@@ -2807,12 +2814,10 @@ class Bvh:
         list of str
             e.g. ``['ZYX', 'ZYX', ...]``, one per non-end-site joint.
             Order matches ``joint_names`` and ``joint_angles`` axis 1.
+            A static root (``CHANNELS 0``) declares no rotation channel
+            and never rotates: it reads ``'XYZ'``.
         """
-        return [
-            "".join(n.rot_channels)  # type: ignore[attr-defined]
-            for n in self.nodes
-            if not n.is_end_site()
-        ]
+        return [_euler_order(n) for n in self.nodes if _is_joint(n)]
 
     @property
     def fk_topology(self) -> FkTopology:

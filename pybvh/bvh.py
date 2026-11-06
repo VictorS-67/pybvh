@@ -628,8 +628,14 @@ class Bvh:
             return
         if np.any(self._root_pos != self.root.offset):
             self._refuse_static_root("root_pos places the root away from its offset")
-        if np.any(self._joint_angles[:, :1] != 0):
-            self._refuse_static_root("joint_angles rotates the root")
+        self._refuse_root_rotation(self._joint_angles, "joint_angles rotates the root")
+
+    def _refuse_root_rotation(self, joint_angles: npt.NDArray[np.float64], what: str) -> None:
+        """Raise ``ValueError`` if the root is static and *joint_angles*,
+        ``(F, J, 3)``, rotates it in some frame (its row 0 is not zero);
+        *what* says what the caller does to it."""
+        if self.root.is_static() and np.any(joint_angles[:, :1] != 0):
+            self._refuse_static_root(what)
 
     def _refuse_static_root(self, what: str) -> None:
         """Raise ``ValueError`` if the root is static, *what* saying what the caller does to it."""
@@ -801,8 +807,7 @@ class Bvh:
     @joint_angles.setter
     def joint_angles(self, value: npt.ArrayLike) -> None:
         checked = _JOINT_ANGLES.checked(value)
-        if np.any(checked[:, :1] != 0):
-            self._refuse_static_root("These joint_angles rotate the root")
+        self._refuse_root_rotation(checked, "These joint_angles rotate the root")
         self._joint_angles = checked
         self._derived.user_replaced_motion()
 
@@ -3506,8 +3511,7 @@ class Bvh:
                 f"Expected {self.joint_count} joints in {param_name}, got {joint_rotmats.shape[1]}"
             )
         new_angles = rotations.rotmat_to_euler(joint_rotmats, self.euler_orders)
-        if np.any(new_angles[:, :1] != 0):
-            self._refuse_static_root(f"{method} rotates the root")
+        self._refuse_root_rotation(new_angles, f"{method} rotates the root")
         target = self if inplace else self.copy()
         target.joint_angles = new_angles
         if inplace:

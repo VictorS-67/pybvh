@@ -683,7 +683,9 @@ def write_bvh_file(
     ValueError
         If the file extension is not ``.bvh``, or if ``bvh.frame_time``
         is 0 (unset). A file must state its frame time, and
-        :func:`read_bvh_file` refuses ``Frame Time: 0``.
+        :func:`read_bvh_file` refuses ``Frame Time: 0``. Also if the
+        clip's motion arrays disagree on frame count (the setters do not
+        check it); the file is then left as it was.
     FileNotFoundError
         If the parent directory does not exist.
     FileExistsError
@@ -732,6 +734,9 @@ def write_bvh_file(
         raise FileExistsError(f"{filepath} already exists; pass overwrite=True to replace it.")
     # A BVH file must state its frame time, and the reader refuses 0.
     _require_rate(bvh.frame_time, f"Writing {filepath.name}")
+    # Read before the file is opened: it raises on arrays that disagree on
+    # frame count, which would otherwise be broadcast across the frames.
+    arrays = bvh._motion_on_skeleton()
 
     def offset_to_str(node: BvhNode) -> str:
         offset_str = "OFFSET"
@@ -781,11 +786,11 @@ def write_bvh_file(
             # A static root has no column: its root_pos and its row of
             # joint_angles are not written.
             if columns.root_pos.size:
-                motion[:, columns.root_pos] = bvh.root_pos
-            motion[:, columns.joint_translations] = bvh.joint_translations
+                motion[:, columns.root_pos] = arrays["root_pos"]
+            motion[:, columns.joint_translations] = arrays["joint_translations"]
             # pybvh stores angles in radians; BVH format requires degrees.
             motion[:, columns.joint_angles] = np.rad2deg(
-                bvh.joint_angles[:, columns.rotating_joints]
+                arrays["joint_angles"][:, columns.rotating_joints]
             )
             np.savetxt(f, motion, fmt="%.6f", delimiter=" ")
 

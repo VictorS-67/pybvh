@@ -497,6 +497,7 @@ def batch_to_numpy(
     include_root_pos: bool = True,
     pad: bool = False,
     pad_value: float = 0.0,
+    include_joint_translations: bool = False,
 ) -> npt.NDArray[np.float64] | list[npt.NDArray[np.float64]]:
     """Convert a list of Bvh objects to NumPy arrays.
 
@@ -505,7 +506,10 @@ def batch_to_numpy(
     order (``'euler'``, ``'axisangle'``), all clips must additionally
     share the same per-joint Euler orders. For rotation-invariant
     representations (``'6d'``, ``'quat'``, ``'rotmat'``) the
-    Euler-order check is skipped.
+    Euler-order check is skipped. With ``include_joint_translations=True``
+    all clips must also have the same translating joints, whatever the
+    representation; with it off, which joints translate is not checked,
+    because no column depends on it.
 
     Parameters
     ----------
@@ -523,6 +527,10 @@ def batch_to_numpy(
         If False (default), return a list of 2-D arrays.
     pad_value : float, optional
         Value to use for padding (default ``0.0``).
+    include_joint_translations : bool, optional
+        If True, add the block of joint translations after the root
+        position, as :func:`~pybvh.features.to_feature_array` does.
+        Default False.
 
     Returns
     -------
@@ -538,7 +546,9 @@ def batch_to_numpy(
     if not bvh_list:
         raise ValueError("bvh_list is empty.")
 
-    channel_layout_matters = representation in ("euler", "axisangle")
+    # The Euler orders shape the rotation columns of 'euler' and 'axisangle';
+    # which joints translate shapes the columns of the translation block.
+    rotation_order_matters = representation in ("euler", "axisangle")
 
     # Validate skeleton compatibility
     ref = bvh_list[0]
@@ -546,8 +556,13 @@ def batch_to_numpy(
         difference = _hierarchy_difference(ref.nodes, bvh.nodes)
         if difference is not None:
             raise ValueError(_hierarchy_mismatch_message(difference, ref, bvh, 0, i))
-        if channel_layout_matters:
-            difference = _channel_difference(ref.nodes, bvh.nodes)
+        if rotation_order_matters or include_joint_translations:
+            difference = _channel_difference(
+                ref.nodes,
+                bvh.nodes,
+                position_channels=include_joint_translations,
+                rotation_order=rotation_order_matters,
+            )
             if difference is not None:
                 raise ValueError(
                     _channel_mismatch_message(difference, ref, bvh, 0, i, representation)
@@ -557,7 +572,12 @@ def batch_to_numpy(
     # owns the flat (F, D) layout, the valid-representation set, and its
     # error message.
     arrays: list[npt.NDArray[np.float64]] = [
-        to_feature_array(bvh, representation=representation, include_root_pos=include_root_pos)
+        to_feature_array(
+            bvh,
+            representation=representation,
+            include_root_pos=include_root_pos,
+            include_joint_translations=include_joint_translations,
+        )
         for bvh in bvh_list
     ]
 

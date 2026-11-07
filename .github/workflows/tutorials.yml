@@ -10,6 +10,7 @@ on:
       - 'gallery/**'
       - 'pyproject.toml'
       - '.github/workflows/tutorials.yml'
+      - '.github/actions/system-packages/**'
   # Any base branch: a stacked pull request is checked against its parent.
   pull_request:
     paths:
@@ -19,6 +20,7 @@ on:
       - 'gallery/**'
       - 'pyproject.toml'
       - '.github/workflows/tutorials.yml'
+      - '.github/actions/system-packages/**'
   workflow_dispatch:
 
 jobs:

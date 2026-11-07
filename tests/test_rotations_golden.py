@@ -1,9 +1,10 @@
 """Differential ('golden') tests: pybvh.rotations vs frozen scipy references.
 
 The reference values in ``tests/fixtures/*.npz`` were generated once, offline,
-by ``tests/fixtures/generate_fixtures.py`` running in the ``pybvh_test`` env
-(which has scipy). This test runs in the numpy-only ``pybvh`` env — it just
-loads the frozen arrays, so scipy is NOT a runtime or CI dependency.
+by ``tests/fixtures/generate_fixtures.py`` running in the fixture env
+``tests/fixtures/.venv`` (which has scipy). This test runs in the numpy-only
+development ``.venv`` — it just loads the frozen arrays, so scipy is NOT a
+runtime or CI dependency.
 
 If one of these fails, suspect a CONVENTION mismatch first (see each fixture's
 ``meta`` JSON), not necessarily a bug — that is the documented failure mode of
@@ -26,7 +27,7 @@ def _load(name):
     if not os.path.exists(path):
         pytest.skip(
             f"missing golden fixture {name}.npz "
-            "(run tests/fixtures/generate_fixtures.py in pybvh_test)"
+            "(run tests/fixtures/generate_fixtures.py in its env, see tests/fixtures/README.md)"
         )
     return np.load(path)
 

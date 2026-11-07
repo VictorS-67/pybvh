@@ -1,0 +1,46 @@
+name: System packages
+description: >-
+  Make sure the runner has the named Ubuntu packages. A package already on
+  the runner image is not installed again; the rest come from the cache, and
+  from the package mirror only on a cache miss, each mirror call under its
+  own time limit. system_packages.sh says why and holds the limits.
+  Expects the repository to be checked out already.
+
+inputs:
+  packages:
+    description: >-
+      The packages, separated by spaces. Each needs a probe in
+      system_packages.sh, which tells whether the runner has it.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - id: probe
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      # PACKAGES is split into words on purpose: one argument per package.
+      run: '"$GITHUB_ACTION_PATH/system_packages.sh" probe $PACKAGES'
+
+    - id: restore
+      if: steps.probe.outputs.missing != ''
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ steps.probe.outputs.deb-dir }}
+        key: ${{ steps.probe.outputs.cache-key }}
+
+    - if: steps.probe.outputs.missing != ''
+      shell: bash
+      env:
+        MISSING: ${{ steps.probe.outputs.missing }}
+        CACHE_HIT: ${{ steps.restore.outputs.cache-hit }}
+      run: '"$GITHUB_ACTION_PATH/system_packages.sh" install $MISSING'
+
+    # Saved here, not at the end of the job, so a later failing step does
+    # not lose it; skipped on a hit, whose key is already saved.
+    - if: steps.probe.outputs.missing != '' && steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ steps.probe.outputs.deb-dir }}
+        key: ${{ steps.probe.outputs.cache-key }}

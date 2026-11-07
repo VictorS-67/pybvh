@@ -8,12 +8,12 @@ Create the development environment, a `.venv` at the root of the checkout, with 
 
 ```bash
 uv venv --python 3.10
-uv pip install -e ".[all-viz]" --group dev
+uv pip install --python .venv -e ".[all-viz]" --group dev
 .venv/bin/python -m pytest tests/ -v
 .venv/bin/pre-commit install
 ```
 
-Python 3.10 is the oldest version pybvh supports. Each worktree gets its own `.venv` from the first two lines, so its tests run on its own code. These commands write no `uv.lock`; `uv run` and `uv sync` write one, and pybvh has not decided to commit one. Without uv, make the same `.venv` with `python3.10 -m venv .venv`, bring its pip to 25.1 or later with `.venv/bin/pip install -U pip` (a new `.venv` holds the pip its Python bundles, which can be older), and fill it with `.venv/bin/pip install -e ".[all-viz]" --group dev`.
+Python 3.10 is the oldest version pybvh supports. Each worktree gets its own `.venv` from the first two lines, so its tests run on its own code. `--python .venv` names that `.venv` as the target: without it, `uv pip install` installs into an environment that is active in the shell, such as another worktree's. These commands write no `uv.lock`; `uv run` and `uv sync` write one, and pybvh has not decided to commit one. Without uv, make the same `.venv` with `python3.10 -m venv .venv`, bring its pip to 25.1 or later with `.venv/bin/pip install -U pip` (a new `.venv` holds the pip its Python bundles, which can be older), and fill it with `.venv/bin/pip install -e ".[all-viz]" --group dev`.
 
 The `dev` dependency group in `pyproject.toml` holds the tools for working on pybvh: pytest and what the tests import, ruff and mypy at the versions CI runs, and pre-commit. pip installs dependency groups from version 25.1 on.
 

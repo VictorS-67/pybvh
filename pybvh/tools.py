@@ -297,7 +297,11 @@ def parse_axis(axis: str, *, allow_unsigned: bool = False) -> Axis:
     --------
     >>> parse_axis('-z').index, parse_axis('-z').sign
     (2, -1.0)
-    >>> heights = coords[..., up.index] * up.sign   # up = parse_axis('-y')
+    >>> from pybvh import read_bvh_file
+    >>> bvh = read_bvh_file('bvh_data/bvh_test1.bvh')
+    >>> up = parse_axis('+z')                        # the clip's world up
+    >>> coords = bvh.node_positions()
+    >>> heights = coords[..., up.index] * up.sign    # up-positive heights
     """
     normalized = _validate_axis_string(axis, allow_unsigned=allow_unsigned)
     index, sign = _axis_index_sign(normalized)

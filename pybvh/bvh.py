@@ -768,6 +768,7 @@ class Bvh:
 
         Examples
         --------
+        >>> bvh = Bvh.from_file('bvh_data/bvh_test1.bvh')
         >>> if bvh.fps != 30:
         ...     bvh = bvh.resample(30)
         """
@@ -1188,6 +1189,7 @@ class Bvh:
 
         Examples
         --------
+        >>> bvh = Bvh.from_file('bvh_data/bvh_test1.bvh')
         >>> if not bvh.matches_rate(30):
         ...     bvh = bvh.resample(30)
         """
@@ -1407,6 +1409,7 @@ class Bvh:
 
         Examples
         --------
+        >>> bvh = Bvh.from_file('bvh_data/bvh_test1.bvh')
         >>> table = bvh.to_node_table()
         >>> table[1]["offset"] = [0.0, 12.0, 0.0]
         >>> edited = bvh.copy(nodes=table)
@@ -1761,6 +1764,7 @@ class Bvh:
         produces the wrong answer (e.g. authored BVH files where the rest
         pose convention differs from the animation's world orientation):
 
+            >>> bvh = Bvh.from_file('bvh_data/bvh_test1.bvh')
             >>> bvh.world_up = '+y'
 
         Assign ``'auto'`` or ``None`` to clear a previous override and
@@ -1806,8 +1810,12 @@ class Bvh:
         Compare against :attr:`world_up` to see whether an override, or
         an inherited axis, is in effect:
 
-            >>> bvh.world_up_inferred  # '+y'  (auto's guess)
-            >>> bvh.world_up           # '+z'  (user override)
+            >>> bvh = Bvh.from_file('bvh_data/bvh_test1.bvh')
+            >>> bvh.world_up = '+y'    # a user override
+            >>> bvh.world_up_inferred  # auto's guess
+            '+z'
+            >>> bvh.world_up
+            '+y'
         """
         guess = self._guess_world_up()
         self._warn_about_world_up_guess(guess, self.rest_up)
@@ -1859,6 +1867,7 @@ class Bvh:
 
         Example — up-positive heights of every node in every frame:
 
+            >>> bvh = Bvh.from_file('bvh_data/bvh_test1.bvh')
             >>> coords = bvh.node_positions()
             >>> heights = coords[:, :, bvh.world_up_axis.index] * bvh.world_up_axis.sign
 
@@ -1973,11 +1982,12 @@ class Bvh:
 
         Examples
         --------
+        >>> bvh = Bvh.from_file('bvh_data/bvh_test1.bvh')
         >>> report = bvh.orientation_report
         >>> if report.rest_forward_source == "default":
         ...     ...  # no usable L/R geometry: rest_forward is a house default
         >>> report.world_up, report.world_up_source
-        ('+y', 'first_frame')
+        ('+z', 'first_frame')
         """
         report = self._derived.orientation_report
         if report is None:
@@ -2127,14 +2137,15 @@ class Bvh:
         duplicates). Skeletons with conventions the heuristic can't parse
         have ``lr_mapping = None`` — in that case, set it explicitly:
 
-            >>> bvh.lr_mapping = {'arm.L': 'arm.R', 'leg.L': 'leg.R'}
+            >>> bvh = Bvh.from_file('bvh_data/bvh_test1.bvh')
+            >>> bvh.lr_mapping = {'LeftArm': 'RightArm', 'LeftUpLeg': 'RightUpLeg'}
 
         The assigned dict is one-directional; pybvh symmetrizes it
         internally. Either form works on assignment.
 
         or pass ``lr_mapping=`` at load time:
 
-            >>> bvh = read_bvh_file('weird.bvh', lr_mapping={...})
+            >>> bvh = Bvh.from_file('bvh_data/bvh_test1.bvh', lr_mapping={'LeftArm': 'RightArm'})
 
         Consumers: ``mirror()``, ``orientation_report`` (and so
         ``rest_forward`` and ``has_lr_geometry``),
@@ -2220,10 +2231,12 @@ class Bvh:
 
         Examples
         --------
-            >>> if bvh.has_lr_geometry:
-            ...     assert bvh.rest_forward == dataset_convention
-            ... else:
-            ...     ...  # facing is a default, not a measurement
+        >>> bvh = Bvh.from_file('bvh_data/bvh_test1.bvh')
+        >>> dataset_convention = '+y'  # the rest facing the dataset assumes
+        >>> if bvh.has_lr_geometry:
+        ...     assert bvh.rest_forward == dataset_convention
+        ... else:
+        ...     ...  # facing is a default, not a measurement
 
         See Also
         --------

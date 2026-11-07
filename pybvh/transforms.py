@@ -548,6 +548,8 @@ def rotate_angles_vertical(
 
     Examples
     --------
+    >>> from pybvh import read_bvh_file
+    >>> bvh = read_bvh_file('bvh_data/bvh_test1.bvh')
     >>> angles = bvh.joint_angles          # (F, J, 3) radians
     >>> pos = bvh.root_pos                 # (F, 3)
     >>> up = {'x': 0, 'y': 1, 'z': 2}[bvh.world_up[1]]
@@ -794,6 +796,8 @@ def mirror_angles(
 
     Examples
     --------
+    >>> from pybvh import read_bvh_file
+    >>> bvh = read_bvh_file('bvh_data/bvh_test1.bvh')
     >>> angles = bvh.joint_angles
     >>> pos = bvh.root_pos
     >>> pairs = bvh.lr_pairs

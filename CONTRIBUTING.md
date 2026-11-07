@@ -9,7 +9,7 @@ Create the development environment, a `.venv` at the root of the checkout, with 
 ```bash
 uv venv --python 3.10
 uv pip install --python .venv -e ".[all-viz]" --group dev
-.venv/bin/python -m pytest tests/ -v
+.venv/bin/python -m pytest tests/ pybvh/ --doctest-modules -v
 .venv/bin/pre-commit install
 ```
 
@@ -19,7 +19,7 @@ The `dev` dependency group in `pyproject.toml` holds the tools for working on py
 
 The last line installs the git hooks once per clone: on every commit, ruff and ruff format run on the staged files and the message is checked against the rules under "Commits", the same checks CI runs on a pull request. The worktrees of a clone share its hooks, and the hook runs the pre-commit of the `.venv` that installed it, or, once that `.venv` is gone, whatever `pre-commit` is on the PATH, so run that line in the clone's main checkout, not in a worktree you will delete.
 
-Run the tests as `python -m pytest` from the root of the checkout, not as bare `pytest`: it puts that directory first on the import path, so the tests import the checkout's own `pybvh` even when the environment that runs them has `pybvh` installed from another clone or worktree. While you work, run the tests each commit touches before committing it; run the full suite once on the finished branch.
+Run the tests as `python -m pytest` from the root of the checkout, not as bare `pytest`: it puts that directory first on the import path, so the tests import the checkout's own `pybvh` even when the environment that runs them has `pybvh` installed from another clone or worktree. `pybvh/ --doctest-modules` adds the examples in the docstrings to the suite; they read their clip from `bvh_data/`, so they too run from the root. While you work, run the tests each commit touches before committing it; run the full suite once on the finished branch.
 
 The optional visualization backends (`pybvh[opencv]`, `pybvh[interactive]`, `pybvh[viewer]`) each unlock further tests; tests that need a backend you do not have are skipped, not failed.
 
@@ -36,7 +36,7 @@ Every change goes through a pull request into `main`. `main` is the next release
 
 Before marking a PR ready:
 
-- the full suite passes locally on the finished branch: `.venv/bin/python -m pytest tests/ -v`
+- the full suite passes locally on the finished branch: `.venv/bin/python -m pytest tests/ pybvh/ --doctest-modules -v`
 - `CHANGELOG.md` has its entry (see below), unless the change is invisible to users
 - docstrings name any convention the change chose (see "Name every convention choice" in `CODING_STANDARDS.md`)
 - the branch is rebased on its current base, which is `main`, or its parent branch while the PR is stacked; an integration branch is built on the current `main`; a pull request that merges itself may instead carry the catch-up merges of `main` that the `merge-two-way` workflow adds (see "Keeping a branch current")

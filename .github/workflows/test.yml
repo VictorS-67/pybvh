@@ -33,4 +33,5 @@ jobs:
         python -m pip install --upgrade pip
         pip install . --group dev
     - name: Run tests
-      run: python -m pytest tests/ -v
+      # pybvh/ with --doctest-modules runs the examples in the docstrings.
+      run: python -m pytest tests/ pybvh/ --doctest-modules -v

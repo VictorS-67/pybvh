@@ -122,16 +122,24 @@ class FkTopology(_FkTopologyFields):
 
     Examples
     --------
+    >>> from pybvh import read_bvh_file
+    >>> bvh = read_bvh_file('bvh_data/bvh_test1.bvh')
     >>> topology = bvh.fk_topology            # at preprocessing time
+    >>> root_pos, joint_angles = bvh.root_pos, bvh.joint_angles
+    >>> joint_translations = bvh.joint_translations  # the motion, kept as arrays
+    >>> import os, tempfile
+    >>> folder = tempfile.TemporaryDirectory()  # any folder of yours
+    >>> path = os.path.join(folder.name, 'topology.npz')
     >>> np.savez(path, offsets=topology.offsets, parent_idx=topology.parent_idx,
     ...          joint_idx=topology.joint_idx, euler_orders=topology.euler_orders,
     ...          translation_idx=topology.translation_idx)
-    >>> ...                                   # at train time, no Bvh in sight
-    >>> d = np.load(path)
-    >>> topology = FkTopology(d['offsets'], d['parent_idx'], d['joint_idx'],
-    ...                       list(d['euler_orders']), d['translation_idx'])
+    >>> # at train time, no Bvh in sight
+    >>> with np.load(path) as d:
+    ...     topology = FkTopology(d['offsets'], d['parent_idx'], d['joint_idx'],
+    ...                           list(d['euler_orders']), d['translation_idx'])
     >>> coords = frames_to_node_positions(topology, root_pos, joint_angles,
     ...                                   joint_translations=joint_translations)
+    >>> folder.cleanup()
     """
 
     __slots__ = ()

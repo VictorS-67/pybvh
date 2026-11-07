@@ -16,7 +16,7 @@ The `.npz` fixtures here are **committed**, and the tests (`tests/test_*_golden.
 
 ```bash
 pip install -e . --group dev  # or the .venv of CONTRIBUTING.md
-python -m pytest tests/ -v
+python -m pytest tests/ pybvh/ --doctest-modules -v
 ```
 
 This keeps pybvh numpy-only at runtime *and* in CI (the charter), while still validating against scipy-derived ground truth.

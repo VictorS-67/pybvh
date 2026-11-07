@@ -4,20 +4,22 @@ This page describes how changes reach `main`. It applies to the maintainer as mu
 
 ## Setting up
 
-Create the development environment and run the test suite before you start:
+Create the development environment, a `.venv` at the root of the checkout, with [uv](https://docs.astral.sh/uv/), and run the test suite before you start:
 
 ```bash
-conda create -n pybvh python=3.10
-conda run -n pybvh pip install -e ".[all-viz]" --group dev
-conda run -n pybvh python -m pytest tests/ -v
-conda run -n pybvh pre-commit install
+uv venv --python 3.10
+uv pip install -e ".[all-viz]" --group dev
+.venv/bin/python -m pytest tests/ -v
+.venv/bin/pre-commit install
 ```
+
+Python 3.10 is the oldest version pybvh supports. Each worktree gets its own `.venv` from the first two lines, so its tests run on its own code. These commands write no `uv.lock`; `uv run` and `uv sync` write one, and pybvh has not decided to commit one. Without uv, make the same `.venv` with `python3.10 -m venv .venv`, bring its pip to 25.1 or later with `.venv/bin/pip install -U pip` (a new `.venv` holds the pip its Python bundles, which can be older), and fill it with `.venv/bin/pip install -e ".[all-viz]" --group dev`.
 
 The `dev` dependency group in `pyproject.toml` holds the tools for working on pybvh: pytest and what the tests import, ruff and mypy at the versions CI runs, and pre-commit. pip installs dependency groups from version 25.1 on.
 
-The last line installs the git hooks once per clone: on every commit, ruff and ruff format run on the staged files and the message is checked against the rules under "Commits", the same checks CI runs on a pull request.
+The last line installs the git hooks once per clone: on every commit, ruff and ruff format run on the staged files and the message is checked against the rules under "Commits", the same checks CI runs on a pull request. The worktrees of a clone share its hooks, and the hook runs the pre-commit of the `.venv` that installed it, or, once that `.venv` is gone, whatever `pre-commit` is on the PATH, so run that line in the clone's main checkout, not in a worktree you will delete.
 
-Run the tests as `python -m pytest` from the root of the checkout, not as bare `pytest`: it puts that directory first on the import path, so the tests import the checkout's own `pybvh` even when the editable install points at another clone or worktree. While you work, run the tests each commit touches before committing it; run the full suite once on the finished branch.
+Run the tests as `python -m pytest` from the root of the checkout, not as bare `pytest`: it puts that directory first on the import path, so the tests import the checkout's own `pybvh` even when the environment that runs them has `pybvh` installed from another clone or worktree. While you work, run the tests each commit touches before committing it; run the full suite once on the finished branch.
 
 The optional visualization backends (`pybvh[opencv]`, `pybvh[interactive]`, `pybvh[viewer]`) each unlock further tests; tests that need a backend you do not have are skipped, not failed.
 
@@ -34,7 +36,7 @@ Every change goes through a pull request into `main`. `main` is the next release
 
 Before marking a PR ready:
 
-- the full suite passes locally on the finished branch: `conda run -n pybvh python -m pytest tests/ -v`
+- the full suite passes locally on the finished branch: `.venv/bin/python -m pytest tests/ -v`
 - `CHANGELOG.md` has its entry (see below), unless the change is invisible to users
 - docstrings name any convention the change chose (see "Name every convention choice" in `CODING_STANDARDS.md`)
 - the branch is rebased on its current base, which is `main`, or its parent branch while the PR is stacked; an integration branch is built on the current `main`; a pull request that merges itself may instead carry the catch-up merges of `main` that the `merge-two-way` workflow adds (see "Keeping a branch current")

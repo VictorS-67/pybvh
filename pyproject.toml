@@ -84,6 +84,9 @@ include = ["pybvh*"]
 # The docstring examples run with --doctest-modules, from the root of the
 # checkout: they read their clip from bvh_data/. An example may wrap a long
 # output over several lines, as nodes_to_table's does.
+# --doctest-modules stays on the command line, not in addopts: there it would
+# also apply to the Tutorials workflow's pytest, which would then import the
+# jupytext .py twins of the notebooks as modules.
 doctest_optionflags = ["NORMALIZE_WHITESPACE"]
 
 [tool.ruff]

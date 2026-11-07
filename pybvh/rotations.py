@@ -55,6 +55,55 @@ def _validate_order(order_str: str) -> None:
         raise ValueError(f"order must not repeat an axis consecutively, got '{order_str}'")
 
 
+# The order of a joint column that declares no rotation channel: a static
+# root (``CHANNELS 0``). It stands for the identity: only the per-joint
+# conversions accept it, with zero angles in and the identity out.
+_EMPTY_ORDER = ""
+
+# How far each entry of a rotation matrix may be from the identity's for a
+# joint column with order '' to read it as the identity, and zero angles.
+# The same bound as _extract_euler's, below which it reads the sine or the
+# cosine of the middle angle as zero (gimbal lock).
+_IDENTITY_ATOL = 1e-7
+
+
+def _check_empty_order_angles(
+    angles: npt.NDArray[np.float64], columns: npt.NDArray[np.intp]
+) -> None:
+    """Raise ``ValueError`` unless *angles*, ``(..., len(columns), 3)``, the
+    angles of the joint *columns* with order ``''``, are all zero."""
+    nonzero = np.any(angles != 0, axis=tuple(i for i in range(angles.ndim) if i != angles.ndim - 2))
+    if np.any(nonzero):
+        column = int(columns[np.flatnonzero(nonzero)[0]])
+        raise ValueError(
+            f"Joint column {column} has Euler order '' (no rotation channel, "
+            f"a static root), which stands for the identity: it takes zero "
+            f"angles only, but some are not zero."
+        )
+
+
+def _off_identity(R: npt.NDArray[np.float64]) -> npt.NDArray[np.bool_]:
+    """Whether each rotation of *R*, ``(..., 3, 3)``, is off the identity:
+    an entry farther than :data:`_IDENTITY_ATOL` from the identity's, or
+    not finite. Shape ``(...)``."""
+    return ~np.all(np.abs(R - np.eye(3)) <= _IDENTITY_ATOL, axis=(-2, -1))
+
+
+def _check_empty_order_rotmats(R: npt.NDArray[np.float64], columns: npt.NDArray[np.intp]) -> None:
+    """Raise ``ValueError`` unless *R*, ``(..., len(columns), 3, 3)``, the
+    rotations of the joint *columns* with order ``''``, are all the
+    identity, each entry within :data:`_IDENTITY_ATOL`."""
+    off_identity = np.any(_off_identity(R), axis=tuple(range(R.ndim - 3)))
+    if np.any(off_identity):
+        column = int(columns[np.flatnonzero(off_identity)[0]])
+        raise ValueError(
+            f"Joint column {column} has Euler order '' (no rotation channel, "
+            f"a static root), which stands for the identity: it takes the "
+            f"identity rotation only (each matrix entry within "
+            f"{_IDENTITY_ATOL:g}), but some rotations are not."
+        )
+
+
 def _group_joints_by_order(
     per_joint: Sequence[str],
 ) -> dict[str, npt.NDArray[np.intp]]:
@@ -89,7 +138,8 @@ def _parse_order(order: str | Sequence[str]) -> tuple[str | None, list[str] | No
 
     per_joint = [o.upper() for o in order_seq]
     for o in per_joint:
-        _validate_order(o)
+        if o != _EMPTY_ORDER:
+            _validate_order(o)
     return None, per_joint
 
 
@@ -114,7 +164,9 @@ def euler_to_rotmat(
           per joint along axis ``-2`` of ``angles``.  Input shape must
           satisfy ``angles.shape[-2] == len(order)``.  Joints sharing an
           order are grouped so the rotation math vectorizes inside each
-          group.
+          group.  An entry may be ``''``, the order of a joint that
+          declares no rotation channel (a static root, ``CHANNELS 0``):
+          its angles must be zero, and it gives the identity.
     degrees : bool
         If True, Euler angles are in degrees. Default False (radians).
 
@@ -122,6 +174,15 @@ def euler_to_rotmat(
     -------
     R : ndarray, shape (*, 3, 3) or (*, J, 3, 3)
         Rotation matrices, one per input entry.
+
+    Raises
+    ------
+    ValueError
+        If an order is not three axes of ``'XYZ'`` with no axis repeated
+        consecutively (a single order cannot be ``''``: it would stand
+        for no rotation at all, which is no Euler order), if the per-joint
+        shapes disagree, or if a joint with order ``''`` has a non-zero
+        angle.
     """
     angles_arr: npt.NDArray[np.float64] = np.asarray(angles, dtype=np.float64)
     if degrees:
@@ -149,7 +210,11 @@ def euler_to_rotmat(
     out = np.empty(angles_arr.shape + (3,), dtype=np.float64)
     for order_str, idx_arr in _group_joints_by_order(per_joint).items():
         block = angles_arr[..., idx_arr, :]  # (*, |group|, 3)
-        out[..., idx_arr, :, :] = _euler_to_rotmat_rad(block, order_str)
+        if order_str == _EMPTY_ORDER:
+            _check_empty_order_angles(block, idx_arr)
+            out[..., idx_arr, :, :] = np.eye(3)
+        else:
+            out[..., idx_arr, :, :] = _euler_to_rotmat_rad(block, order_str)
     return out
 
 
@@ -201,7 +266,10 @@ def rotmat_to_euler(
         - ``'ZYX'`` or ``['Z', 'Y', 'X']`` — single global order.
         - ``['ZYX', 'ZYX', ...]`` — per-joint orders, one entry per
           joint along axis ``-3`` of ``R``.  Must satisfy
-          ``R.shape[-3] == len(order)``.
+          ``R.shape[-3] == len(order)``.  An entry may be ``''``, the
+          order of a joint that declares no rotation channel (a static
+          root, ``CHANNELS 0``): its rotations must be the identity, each
+          matrix entry within ``1e-7``, and it gives zero angles.
     degrees : bool
         If True, Euler angles are in degrees. Default False (radians).
 
@@ -209,6 +277,14 @@ def rotmat_to_euler(
     -------
     angles : ndarray, shape (*, 3) or (*, J, 3)
         Euler angles in the specified order.
+
+    Raises
+    ------
+    ValueError
+        If an order is not three axes of ``'XYZ'`` with no axis repeated
+        consecutively (a single order cannot be ``''``), if the per-joint
+        shapes disagree, or if a joint with order ``''`` has a rotation
+        that is not the identity.
     """
     R_arr: npt.NDArray[np.float64] = np.asarray(R, dtype=np.float64)
 
@@ -236,7 +312,11 @@ def rotmat_to_euler(
     out = np.empty(R_arr.shape[:-2] + (3,), dtype=np.float64)
     for order_str, idx_arr in _group_joints_by_order(per_joint).items():
         block = R_arr[..., idx_arr, :, :]  # (*, |group|, 3, 3)
-        out[..., idx_arr, :] = _rotmat_to_euler_rad(block, order_str)
+        if order_str == _EMPTY_ORDER:
+            _check_empty_order_rotmats(block, idx_arr)
+            out[..., idx_arr, :] = 0.0
+        else:
+            out[..., idx_arr, :] = _rotmat_to_euler_rad(block, order_str)
     if degrees:
         out = np.degrees(out)
     return out
@@ -689,7 +769,7 @@ def quat_unwrap(
 
     Examples
     --------
-    >>> _, quats = bvh.to_quat()             # (F, J, 4), canonical w >= 0
+    >>> quats = bvh.to_quat()                # (F, J, 4), canonical w >= 0
     >>> quats = rotations.quat_unwrap(quats)  # continuous along frames
 
     See Also

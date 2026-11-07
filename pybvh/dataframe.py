@@ -2,7 +2,7 @@
 
 The inverse of :meth:`Bvh.to_df_dict <pybvh.bvh.Bvh.to_df_dict>` in
 ``'euler'`` mode: :func:`df_to_bvh` pairs a skeleton with a DataFrame
-holding a ``time`` column in seconds and one column per channel, root
+holding a ``time`` column in seconds and one column per channel,
 positions in the skeleton's length unit and joint rotations in
 **degrees**, the unit of a file and of ``to_df_dict``, converted here to
 the radians of ``joint_angles``. pandas is never imported at run time:
@@ -19,8 +19,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import numpy.typing as npt
 
-from .bvh import Bvh, _motion_column_names
-from .bvhnode import BvhNode
+from .bvh import Bvh, _euler_blocks, _motion_column_names, _static_root_pos
+from .bvhnode import BvhNode, _is_joint, _is_translating_joint
 from .io import _rate_with_fewest_decimals
 from .node_tree import _nodes_from_table_or_list
 
@@ -145,8 +145,8 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
           ``dict`` per node in depth-first order with ``name``,
           ``parent`` (the index of the parent's entry, ``None`` on the
           root), ``offset``, ``rot_channels`` on the root and joints and
-          ``pos_channels`` on the root; an entry without ``rot_channels``
-          is an end site. :func:`~pybvh.nodes_from_table` defines the
+          ``pos_channels`` on the root and translating joints; an entry
+          without ``rot_channels`` is an end site. :func:`~pybvh.nodes_from_table` defines the
           format, its two leniencies and what it rejects.
         * A **node list** of ``BvhRoot``, ``BvhJoint`` and ``BvhEndSite``
           objects in depth-first order, such as :attr:`Bvh.nodes`. It is
@@ -169,10 +169,16 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
         Motion data in the form :meth:`Bvh.to_df_dict` gives with
         ``mode='euler'``: a ``time`` column, matched without regard to
         case (the first such column when several differ only by case),
-        and the hierarchy's flat layout, ``<root>_<axis>_pos`` per
-        position channel of the root then ``<joint>_<axis>_rot`` per
-        rotation channel of each joint in node order, a repeated node
+        and the hierarchy's flat layout: per joint in node order,
+        ``<joint>_<axis>_pos`` per position channel if the joint
+        declares any (the root's are :attr:`Bvh.root_pos`, another
+        joint's its column of :attr:`Bvh.joint_translations`), then
+        ``<joint>_<axis>_rot`` per rotation channel, a repeated node
         name labelled ``.1``, ``.2``, ... as ``to_df_dict`` labels it.
+        Which joints translate is read from *hier*, never guessed from
+        the columns: a ``_pos`` column of a joint *hier* does not
+        translate is ignored, and a static root (``CHANNELS 0``) has no
+        columns; it is placed at its offset with no rotation.
         The labels expected are derived from *hier*, and the columns
         bind by name: their order in *df* is free, and columns outside
         the expected set are ignored. The ``_rot`` columns are in
@@ -182,8 +188,8 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
     -------
     bvh : Bvh
         Fully constructed ``Bvh`` instance containing the hierarchy, root
-        positions, joint angles, and frame frequency derived from the time
-        column.
+        positions, joint translations, joint angles, and frame frequency
+        derived from the time column.
 
     Raises
     ------
@@ -273,10 +279,25 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
         )
     frame_time = _frame_time_from_times(time_values, time_label)
 
-    num_joints = len([n for n in nodes if not n.is_end_site()])
-    root_pos = frames[:, :3].astype(np.float64)
+    frame_count = frames.shape[0]
+    # A static root declares no channels, so no column: it stays at its
+    # offset with no rotation. Another root's columns replace these.
+    arrays = {
+        "root_pos": _static_root_pos(nodes[0].offset, frame_count),
+        "joint_translations": np.zeros(
+            (frame_count, sum(1 for n in nodes if _is_translating_joint(n)), 3)
+        ),
+        "joint_angles": np.zeros((frame_count, sum(1 for n in nodes if _is_joint(n)), 3)),
+    }
+    for i, block in enumerate(_euler_blocks(nodes)):
+        block.columns(arrays)[:] = frames[:, 3 * i : 3 * i + 3]
     # DataFrame angles are in degrees (human-readable); pybvh holds radians.
-    joint_angles_deg = frames[:, 3:].reshape(frames.shape[0], num_joints, 3).astype(np.float64)
-    joint_angles = np.deg2rad(joint_angles_deg)
+    joint_angles = np.deg2rad(arrays["joint_angles"])
 
-    return Bvh(nodes=nodes, root_pos=root_pos, joint_angles=joint_angles, frame_time=frame_time)
+    return Bvh(
+        nodes=nodes,
+        root_pos=arrays["root_pos"],
+        joint_angles=joint_angles,
+        joint_translations=arrays["joint_translations"],
+        frame_time=frame_time,
+    )

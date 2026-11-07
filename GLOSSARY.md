@@ -10,43 +10,49 @@ The library that reads, writes, transforms and analyzes BVH motion capture files
 One entry of a skeleton's hierarchy: the root, a joint or an end site. `Bvh.nodes` lists them in the file's depth-first order. A node passed to `Bvh(...)` is owned by that clip and frozen; a changed skeleton goes to a new `Bvh`.
 
 **Root**:
-The first node, the only one with position channels; its translation per frame is the root position.
+The first node. Its position channels place it in the world frame: its translation per frame is the root position. A root that declares no channels is a static root. A joint below it that declares position channels is a translating joint, placed in its parent's frame.
+
+**Static root**:
+A root whose `CHANNELS` line declares no channel (`CHANNELS 0`), as Blender's exporter writes above an armature with several root bones. It stays at its offset with no rotation: its root position is its offset in every frame and its row of joint angles is zero. `BvhRoot.is_static()` names the state. An operation that would move it away from its offset, or turn it, raises an error that names it. Its Euler order is `''`: the rotation conversions and forward kinematics read it as the identity and refuse any other rotation for it. `change_euler_order` with no joint and `harmonize` leave it as it is, and `change_euler_order` refuses it when it is named. The root-based descriptors (`root_trajectory`, the `centered` modes, the gait descriptors) then describe this node, not the body below it.
 
 **Joint**:
-A node with rotation channels: the root and every interior node. `J` counts them.
+The root and every interior node: a node with rotation channels, or a static root. `J` counts them.
 
 **End site**:
 A childless node with an offset and no channels: the tip of a terminal bone. Its name is generated from its parent's (`EndSite` + parent name), so the two end sites of one joint share a name.
 _Avoid_: leaf
 
 **Offset**:
-A node's bone vector from its parent in the rest pose, as the file declares it.
+A node's bone vector from its parent in the rest pose, as the file declares it. A translating joint's position channels replace its offset in each frame; its offset is its rest pose only (ADR 0010).
 
 **Bone**:
 The segment between a node and its parent, what bvhplot draws; a node's offset is its bone's rest-pose vector.
 
 **Channels**:
-The per-node list of axes a file declares, in its order: three rotation channels on a joint, plus three position channels on the root.
+The per-node list of axes a file declares, in its order: three rotation channels on a joint, plus three position channels on the root and on a translating joint; none on a static root. pybvh stores a node's position channels in `X Y Z` order, before its rotation channels, and writes them so.
+
+**Translating joint**:
+A joint other than the root whose channels include three position channels: a hips joint carrying the travel under a reference root that stays in place, a bone that stretches, a prop that moves on its own. Which joints translate is a skeleton fact, fixed by the `CHANNELS` lines like the Euler orders. `P` counts them.
 
 **Euler order**:
-A joint's rotation channel order as a string (`'ZYX'`): the sequence of intrinsic rotations its angles apply.
+A joint's rotation channel order as a string (`'ZYX'`): the sequence of intrinsic rotations its angles apply. A static root declares no rotation channel, so its order is `''`, which stands for the identity.
 _Avoid_: rotation order
 
 **Hierarchy**:
 The tree of nodes with their names and offsets, as the HIERARCHY section declares it. `matches_hierarchy` compares exactly that.
 
 **Topology**:
-A hierarchy together with its channel layout. Two clips with the same topology share the same joint-angle columns; `matches_topology` compares it, and `a + b`, `a += b` and `a[i:j] = b` require it.
+A hierarchy together with its channel layout: whether the root is static, which joints translate and each joint's Euler order. Two clips with the same topology share the same joint-angle and joint-translation columns; `matches_topology` compares it, and `a + b`, `a += b` and `a[i:j] = b` require it.
 
 **Skeleton**:
 The everyday word for the hierarchy a clip carries beside its motion; use hierarchy and topology where the exact comparison matters.
 
 **Node table**:
-The skeleton as plain data: one `dict` per node in `nodes` order, with `name`, `parent` (the parent's index, `None` on the root), `offset`, `rot_channels`, and `pos_channels` on the root. The named twin of `FkTopology`.
+The skeleton as plain data: one `dict` per node in `nodes` order, with `name`, `parent` (the parent's index, `None` on the root), `offset`, `rot_channels`, and `pos_channels` on the root and on a translating joint (a static root has both, empty). The named twin of `FkTopology`.
 _Avoid_: hierarchy dict (the name-keyed form removed in v0.10.0)
 
 **FkTopology**:
-The skeleton as arrays for forward kinematics: offsets, parent indices, joint columns and Euler orders. An FK input bundle, with no names and no orientation.
+The skeleton as arrays for forward kinematics: offsets, parent indices, joint columns, Euler orders and translation columns (per node, its column of the joint translations, or −1 to use its offset). An FK input bundle, with no names and no orientation.
 
 **Rest pose**:
 The skeleton with every rotation zero, positions the summed offsets. Rest up, rest left and rest forward are read from it alone: its coordinates are the skeleton's own frame, not the world's.
@@ -66,7 +72,7 @@ What a clip holds that is computed from its skeleton, motion or world up, such a
 _Avoid_: cache
 
 **Frame**:
-One row of the motion: the root position and every joint's angles at one instant. `F` counts them.
+One row of the motion: the root position, the joint translations and every joint's angles at one instant. `F` counts them.
 
 **Frame time**:
 Seconds per frame, the file's `Frame Time:`; `fps` is its inverse. `0` means unset, legal on any clip. ADR 0008 gives the rules that refuse an unset clip where a rate is needed, that call two frame times within 2e-6 of the larger the same rate, and that read a file's value as printed unless its writer truncated or rounded the frame time of a rate with at most 3 decimals.
@@ -76,7 +82,10 @@ _Avoid_: frame frequency
 The `(F, J, 3)` array of Euler angles, in radians, each joint in its Euler order; degrees only in files and DataFrames.
 
 **Root position**:
-The `(F, 3)` translation of the root, always `(X, Y, Z)`.
+The `(F, 3)` translation of the root, always `(X, Y, Z)`; a static root's offset in every frame.
+
+**Joint translations**:
+The `(F, P, 3)` array of the translating joints' position channels, in node order: each joint's position relative to its parent, in its parent's frame, as the file's values (not the difference from its offset), always `(X, Y, Z)`. `P = 0` on a skeleton whose joints other than the root only rotate.
 
 **Animation**:
 The motion as distinct from the rest pose: what world up, the facing and the heading are read from.

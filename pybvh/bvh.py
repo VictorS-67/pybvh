@@ -55,7 +55,16 @@ from ._orientation import (
 
 # Re-exported: pybvh.bvh has long served every node class, end sites included.
 from .bvhnode import BvhEndSite as BvhEndSite
-from .bvhnode import BvhJoint, BvhNode, BvhRoot, NodeSelector, _is_joint
+from .bvhnode import BvhJoint as BvhJoint
+from .bvhnode import (
+    BvhNode,
+    BvhRoot,
+    NodeSelector,
+    _euler_order,
+    _is_joint,
+    _is_translating_joint,
+    _pos_channels,
+)
 from .node_tree import (
     _OFFSET_ATOL,
     _channel_difference,
@@ -120,29 +129,78 @@ def _euler_to_quat(
     return rotations.rotmat_to_quat(rotations.euler_to_rotmat(angles, orders))
 
 
+class _EulerBlock(NamedTuple):
+    """Three motion columns of one joint in ``to_df_dict``'s euler mode."""
+
+    # The joint's column label, unique over the joints.
+    label: str
+    # The axes in column order, and the kind, ``"pos"`` or ``"rot"``.
+    axes: tuple[str, ...]
+    kind: str
+    # The motion array the values come from and the joint's row in it:
+    # ``"root_pos"`` (row unused), ``"joint_translations"`` or ``"joint_angles"``.
+    array: str
+    row: int
+
+    def columns(self, motion: Mapping[str, npt.NDArray[np.float64]]) -> npt.NDArray[np.float64]:
+        """The block's ``(F, 3)`` values in *motion*, the arrays by name: a
+        view, which a reader reads and a writer assigns into."""
+        array = motion[self.array]
+        return array if self.array == "root_pos" else array[:, self.row]
+
+
+def _euler_blocks(nodes: Sequence[BvhNode]) -> list[_EulerBlock]:
+    """The column blocks of the euler layout of *nodes*, in column order.
+
+    Per joint in node order, its position block if it declares position
+    channels (the root's from ``root_pos``, another joint's from its row
+    of ``joint_translations``), then its rotation block, from its row of
+    ``joint_angles``. The layout is that of a frame line in a file, which
+    ``io._frame_columns`` reads from these blocks: a clip whose joints
+    other than the root only rotate gets the root's position block then
+    each joint's rotation block, and a static root, which declares no
+    channels, gets none.
+    """
+    joints = [node for node in nodes if _is_joint(node)]
+    root = joints[0]
+    if not isinstance(root, BvhRoot):
+        raise ValueError(f"nodes[0] must be the BvhRoot, got {type(root).__name__}")
+    labels = _unique_labels([joint.name for joint in joints])
+    blocks: list[_EulerBlock] = []
+    translating = 0
+    for row, (label, joint) in enumerate(zip(labels, joints, strict=True)):
+        if joint.is_root() and _pos_channels(joint):
+            blocks.append(_EulerBlock(label, _pos_channels(joint), "pos", "root_pos", 0))
+        elif _is_translating_joint(joint):
+            blocks.append(
+                _EulerBlock(label, _pos_channels(joint), "pos", "joint_translations", translating)
+            )
+            translating += 1
+        if joint.rot_channels:
+            blocks.append(_EulerBlock(label, tuple(joint.rot_channels), "rot", "joint_angles", row))
+    return blocks
+
+
 def _motion_column_names(nodes: Sequence[BvhNode], mode: str) -> list[str]:
     """Column names of the motion *nodes* carry, in either ``to_df_dict`` mode.
 
-    ``'euler'`` names the flat layout of ``root_pos`` and ``joint_angles``:
-    ``<root>_<axis>_pos`` per position channel, then ``<joint>_<axis>_rot``
-    per rotation channel for each joint in node order, end sites having
-    none. ``'coordinates'`` names ``<node>_<axis>`` for X, Y and Z per
-    node, end sites included. ``time`` is not a motion column and is not
-    listed. Node names are made unique with :func:`_unique_labels` over
-    the nodes the mode lists, before the axis and kind are appended, so
-    the same joint can be ``Arm`` in one mode and ``Arm.1`` in the other
-    when an earlier end site shares its name.
+    ``'euler'`` names the blocks of :func:`_euler_blocks`: per joint in
+    node order, ``<joint>_<axis>_pos`` per position channel if the joint
+    declares any, then ``<joint>_<axis>_rot`` per rotation channel, end
+    sites having none. ``'coordinates'`` names ``<node>_<axis>`` for X,
+    Y and Z per node, end sites included. ``time`` is not a motion
+    column and is not listed. Node names are made unique with
+    :func:`_unique_labels` over the nodes the mode lists, before the
+    axis and kind are appended, so the same joint can be ``Arm`` in one
+    mode and ``Arm.1`` in the other when an earlier end site shares its
+    name.
     """
     if mode == "euler":
-        joints = [node for node in nodes if isinstance(node, BvhJoint)]
-        root = joints[0]
-        if not isinstance(root, BvhRoot):
-            raise ValueError(f"nodes[0] must be the BvhRoot, got {type(root).__name__}")
-        labels = _unique_labels([joint.name for joint in joints])
-        names = [f"{labels[0]}_{ax}_pos" for ax in root.pos_channels]
-        for label, joint in zip(labels, joints, strict=True):
-            names.extend(f"{label}_{ax}_rot" for ax in joint.rot_channels)
-        return names
+        return [
+            f"{block.label}_{ax}_{block.kind}"
+            for block in _euler_blocks(nodes)
+            for ax in block.axes
+        ]
     if mode == "coordinates":
         labels = _unique_labels([node.name for node in nodes])
         return [f"{label}_{ax}" for label in labels for ax in ("X", "Y", "Z")]
@@ -169,6 +227,13 @@ _JOINTS = _SkeletonDim(
     count=lambda nodes: sum(1 for node in nodes if _is_joint(node)),
     unit="joints",
     skeleton_unit="non-end-site joints",
+)
+
+_TRANSLATING_JOINTS = _SkeletonDim(
+    symbol="P",
+    count=lambda nodes: sum(1 for node in nodes if _is_translating_joint(node)),
+    unit="translating joints",
+    skeleton_unit="joints other than the root with position channels",
 )
 
 # How a motion array is interpolated between two frames: ``"linear"`` per
@@ -235,6 +300,41 @@ class _MotionArray(NamedTuple):
 
 _ROOT_POS = _MotionArray(name="root_pos", frame_shape=(3,), interpolation="linear")
 _JOINT_ANGLES = _MotionArray(name="joint_angles", frame_shape=(_JOINTS, 3), interpolation="euler")
+_JOINT_TRANSLATIONS = _MotionArray(
+    name="joint_translations", frame_shape=(_TRANSLATING_JOINTS, 3), interpolation="linear"
+)
+
+
+def _check_frame_counts(
+    entries: Sequence[_MotionArray], motion: Mapping[str, npt.NDArray[np.float64]]
+) -> None:
+    """Raise ``ValueError`` unless every array of *motion*, by the names of
+    *entries*, has the frame count of the first."""
+    first, *rest = entries
+    frame_count = motion[first.name].shape[0]
+    for entry in rest:
+        if motion[entry.name].shape[0] != frame_count:
+            raise ValueError(
+                f"{first.name} and {entry.name} disagree on frame count: "
+                f"{first.name} has {frame_count} frames, "
+                f"{entry.name} has {motion[entry.name].shape[0]}."
+            )
+
+
+def _check_array_fits_skeleton(
+    entry: _MotionArray, array: npt.NDArray[np.float64], nodes: Sequence[BvhNode]
+) -> None:
+    """Raise ``ValueError`` unless each skeleton dim of ``array`` has the
+    length ``nodes`` gives it."""
+    for axis, dim in entry.skeleton_axes:
+        actual = array.shape[axis]
+        expected = dim.count(nodes)
+        if actual != expected:
+            raise ValueError(
+                f"{entry.name} has {actual} {dim.unit} "
+                f"on axis {axis}, but the skeleton has {expected} "
+                f"{dim.skeleton_unit}."
+            )
 
 
 def _node_pairs(pairs: object) -> list[tuple[NodeSelector, NodeSelector]]:
@@ -314,13 +414,28 @@ def _validated_lr_mapping(mapping: dict[str, str], joint_names: Sequence[str]) -
 
 
 def _build_rest_pose(bvh: Bvh) -> npt.NDArray[np.float64]:
-    """FK of ``bvh``'s skeleton with every angle zero and the root at the origin."""
+    """FK of ``bvh``'s skeleton with every angle zero, the root at the origin
+    and each translating joint at its offset, the rest pose (ADR 0010)."""
     return frames_to_node_positions(
         bvh,
         root_pos=np.zeros(3),
         joint_angles=np.zeros((bvh.joint_count, 3), dtype=np.float64),
         centered="skeleton",
+        joint_translations=np.array(
+            [node.offset for node in bvh.nodes if _is_translating_joint(node)], dtype=np.float64
+        ).reshape(-1, 3),
     )
+
+
+def _static_root_pos(offset: npt.ArrayLike, frame_count: int) -> npt.NDArray[np.float64]:
+    """The ``root_pos`` of a static root (``CHANNELS 0``) at *offset*,
+    ``(frame_count, 3)``: it stays at its offset in every frame."""
+    return np.tile(np.asarray(offset, dtype=np.float64), (frame_count, 1))
+
+
+def _channel_declaration(root: BvhRoot) -> str:
+    """The root's channel set as a ``CHANNELS`` line counts it."""
+    return "CHANNELS 0" if root.is_static() else "CHANNELS 6"
 
 
 def _check_centered(centered: str) -> None:
@@ -344,10 +459,13 @@ class Bvh:
     """Container for BVH motion-capture data.
 
     The hierarchy is stored as a tuple of ``BvhNode`` objects (one per
-    joint / end-site).  Motion data is stored as two structured arrays:
+    joint / end-site).  Motion data is stored as three arrays:
 
     - ``root_pos``:     shape ``(F, 3)``    — root translation per frame
     - ``joint_angles``: shape ``(F, J, 3)`` — Euler angles **in radians** per joint per frame
+    - ``joint_translations``: shape ``(F, P, 3)`` — per frame, the position
+      relative to its parent of each joint other than the root that
+      declares position channels (P = 0 on most skeletons)
 
     ``Bvh`` is a sequence of frames: ``len(bvh) == frame_count`` and
     ``bvh[i]`` returns frame ``i`` as a one-frame Bvh. For joint or node
@@ -376,6 +494,11 @@ class Bvh:
         Euler angles in **radians** per joint per frame. (BVH files
         store angles in degrees; the deg↔rad conversion happens at the
         I/O boundary in :func:`read_bvh_file` / :func:`write_bvh_file`.)
+    joint_translations : ndarray, shape (F, P, 3)
+        Per frame, the position relative to its parent of each
+        translating joint (see :attr:`joint_translations`). Optional in
+        the constructor: omitted, it is ``(F, 0, 3)``, for a skeleton
+        whose joints other than the root only rotate.
     frame_time : float
         Duration of one frame in seconds.
     frame_count : int
@@ -407,7 +530,11 @@ class Bvh:
     # derived clips and pickles, slicing, joins, splices, ``==``) reads them
     # from here; the first one's frame count is the one the others must
     # match.
-    _MOTION_ARRAYS: ClassVar[tuple[_MotionArray, ...]] = (_ROOT_POS, _JOINT_ANGLES)
+    _MOTION_ARRAYS: ClassVar[tuple[_MotionArray, ...]] = (
+        _ROOT_POS,
+        _JOINT_ANGLES,
+        _JOINT_TRANSLATIONS,
+    )
 
     def __init__(
         self,
@@ -419,6 +546,7 @@ class Bvh:
         lr_mapping: dict[str, str] | None = None,
         source_path: str | None = None,
         warn_on_world_up_disagreement: bool = True,
+        joint_translations: npt.ArrayLike | None = None,
     ) -> None:
         # The derived state exists before any property setter runs, so the
         # setters can report their change unconditionally. Each value in it
@@ -449,19 +577,19 @@ class Bvh:
         self.frame_time = frame_time
         self.source_path = source_path
 
-        # Validate that root position channels are standard XYZ
-        pos_order = "".join(self.root.pos_channels)
-        if pos_order != "XYZ":
-            raise ValueError(
-                f"Non-standard root position channel order {pos_order!r} is "
-                f"not supported. Expected 'XYZ', the order of every root_pos row."
-            )
-
         given = {"root_pos": root_pos, "joint_angles": joint_angles}
         missing = [name for name, value in given.items() if value is None]
-        if missing and len(missing) < len(given):
+        if missing and (len(missing) < len(given) or joint_translations is not None):
             raise ValueError(
-                f"{' and '.join(given)} must be provided together; {missing[0]} is missing."
+                f"{' and '.join(given)} must be provided together, and with "
+                f"joint_translations when it is given; {missing[0]} is missing."
+            )
+        if not missing:
+            # Omitted, no joint translates: P = 0 in every frame.
+            given["joint_translations"] = (
+                np.empty((len(np.asarray(root_pos)), 0, 3))
+                if joint_translations is None
+                else joint_translations
             )
         # All given or none: a clip built without motion holds the empty arrays.
         for entry in self._MOTION_ARRAYS:
@@ -469,6 +597,7 @@ class Bvh:
             setattr(self, entry.attribute, entry.empty() if value is None else entry.checked(value))
         if not missing:
             self._check_motion_fits_skeleton()
+            self._check_static_root_motion()
 
         if world_up != "auto":
             self._world_up_override = _validate_axis_string(world_up)
@@ -497,29 +626,64 @@ class Bvh:
         if nodes is None:
             nodes = self.nodes
         motion = self._motion()
-        first, *rest = self._MOTION_ARRAYS
-        frame_count = motion[first.name].shape[0]
-        for entry in rest:
-            if motion[entry.name].shape[0] != frame_count:
-                raise ValueError(
-                    f"{first.name} and {entry.name} disagree on frame count: "
-                    f"{first.name} has {frame_count} frames, "
-                    f"{entry.name} has {motion[entry.name].shape[0]}."
-                )
         for entry in self._MOTION_ARRAYS:
-            for axis, dim in entry.skeleton_axes:
-                actual = motion[entry.name].shape[axis]
-                expected = dim.count(nodes)
-                if actual != expected:
-                    raise ValueError(
-                        f"{entry.name} has {actual} {dim.unit} "
-                        f"on axis {axis}, but the skeleton has {expected} "
-                        f"{dim.skeleton_unit}."
-                    )
+            _check_array_fits_skeleton(entry, motion[entry.name], nodes)
+
+    def _check_static_root_motion(self) -> None:
+        """Raise ``ValueError`` unless a static root stays at its offset with no rotation.
+
+        A static root (``CHANNELS 0``) has no motion of its own: its
+        ``root_pos`` is its offset and its row of ``joint_angles`` is
+        zero, in every frame, exactly. The constructor runs it on the
+        motion it is given.
+        """
+        if not self.root.is_static():
+            return
+        if np.any(self._root_pos != self.root.offset):
+            self._refuse_static_root("root_pos places the root away from its offset")
+        self._refuse_root_rotation(self._joint_angles, "joint_angles rotates the root")
+
+    def _refuse_root_rotation(self, joint_angles: npt.NDArray[np.float64], what: str) -> None:
+        """Raise ``ValueError`` if the root is static and *joint_angles*,
+        ``(F, J, 3)``, rotates it in some frame (its row 0 is not zero);
+        *what* says what the caller does to it."""
+        if self.root.is_static() and np.any(joint_angles[:, :1] != 0):
+            self._refuse_static_root(what)
+
+    def _refuse_static_root(self, what: str) -> None:
+        """Raise ``ValueError`` if the root is static, *what* saying what the caller does to it."""
+        if self.root.is_static():
+            raise ValueError(
+                f"{what}, but root {self.root.name!r} is static (CHANNELS 0): it "
+                f"stays at its offset with no rotation in every frame."
+            )
 
     def _motion(self) -> dict[str, npt.NDArray[np.float64]]:
         """Each motion array the clip holds, by name, in list order: the
-        arrays themselves, not views or copies."""
+        arrays themselves, not views or copies.
+
+        The one way an operation reads the clip's motion. Raises
+        ``ValueError`` if the arrays disagree on frame count, which the
+        setters leave possible so that a user replaces the arrays one at a
+        time: no operation then reads one array against the frames of
+        another, where NumPy would broadcast a one-frame array across them
+        or the shorter array would cut the frames short.
+        """
+        motion = self._motion_unchecked()
+        _check_frame_counts(self._MOTION_ARRAYS, motion)
+        return motion
+
+    def _motion_unchecked(self) -> dict[str, npt.NDArray[np.float64]]:
+        """Each motion array the clip holds, as :meth:`_motion` gives them,
+        with no frame-count check.
+
+        For the readers that a clip whose arrays disagree on frame count
+        must not stop: the frame count itself, the question whether the
+        motion binds the skeleton (which reads skeleton dims only),
+        equality (which compares shapes before values) and the check of an
+        edit's result (:meth:`_write_motion`). An operation reads
+        :meth:`_motion`.
+        """
         return {entry.name: getattr(self, entry.attribute) for entry in self._MOTION_ARRAYS}
 
     def _binds_skeleton(self) -> bool:
@@ -529,7 +693,7 @@ class Bvh:
         (:meth:`_MotionArray.empty`) whatever its skeleton, with 0 on each
         skeleton dim: there is no motion to fit, and it takes any skeleton.
         """
-        motion = self._motion()
+        motion = self._motion_unchecked()
         return any(
             motion[entry.name].shape != entry.empty().shape
             for entry in self._MOTION_ARRAYS
@@ -623,6 +787,19 @@ class Bvh:
         replace the whole array, assign via the setter
         (``bvh.root_pos = new_arr``); for in-place edits, copy → mutate
         → assign back.
+
+        On a static root (``CHANNELS 0``, see
+        :meth:`~pybvh.bvhnode.BvhRoot.is_static`) it holds the root's
+        offset in every frame, and the setter raises ``ValueError``.
+
+        Its length is the clip's frame count. To change the frame count,
+        assign ``root_pos`` and :attr:`joint_angles`, and on a skeleton
+        with translating joints :attr:`joint_translations` too, each with
+        the same number of frames: the setters check no frame count, and
+        an operation on a clip whose arrays disagree raises
+        ``ValueError``. On a skeleton with no translating joint,
+        :attr:`joint_translations` holds no value and takes the frame
+        count of ``root_pos``.
         """
         view = self._root_pos.view()
         view.flags.writeable = False
@@ -630,7 +807,14 @@ class Bvh:
 
     @root_pos.setter
     def root_pos(self, value: npt.ArrayLike) -> None:
+        self._refuse_static_root("Setting root_pos moves the root")
         self._root_pos = _ROOT_POS.checked(value)
+        if _TRANSLATING_JOINTS.count(self.nodes) == 0:
+            # With no translating joint, joint_translations holds no value,
+            # so it has no frame count of its own: it takes root_pos's,
+            # the clip's frame count.
+            none: npt.NDArray[np.float64] = np.empty((len(self._root_pos), 0, 3))
+            self._joint_translations = none
         self._derived.user_replaced_motion()
 
     @property
@@ -646,6 +830,11 @@ class Bvh:
         Read-only view protects against the common footgun of
         ``angles = b.joint_angles; angles -= angles.mean(axis=0)``
         silently corrupting the Bvh.
+
+        On a static root (``CHANNELS 0``, see
+        :meth:`~pybvh.bvhnode.BvhRoot.is_static`) the root's row is zero
+        in every frame, and the setter raises ``ValueError`` on an array
+        whose row 0 is not.
         """
         view = self._joint_angles.view()
         view.flags.writeable = False
@@ -653,43 +842,135 @@ class Bvh:
 
     @joint_angles.setter
     def joint_angles(self, value: npt.ArrayLike) -> None:
-        self._joint_angles = _JOINT_ANGLES.checked(value)
+        checked = _JOINT_ANGLES.checked(value)
+        self._refuse_root_rotation(checked, "These joint_angles rotate the root")
+        self._joint_angles = checked
+        self._derived.user_replaced_motion()
+
+    @property
+    def joint_translations(self) -> npt.NDArray[np.float64]:
+        """Per-frame positions of the translating joints, shape ``(F, P, 3)``.
+
+        A translating joint is a joint other than the root whose
+        ``CHANNELS`` line declares 3 position channels besides its 3
+        rotation channels (its ``pos_channels`` is ``('X', 'Y', 'Z')``).
+        Column *p* holds the *p*-th such joint in :attr:`nodes` order: its
+        position relative to its parent, in its parent's frame, as the
+        file's values (``X Y Z``), not the difference from its offset.
+        In each frame they replace the joint's ``offset``, which is the
+        rest pose only (ADR 0010): a joint with ``OFFSET 0 10 0`` and the
+        values ``0 12 0`` is 12 above its parent, not 22. P = 0 on a
+        skeleton whose joints other than the root only rotate.
+
+        Returns a **read-only view** of the underlying array, like
+        :attr:`root_pos`. To replace the whole array, assign via the
+        setter (``bvh.joint_translations = new_arr``); the shape must
+        fit the skeleton (``ValueError`` otherwise), and the assignment
+        starts the world-up guess again, as for :attr:`root_pos`.
+        """
+        view = self._joint_translations.view()
+        view.flags.writeable = False
+        return view
+
+    @joint_translations.setter
+    def joint_translations(self, value: npt.ArrayLike) -> None:
+        checked = _JOINT_TRANSLATIONS.checked(value)
+        # The skeleton fixes P whatever the motion's frame count, which the
+        # setters leave to the caller, as for root_pos and joint_angles.
+        _check_array_fits_skeleton(_JOINT_TRANSLATIONS, checked, self.nodes)
+        self._joint_translations = checked
         self._derived.user_replaced_motion()
 
     def _set_motion(self, **motion: npt.ArrayLike) -> None:
         """Write motion as pybvh's own edits do, through no public setter.
 
-        The transforms, ``a += b`` and the rebuild of a derived clip write
-        here and report that the motion changed. The public setters report
-        that the user replaced the motion, which starts the world-up guess
-        again (ADR 0003), as setting the L/R mapping does for a guess of the
-        clip's own (ADR 0004).
+        The transforms and ``a += b`` write here and report that the
+        motion changed. The public setters report that the user replaced
+        the motion, which starts the world-up guess again (ADR 0003), as
+        setting the L/R mapping does for a guess of the clip's own (ADR
+        0004).
 
         Takes any of the motion arrays by name (``_MOTION_ARRAYS``) and
-        leaves the others as they are.
+        leaves the others as they are. On a clip built without motion, an
+        array with no frame is written as the empty array
+        (:meth:`_MotionArray.empty`): an edit that reads the motion with
+        the skeleton's dims (:meth:`_motion_on_skeleton`) leaves the clip
+        without motion, binding no skeleton.
+        """
+        if not self._binds_skeleton():
+            empty = {entry.name: entry.empty() for entry in self._MOTION_ARRAYS}
+            motion = {
+                name: empty[name] if name in empty and len(np.asarray(array)) == 0 else array
+                for name, array in motion.items()
+            }
+        self._write_motion(motion)
+
+    def _write_motion(self, motion: Mapping[str, npt.ArrayLike]) -> None:
+        """Write the motion arrays *motion* names, as they are, and report
+        that the motion changed; the rebuild of a derived clip writes here.
+
+        Raises ``ValueError``, before writing anything, if the clip's arrays
+        would disagree on frame count after the write: pybvh's own edits
+        never leave such a clip, and an edit that reads one array of a clip
+        whose arrays disagree, as ``translate_root`` reads ``root_pos``, is
+        refused here.
         """
         unknown = motion.keys() - {entry.name for entry in self._MOTION_ARRAYS}
         if unknown:
             raise TypeError(f"_set_motion() got no motion array named {sorted(unknown)}")
+        written = {
+            entry.name: entry.checked(motion[entry.name])
+            for entry in self._MOTION_ARRAYS
+            if entry.name in motion
+        }
+        _check_frame_counts(self._MOTION_ARRAYS, {**self._motion_unchecked(), **written})
         for entry in self._MOTION_ARRAYS:
-            if entry.name in motion:
-                setattr(self, entry.attribute, entry.checked(motion[entry.name]))
+            if entry.name in written:
+                setattr(self, entry.attribute, written[entry.name])
         self._derived.motion_changed()
+
+    def _motion_on_skeleton(self) -> dict[str, npt.NDArray[np.float64]]:
+        """Each motion array by name, with the skeleton's length on each
+        skeleton dim.
+
+        A clip built without motion holds the empty arrays, with 0 on each
+        skeleton dim (:meth:`_binds_skeleton`); an operation that walks the
+        skeleton's joints reads their rows here, where those arrays have
+        no frame and the skeleton's dims. A clip with motion gives its
+        arrays themselves.
+
+        Raises ``ValueError`` if the arrays disagree on frame count, as
+        :meth:`_motion` does.
+        """
+        motion = self._motion()
+        if self._binds_skeleton():
+            return motion
+        for entry in self._MOTION_ARRAYS:
+            if entry.skeleton_axes:
+                dims = [
+                    dim.count(self.nodes) if isinstance(dim, _SkeletonDim) else dim
+                    for dim in entry.frame_shape
+                ]
+                motion[entry.name] = np.empty((0, *dims))
+        return motion
 
     @property
     def frame_count(self) -> int:
         """Number of frames (computed from root_pos)."""
-        # The first motion array's frame count, which the others match.
-        return len(self._motion()[self._MOTION_ARRAYS[0].name])
+        # The first motion array's frame count, which the others match
+        # unless the setters left them disagreeing (see _motion).
+        return len(self._motion_unchecked()[self._MOTION_ARRAYS[0].name])
 
     @property
     def root(self) -> BvhRoot:
         """The root joint, ``nodes[0]``.
 
-        The one node with position channels: its translation per frame is
+        The node placed in the world frame: its translation per frame is
         :attr:`root_pos`, and its rotation is joint 0 of
-        :attr:`joint_angles`. Read-only: the root is whatever ``nodes``
-        starts with.
+        :attr:`joint_angles`. A translating joint also has position
+        channels, in its parent's frame (:attr:`joint_translations`); a
+        static root (``CHANNELS 0``) has none and stays at its offset.
+        Read-only: the root is whatever ``nodes`` starts with.
         """
         return self._nodes[0]  # type: ignore[return-value]
 
@@ -725,7 +1006,9 @@ class Bvh:
         Hierarchy (names, parents, offsets, end sites) is compared via
         :meth:`matches_hierarchy` with ``atol=0``, so offsets must be
         equal exactly, channel layout via
-        :meth:`matches_channels`. ``source_path`` is ignored.
+        :meth:`matches_channels`, and the motion (:attr:`root_pos`,
+        :attr:`joint_angles`, :attr:`joint_translations`) in every frame,
+        exactly. ``source_path`` is ignored.
         """
         if not isinstance(other, Bvh):
             return NotImplemented
@@ -735,9 +1018,12 @@ class Bvh:
             return False
         if self.frame_time != other.frame_time:
             return False
-        other_motion = other._motion()
+        # Unchecked: array_equal compares shapes first, so a clip whose
+        # arrays disagree on frame count compares without a broadcast.
+        other_motion = other._motion_unchecked()
         return all(
-            np.array_equal(array, other_motion[name]) for name, array in self._motion().items()
+            np.array_equal(array, other_motion[name])
+            for name, array in self._motion_unchecked().items()
         )
 
     def matches_hierarchy(
@@ -784,7 +1070,7 @@ class Bvh:
 
         See Also
         --------
-        matches_channels : Compare per-joint Euler rotation orders.
+        matches_channels : Compare per-joint position channels and Euler orders.
         matches_topology : Conjunction of hierarchy + channels.
         """
         if not isinstance(other, Bvh):
@@ -797,11 +1083,11 @@ class Bvh:
     def matches_channels(self, other: Bvh) -> bool:
         """Whether ``self`` and ``other`` share the same channel layout.
 
-        Compares per-joint Euler rotation orders, joint by joint in node
-        order. The root's position channels are always ``XYZ``, the
-        order of a ``root_pos`` row, so they cannot differ: the
-        constructor accepts no other order, and :func:`~pybvh.read_bvh_file`
-        reads a file that declares another into ``XYZ``. This is a
+        Compares, joint by joint in node order, which joints declare
+        position channels (which joints translate) and each joint's
+        Euler rotation order. Only the declaration is compared, never the
+        values of :attr:`joint_translations`: a bone that stretches and
+        comes back still matches its own skeleton. This is a
         *serialization* property:
         clips with identical underlying rotations but different stored
         Euler orders have different channel layouts.
@@ -857,7 +1143,8 @@ class Bvh:
         See Also
         --------
         matches_hierarchy : The hierarchy half (joints, parents, offsets).
-        matches_channels : The channel-layout half (per-joint Euler orders).
+        matches_channels : The channel-layout half (per-joint position channels
+            and Euler orders).
         """
         return self.matches_hierarchy(other) and self.matches_channels(other)
 
@@ -1038,6 +1325,11 @@ class Bvh:
         self._check_same_skeleton(value)
         self._check_same_rate(value, "a[i:j] = b")
 
+        # Read before the length check, which reads each clip's frame count:
+        # on a clip whose arrays disagree it has none to compare.
+        motion = self._motion()
+        other_motion = value._motion()
+
         # --- length match (no resizing) ---
         target_len = len(range(*s.indices(self.frame_count)))
         if target_len != value.frame_count:
@@ -1049,17 +1341,17 @@ class Bvh:
             )
 
         # --- in-place splice, bypassing the setters ---
-        other_motion = value._motion()
-        for name, array in self._motion().items():
+        for name, array in motion.items():
             array[s] = other_motion[name]
         self._derived.user_replaced_motion()
 
     def copy(self, nodes: Sequence[BvhNode] | Sequence[Mapping[str, Any]] | None = None) -> Bvh:
         """Return an independent copy, on this skeleton or on an edited one.
 
-        The node hierarchy, ``root_pos`` and ``joint_angles``,
-        ``frame_time``, ``source_path``, a manual ``world_up``, the warn
-        preference and a user-set L/R mapping are copied. Editing either
+        The node hierarchy, ``root_pos``, ``joint_angles`` and
+        ``joint_translations``, ``frame_time``, ``source_path``, a manual
+        ``world_up``, the warn preference and a user-set L/R mapping are
+        copied. Editing either
         clip afterwards, its arrays or its nodes, never affects the other.
         A guessed world up is inherited (see :attr:`world_up`). Values the
         clip computes from these (forward-kinematics positions, the floor
@@ -1082,7 +1374,12 @@ class Bvh:
             change, the joint count may not, and neither may a joint's
             Euler order, since the angles are only meaningful in the order
             they were recorded in (:meth:`change_euler_order` converts
-            them). A user-set L/R mapping follows its joints by position,
+            them). Neither may which joints translate, nor the root's
+            channel set: the motion was recorded on them. A translating
+            joint's frames are its whole position (ADR 0010), so a new
+            offset changes its rest pose only. A static root
+            (``CHANNELS 0``) stands at its offset in every frame, so a new
+            offset moves its ``root_pos``, and the whole body with it. A user-set L/R mapping follows its joints by position,
             under their new names, so each mapped joint's new name must be
             one no other joint carries (the mapping goes by name); one
             detected from the names is detected again from the new names.
@@ -1100,7 +1397,8 @@ class Bvh:
             If ``nodes`` is not one tree in depth-first order (see
             :func:`~pybvh.nodes_from_table`), has another number of joints
             than ``joint_angles`` has columns, changes a joint's Euler
-            order, or gives the root position channels other than XYZ; or
+            order, which joints translate or the root's channel set, or
+            gives the root position channels other than XYZ; or
             if it gives a joint of a user-set L/R mapping a name another
             joint carries too (on a clip without motion, which binds no
             joint, if it lacks a name the mapping uses).
@@ -1123,7 +1421,29 @@ class Bvh:
         new_joints = [node for node in new_nodes if _is_joint(node)]
         if self._binds_skeleton():
             self._check_motion_fits_skeleton(new_nodes)
+            root, new_root = self.root, new_nodes[0]
+            assert isinstance(new_root, BvhRoot)  # one tree, root first
+            if root.is_static() != new_root.is_static():
+                raise ValueError(
+                    f"nodes changes the channels of the root {root.name!r} "
+                    f"from {_channel_declaration(root)} to "
+                    f"{_channel_declaration(new_root)}, but the clip's motion "
+                    f"is recorded on {_channel_declaration(root)}."
+                )
             for joint, new_joint in zip(joints, new_joints, strict=True):
+                if _is_translating_joint(joint) != _is_translating_joint(new_joint):
+                    # A column of joint_translations is a joint's frames:
+                    # moving the position channels to another joint would
+                    # hand it frames recorded for this one.
+                    has, lacks = ("the clip", "nodes")
+                    if not _is_translating_joint(joint):
+                        has, lacks = lacks, has
+                    raise ValueError(
+                        f"nodes changes which joints translate: joint "
+                        f"{joint.name!r} declares position channels in {has} "
+                        f"but not in {lacks}, and joint_translations holds the "
+                        f"frames of the clip's own translating joints."
+                    )
                 old_order = "".join(joint.rot_channels)
                 new_order = "".join(new_joint.rot_channels)
                 if new_order != old_order:
@@ -1167,9 +1487,11 @@ class Bvh:
             # Unbound (a clip without motion took another joint count), the
             # names are all there is to go by.
             setting = _validated_lr_mapping(setting, new_names)
-        edited = self._derive_clip(
-            {name: array.copy() for name, array in self._motion().items()}, nodes=new_nodes
-        )
+        motion = {name: array.copy() for name, array in self._motion().items()}
+        new_root = new_nodes[0]
+        if isinstance(new_root, BvhRoot) and new_root.is_static():
+            motion["root_pos"] = _static_root_pos(new_root.offset, self.frame_count)
+        edited = self._derive_clip(motion, nodes=new_nodes)
         if isinstance(setting, dict):
             edited._set_lr_mapping_setting(setting)
         return edited
@@ -1246,7 +1568,12 @@ class Bvh:
             source_path=state["source_path"],
             warn_on_world_up_disagreement=state["warn_on_world_up_disagreement"],
         )
-        self._set_motion(**{entry.name: state[entry.name] for entry in self._MOTION_ARRAYS})
+        if "joint_translations" not in state:
+            # Pickled before joints translated (#186): none of them does.
+            state = {**state, "joint_translations": np.empty((len(state["root_pos"]), 0, 3))}
+        # As they are: a derived clip holds the arrays it is given, a
+        # clip with no frame those of its skeleton or the empty ones.
+        self._write_motion({entry.name: state[entry.name] for entry in self._MOTION_ARRAYS})
         if self._binds_skeleton():
             self._check_motion_fits_skeleton()
         self._world_up_override = state["world_up_override"]
@@ -1312,12 +1639,48 @@ class Bvh:
         self._freeze_skeleton()
         self._derived.skeleton_changed()
 
-    def _replace_offsets(self, offsets: npt.ArrayLike) -> None:
-        """Replace every node's offset, given in ``nodes`` order as ``(N, 3)``."""
+    def _replace_offsets(
+        self, offsets: npt.ArrayLike, *, translations: npt.ArrayLike | None = None
+    ) -> None:
+        """Replace every node's offset, given in ``nodes`` order as ``(N, 3)``,
+        and the translations that go with them.
+
+        A translating joint's frames replace its offset (ADR 0010), so an
+        edit of the offsets says what it does to ``joint_translations``:
+        ``translations`` is the new array, which this writes with the
+        offsets. It may be omitted only on a clip with no translating
+        joint, where there is nothing to leave stale; omitted on another
+        clip, it raises ``TypeError`` before anything changes. A static
+        root (``CHANNELS 0``) stands at its offset in every frame, so its
+        ``root_pos`` follows its new offset.
+        """
+        current = self._motion_on_skeleton()["joint_translations"]
+        if translations is None:
+            if current.shape[1] != 0:
+                raise TypeError(
+                    "_replace_offsets() needs translations= on a clip with "
+                    "translating joints: their frames replace their offsets, "
+                    "so an offset edit must say what it does to them."
+                )
+        else:
+            translations = _JOINT_TRANSLATIONS.checked(translations)
+            if translations.shape != current.shape:
+                raise ValueError(
+                    f"translations has shape {translations.shape}, but "
+                    f"joint_translations has {current.shape}."
+                )
+        offsets = np.asarray(offsets, dtype=np.float64)
         table = nodes_to_table(self.nodes)
-        for row, offset in zip(table, np.asarray(offsets, dtype=np.float64), strict=True):
+        for row, offset in zip(table, offsets, strict=True):
             row["offset"] = offset
         self._replace_skeleton(nodes_from_table(table))
+        motion: dict[str, npt.ArrayLike] = {}
+        if translations is not None:
+            motion["joint_translations"] = translations
+        if self.root.is_static():
+            motion["root_pos"] = _static_root_pos(offsets[0], self.frame_count)
+        if motion:
+            self._set_motion(**motion)
 
     def _offsets(self) -> npt.NDArray[np.float64]:
         """Every node's offset, in ``nodes`` order, as a new ``(N, 3)`` array."""
@@ -1352,8 +1715,8 @@ class Bvh:
           rotated frames show.
         - **Inferred**: guessed from this clip's own first frame, for a
           clip read from a file or built from arrays. It is guessed again
-          when you assign :attr:`root_pos`, :attr:`joint_angles` or frames
-          (``bvh[i] = other``), the one change that replaces the
+          when you assign :attr:`root_pos`, :attr:`joint_angles`,
+          :attr:`joint_translations` or frames (``bvh[i] = other``), the one change that replaces the
           recording, and never by an edit pybvh makes. Setting
           :attr:`lr_mapping` guesses it again too: on a rig with no head,
           neck, chest or spine joint the guess falls back to
@@ -2095,8 +2458,9 @@ class Bvh:
         world at a frame (ADR 0004): the root's heading and the facing
         chain's heading stage read it.
         """
-        root_order = self.nodes[0].rot_channels  # type: ignore[attr-defined]
-        return rotations.euler_to_rotmat(self.joint_angles[frames, 0], root_order)
+        joint_angles = self._motion()["joint_angles"]
+        # The per-joint form, which reads a static root's order '' as the identity.
+        return rotations.euler_to_rotmat(joint_angles[frames, :1], [_euler_order(self.root)])[:, 0]
 
     def facing_frame(self):
         """Per-frame facing basis as continuous unit vectors.
@@ -2178,8 +2542,13 @@ class Bvh:
         """
         positions = self._derived.node_positions
         if positions is None:
+            motion = self._motion_on_skeleton()
             positions = frames_to_node_positions(
-                self, root_pos=self.root_pos, joint_angles=self.joint_angles, centered="world"
+                self,
+                root_pos=motion["root_pos"],
+                joint_angles=motion["joint_angles"],
+                centered="world",
+                joint_translations=motion["joint_translations"],
             )
             self._derived.node_positions = positions
         return positions
@@ -2234,6 +2603,15 @@ class Bvh:
             position is subtracted in the two axes perpendicular to
             :attr:`world_up`; the up coordinate is untouched, so the
             motion starts above the origin at its original height.
+
+            The three modes read the root. On a root that stays in place
+            with the body below it (a static root, ``CHANNELS 0``, or a
+            reference node whose channels do not change), they centre
+            on the reference node, not on the body: under
+            ``"skeleton"`` the body still travels. The body's travel is
+            then the world position of its hips node,
+            ``bvh.node_positions()[:, bvh.node_index["Hips"]]`` for a
+            hips node named ``Hips``.
         """
         _check_centered(centered)
         if frame is None:
@@ -2246,26 +2624,29 @@ class Bvh:
                 f"{self.frame_count} frames. Use frame=None for all frames."
             )
         actual = frame if frame >= 0 else frame + self.frame_count
+        motion = self._motion()
         if self._derived.node_positions is not None:
             world_frame = self._derived.node_positions[actual]
             if centered == "world":
                 return world_frame.copy()
             if centered == "skeleton":
-                return world_frame - self.root_pos[actual]
-            return world_frame - _ground_plane_offset(self.root_pos[actual], self.world_up)
+                return world_frame - motion["root_pos"][actual]
+            return world_frame - _ground_plane_offset(motion["root_pos"][actual], self.world_up)
         if centered == "first":
             return frames_to_node_positions(
                 self,
-                root_pos=self.root_pos[actual],
-                joint_angles=self.joint_angles[actual],
+                root_pos=motion["root_pos"][actual],
+                joint_angles=motion["joint_angles"][actual],
                 centered="first",
                 world_up=self.world_up,
+                joint_translations=motion["joint_translations"][actual],
             )
         return frames_to_node_positions(
             self,
-            root_pos=self.root_pos[actual],
-            joint_angles=self.joint_angles[actual],
+            root_pos=motion["root_pos"][actual],
+            joint_angles=motion["joint_angles"][actual],
             centered=centered,
+            joint_translations=motion["joint_translations"][actual],
         )
 
     def joint_positions(
@@ -2339,11 +2720,16 @@ class Bvh:
         ----------
         mode : str, optional
             ``'euler'`` (default): the motion as a file carries it, in
-            degrees: ``<root>_<axis>_pos`` per position channel of the
-            root, then ``<joint>_<axis>_rot`` per rotation channel of
-            each joint in :attr:`nodes` order, so the columns after
-            ``time`` are the flat layout of :attr:`root_pos` and
-            :attr:`joint_angles`. :func:`~pybvh.df_to_bvh` and
+            degrees, per joint in :attr:`nodes` order:
+            ``<joint>_<axis>_pos`` per position channel if the joint
+            declares any (the root's from :attr:`root_pos`, another
+            joint's from :attr:`joint_translations`), then
+            ``<joint>_<axis>_rot`` per rotation channel, the columns of
+            a frame line in a file. A joint that does not translate has
+            no ``_pos`` columns, and a static root (``CHANNELS 0``) no
+            columns at all; a clip whose joints other than the root only
+            rotate gets the root's ``_pos`` columns, then each joint's
+            ``_rot`` columns. :func:`~pybvh.df_to_bvh` and
             :meth:`from_df` read this form back.
             ``'coordinates'``: the posed positions of
             :meth:`node_positions`, ``<node>_X``, ``<node>_Y`` and
@@ -2359,6 +2745,14 @@ class Bvh:
         -------
         dict
             Column-name → 1-D array mapping, ready for ``pd.DataFrame()``.
+
+        Raises
+        ------
+        ValueError
+            If *mode* is not ``'euler'`` or ``'coordinates'``; in
+            ``'coordinates'`` mode, if *centered* is not one of its three
+            values; or if the motion arrays disagree on frame count (the
+            setters do not check it).
 
         Notes
         -----
@@ -2401,12 +2795,12 @@ class Bvh:
         ``_rot`` columns are the rad→deg-converted view of the internal
         radians-valued :attr:`joint_angles`.
         """
-        joint_angles_deg = np.rad2deg(self.joint_angles)
-        # The width is spelled out: NumPy cannot infer -1 from no frames.
-        flat = np.concatenate(
-            [self.root_pos, joint_angles_deg.reshape(self.frame_count, 3 * self.joint_count)],
-            axis=1,
-        )
+        motion = self._motion_on_skeleton()
+        arrays = {**motion, "joint_angles": np.rad2deg(motion["joint_angles"])}
+        blocks = _euler_blocks(self.nodes)
+        flat = np.empty((self.frame_count, 3 * len(blocks)))
+        for i, block in enumerate(blocks):
+            flat[:, 3 * i : 3 * i + 3] = block.columns(arrays)
         return self._timed_columns(_motion_column_names(self.nodes, "euler"), flat)
 
     def _get_df_constructor_spatial_coord(
@@ -2439,8 +2833,8 @@ class Bvh:
         entry per node in :attr:`nodes` order, each with ``name``,
         ``parent`` (the index of the parent's entry, ``None`` on the
         root), ``offset``, ``rot_channels`` on the root and joints and
-        ``pos_channels`` on the root; an entry without ``rot_channels``
-        is an end site. Position is identity, so two end sites under one
+        ``pos_channels`` on the root and translating joints; an entry
+        without ``rot_channels`` is an end site. Position is identity, so two end sites under one
         joint and joints sharing a name are carried as they are, which
         no name-keyed export can do. :func:`~pybvh.nodes_to_table`
         defines the format and names its conventions;
@@ -2448,8 +2842,9 @@ class Bvh:
 
         The table is the named twin of :attr:`fk_topology`: ``parent``
         with ``None`` read as ``-1`` is its ``parent_idx``, the stacked
-        ``offset`` values are its ``offsets``, and the entries with
-        ``rot_channels`` are its joint columns, in order.
+        ``offset`` values are its ``offsets``, and the entries with a
+        ``rot_channels`` key (a static root's ``[]`` included) are its
+        joint columns, in order.
 
         Returns
         -------
@@ -2726,12 +3121,11 @@ class Bvh:
         list of str
             e.g. ``['ZYX', 'ZYX', ...]``, one per non-end-site joint.
             Order matches ``joint_names`` and ``joint_angles`` axis 1.
+            A static root (``CHANNELS 0``) declares no rotation channel
+            and never rotates: it reads ``''``, which the rotation
+            conversions read as the identity.
         """
-        return [
-            "".join(n.rot_channels)  # type: ignore[attr-defined]
-            for n in self.nodes
-            if not n.is_end_site()
-        ]
+        return [_euler_order(n) for n in self.nodes if _is_joint(n)]
 
     @property
     def fk_topology(self) -> FkTopology:
@@ -2840,6 +3234,10 @@ class Bvh:
     ) -> Bvh | None:
         """Copy joint offsets from a reference skeleton.
 
+        A translating joint keeps its displacement from its rest pose: its
+        ``joint_translations`` move by the change of its offset,
+        ``pos + (new_offset - old_offset)`` in every frame.
+
         Parameters
         ----------
         new_skeleton : Bvh
@@ -2891,8 +3289,16 @@ class Bvh:
                 )
             # else: keep original offset (lenient mode)
 
+        # A translating joint keeps its displacement from its rest pose:
+        # its frames move by the change of its offset (#186).
+        translating = [i for i, node in enumerate(self.nodes) if _is_translating_joint(node)]
+        translations = (
+            self._motion_on_skeleton()["joint_translations"]
+            + (offsets - self._offsets())[translating]
+        )
+
         target = self if inplace else self.copy()
-        target._replace_offsets(offsets)
+        target._replace_offsets(offsets, translations=translations)
         if inplace:
             return None
         return target
@@ -2902,7 +3308,8 @@ class Bvh:
     @overload
     def scale(self, scale: float, inplace: Literal[False] = ...) -> Bvh: ...
     def scale(self, scale: float, inplace: bool = False) -> Bvh | None:
-        """Uniformly scale all node offsets and the root translation.
+        """Uniformly scale all node offsets, the root translation and
+        the joint translations.
 
         Parameters
         ----------
@@ -2930,8 +3337,13 @@ class Bvh:
 
         factor = float(scale)
         target = self if inplace else self.copy()
-        target._replace_offsets(target._offsets() * factor)
+        # root_pos first: the offset edit sets a static root's root_pos
+        # to its new offset, which a later scaling would scale twice.
         target._set_motion(root_pos=target.root_pos * factor)
+        target._replace_offsets(
+            target._offsets() * factor,
+            translations=target._motion_on_skeleton()["joint_translations"] * factor,
+        )
         if inplace:
             return None
         return target
@@ -2970,8 +3382,10 @@ class Bvh:
             New rotation order, e.g. 'XYZ' or ['X', 'Y', 'Z'].
         joint : str, BvhNode, or None
             The one joint to change, by its name or as the node itself (see
-            :meth:`index`, ``space='joint'``). If None (default), all joints
-            are changed to the new order.
+            :meth:`index`, ``space='joint'``). If None (default), every joint
+            that declares rotation channels is changed to the new order: a
+            static root (``CHANNELS 0``) declares none, keeps its order
+            ``''`` and its zero rotation.
         inplace : bool
             If True, modify self and return None.
             If False, return a modified copy while leaving self unchanged.
@@ -2988,7 +3402,9 @@ class Bvh:
         TypeError
             If ``joint`` is neither a name, a ``BvhNode`` nor None.
         ValueError
-            If :meth:`index` refuses ``joint`` in joint space.
+            If :meth:`index` refuses ``joint`` in joint space, or if
+            ``joint`` names a static root (``CHANNELS 0``), which declares
+            no rotation channel.
         """
         if isinstance(order, str):
             new_order = list(order.upper())
@@ -2996,10 +3412,46 @@ class Bvh:
             new_order = [c.upper() for c in order]
 
         if joint is None:
-            joint_indices = list(range(self.joint_count))
+            joint_indices = self._rotating_joint_columns()
         else:
             joint_indices = [self.index(joint, space="joint")]
+            if joint_indices == [0]:
+                self._refuse_static_root("change_euler_order gives the root an Euler order")
+        return self._change_euler_orders(new_order, joint_indices, inplace)
 
+    def _rotating_joint_columns(self) -> list[int]:
+        """The joint columns whose joints declare rotation channels: every
+        column but a static root's (``CHANNELS 0``), which has no order to
+        change.
+
+        The one rule of :meth:`change_euler_order` with no joint and of
+        :meth:`_in_euler_order`.
+        """
+        return [k for k, order in enumerate(self.euler_orders) if order]
+
+    def _in_euler_order(self, order: str) -> Bvh | None:
+        """A copy with each joint that declares an Euler order in *order*,
+        or ``None`` when each already declares *order*.
+
+        ``harmonize`` calls it. The joints are those
+        :meth:`change_euler_order` changes with no joint: a static root
+        keeps its order ``''``.
+        """
+        rotating = self._rotating_joint_columns()
+        orders = self.euler_orders
+        if all(orders[k] == order for k in rotating):
+            return None
+        return self._change_euler_orders(list(order.upper()), rotating, inplace=False)
+
+    def _change_euler_orders(
+        self, new_order: list[str], joint_indices: list[int], inplace: bool
+    ) -> Bvh | None:
+        """Re-express the joints at ``joint_indices`` in ``new_order``.
+
+        :meth:`change_euler_order` after its checks, and
+        :meth:`_in_euler_order` with the joints that declare rotation
+        channels.
+        """
         target = self if inplace else self.copy()
         # The new skeleton is built, and the order checked, before any
         # angle is converted.
@@ -3010,54 +3462,54 @@ class Bvh:
             joint_rows[j_idx]["rot_channels"] = new_order
         new_nodes = nodes_from_table(table)
 
+        # The array the clip holds (the public view is read-only), or on a
+        # clip without motion one with no frame to convert.
+        angles = target._motion_on_skeleton()["joint_angles"]
         for j_idx in joint_indices:
             old_order = old_orders[j_idx]
             if old_order == new_order:
                 continue
-            # Convert: old Euler → rotmat → new Euler, then write back
-            # (private array — the public view is read-only).
-            R = rotations.euler_to_rotmat(target.joint_angles[:, j_idx], old_order)
-            target._joint_angles[:, j_idx] = rotations.rotmat_to_euler(R, new_order)
+            # Convert: old Euler → rotmat → new Euler, then write back.
+            R = rotations.euler_to_rotmat(angles[:, j_idx], old_order)
+            angles[:, j_idx] = rotations.rotmat_to_euler(R, new_order)
         target._replace_skeleton(new_nodes)
 
         if inplace:
             return None
         return target
 
-    def to_rotmat(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    def to_rotmat(self) -> npt.NDArray[np.float64]:
         """
-        Convert all per-joint Euler angles in self.frames to rotation matrices.
+        Convert the per-joint Euler angles to rotation matrices.
 
         Returns
         -------
-        root_pos : ndarray, shape (num_frames, 3)
-            Root position for each frame.
         joint_rotmats : ndarray, shape (num_frames, num_joints, 3, 3)
             Rotation matrix for each joint in each frame.
             Joint order matches ``self.joint_names`` / ``self.joint_index``.
 
         Notes
         -----
+        The conversions carry rotations only: :attr:`root_pos` and
+        :attr:`joint_translations` are read from the clip as they are.
+
         When multiple rotation representations are needed (e.g. 6D for
         the model and quaternions for runtime SLERP), call ``to_rotmat``
         once and apply the relevant ``rotations.rotmat_to_*`` primitives
-        directly — forward kinematics runs once instead of per
+        directly — the Euler conversion runs once instead of per
         representation.
         """
-        joint_rotmats = rotations.euler_to_rotmat(self.joint_angles, self.euler_orders)
-        return self.root_pos.copy(), joint_rotmats
+        return rotations.euler_to_rotmat(self.joint_angles, self.euler_orders)
 
-    def to_6d(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    def to_6d(self) -> npt.NDArray[np.float64]:
         """
-        Convert all per-joint Euler angles to 6D rotation representation.
+        Convert the per-joint Euler angles to the 6D rotation representation.
 
         The 6D representation (Zhou et al., CVPR 2019) is continuous and
         well-suited for neural network training.
 
         Returns
         -------
-        root_pos : ndarray, shape (num_frames, 3)
-            Root position for each frame.
         joint_rot6d : ndarray, shape (num_frames, num_joints, 6)
             6D rotation for each joint in each frame.
 
@@ -3066,20 +3518,16 @@ class Bvh:
         When multiple representations are needed, call :meth:`to_rotmat`
         once and apply :func:`pybvh.rotations.rotmat_to_rot6d` /
         ``rotmat_to_quat`` / ``rotmat_to_axisangle`` directly to avoid
-        running FK more than once.
+        running the Euler conversion more than once.
         """
-        root_pos, joint_rotmats = self.to_rotmat()
-        joint_rot6d = rotations.rotmat_to_rot6d(joint_rotmats)
-        return root_pos, joint_rot6d
+        return rotations.rotmat_to_rot6d(self.to_rotmat())
 
-    def to_quat(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    def to_quat(self) -> npt.NDArray[np.float64]:
         """
-        Convert all per-joint Euler angles to quaternions.
+        Convert the per-joint Euler angles to quaternions.
 
         Returns
         -------
-        root_pos : ndarray, shape (num_frames, 3)
-            Root position for each frame.
         joint_quats : ndarray, shape (num_frames, num_joints, 4)
             Quaternion (w, x, y, z) for each joint in each frame, in
             canonical form (``w >= 0``).
@@ -3097,11 +3545,11 @@ class Bvh:
 
         See :meth:`to_rotmat` for the multi-representation reuse pattern.
         """
-        return self.root_pos.copy(), _euler_to_quat(self.joint_angles, self.euler_orders)
+        return _euler_to_quat(self.joint_angles, self.euler_orders)
 
-    def to_axisangle(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    def to_axisangle(self) -> npt.NDArray[np.float64]:
         """
-        Convert all per-joint Euler angles to axis-angle vectors.
+        Convert the per-joint Euler angles to axis-angle vectors.
 
         The axis-angle representation is the unit rotation axis scaled
         by the rotation angle in radians.  Used in SMPL/SMPL-X body
@@ -3109,8 +3557,6 @@ class Bvh:
 
         Returns
         -------
-        root_pos : ndarray, shape (num_frames, 3)
-            Root position for each frame.
         joint_aa : ndarray, shape (num_frames, num_joints, 3)
             Axis-angle vector for each joint in each frame.
 
@@ -3118,60 +3564,82 @@ class Bvh:
         -----
         See :meth:`to_rotmat` for the multi-representation reuse pattern.
         """
-        root_pos, joint_rotmats = self.to_rotmat()
-        joint_aa = rotations.rotmat_to_axisangle(joint_rotmats)
-        return root_pos, joint_aa
+        return rotations.rotmat_to_axisangle(self.to_rotmat())
 
-    def _set_from_rotmats(
+    def _from_rotations(
         self,
-        root_pos: npt.NDArray[np.float64],
-        joint_rotmats: npt.NDArray[np.float64],
+        method: str,
         param_name: str,
-    ) -> None:
-        """Shared validation + Euler conversion + assignment for the ``from_*`` importers.
+        rotation: npt.ArrayLike,
+        to_rotmat: Callable[[npt.NDArray[np.float64]], npt.NDArray[np.float64]],
+        inplace: object,
+    ) -> Bvh | None:
+        """The ``from_*`` conversions: check, convert to Euler, write ``joint_angles``.
 
-        Writes into ``self`` — callers pass their ``target`` (self or a
-        copy). Euler conversion is vectorized across joints in one
-        per-joint-order :func:`pybvh.rotations.rotmat_to_euler` call.
+        *method* and *param_name* name the caller and its rotation
+        argument in the errors; *to_rotmat* turns the array into rotation
+        matrices. Writes through the ``joint_angles`` setter, so the call
+        is a user motion replacement.
         """
-        if root_pos.shape[0] != joint_rotmats.shape[0]:
+        if not isinstance(inplace, (bool, np.bool_)):
+            # A call of the old signature, from_*(root_pos, rotation), lands
+            # its rotation array here.
+            raise TypeError(
+                f"{method} takes the rotation array only: "
+                f"{method}({param_name}, inplace=False), got {type(inplace).__name__} "
+                f"for inplace. It keeps root_pos and joint_translations; to set "
+                f"the root position too, assign bvh.root_pos, or build a new clip "
+                f"with Bvh(nodes=..., root_pos=..., joint_angles=...)."
+            )
+        # Through the motion's check: on a clip whose arrays disagree on
+        # frame count, the clip has no frame count to hold the rotations to.
+        frame_count = len(self._motion()["joint_angles"])
+        joint_rotmats = to_rotmat(np.asarray(rotation, dtype=np.float64))
+        if joint_rotmats.ndim != 4:
             raise ValueError(
-                f"Frame count mismatch: root_pos has {root_pos.shape[0]} frames "
-                f"but joint data has {joint_rotmats.shape[0]} frames"
+                f"Expected {param_name} with a frame axis and a joint axis before "
+                f"the rotation, got shape {np.shape(rotation)}"
+            )
+        if joint_rotmats.shape[0] != frame_count:
+            raise ValueError(
+                f"{param_name} has {joint_rotmats.shape[0]} frames, but the clip has "
+                f"{frame_count}: {method} replaces the rotations of the clip's "
+                f"frames and keeps their count."
             )
         if joint_rotmats.shape[1] != self.joint_count:
             raise ValueError(
                 f"Expected {self.joint_count} joints in {param_name}, got {joint_rotmats.shape[1]}"
             )
+        if self.root.is_static() and np.any(rotations._off_identity(joint_rotmats[:, 0])):
+            # Here, not in the conversion, to name the call and the root.
+            self._refuse_static_root(f"{method} rotates the root")
         new_angles = rotations.rotmat_to_euler(joint_rotmats, self.euler_orders)
-        self.root_pos = root_pos
-        self.joint_angles = new_angles
+        target = self if inplace else self.copy()
+        target.joint_angles = new_angles
+        if inplace:
+            return None
+        return target
 
     @overload
-    def from_rotmat(
-        self, root_pos: npt.ArrayLike, joint_rotmats: npt.ArrayLike, *, inplace: Literal[True]
-    ) -> None: ...
+    def from_rotmat(self, joint_rotmats: npt.ArrayLike, *, inplace: Literal[True]) -> None: ...
     @overload
-    def from_rotmat(
-        self, root_pos: npt.ArrayLike, joint_rotmats: npt.ArrayLike, inplace: Literal[False] = ...
-    ) -> Bvh: ...
-    def from_rotmat(
-        self, root_pos: npt.ArrayLike, joint_rotmats: npt.ArrayLike, inplace: bool = False
-    ) -> Bvh | None:
+    def from_rotmat(self, joint_rotmats: npt.ArrayLike, inplace: Literal[False] = ...) -> Bvh: ...
+    def from_rotmat(self, joint_rotmats: npt.ArrayLike, inplace: bool = False) -> Bvh | None:
         """
-        Set motion data from root positions and rotation matrices.
+        Set the joint rotations from rotation matrices.
 
-        Converts rotation matrices back to Euler angles using each joint's
-        rot_channels order, then writes into root_pos and joint_angles.
-        Inverse of :meth:`to_rotmat`.
+        Converts rotation matrices to Euler angles in each joint's
+        rot_channels order and writes :attr:`joint_angles`. Inverse of
+        :meth:`to_rotmat`. :attr:`root_pos` and :attr:`joint_translations`
+        stay as they are; to replace them too, assign them, or build a new
+        clip with the :class:`Bvh` constructor. Like an assignment of
+        :attr:`joint_angles`, the call starts the world-up guess again.
 
         Parameters
         ----------
-        root_pos : array_like, shape (num_frames, 3)
-            Root position per frame.
         joint_rotmats : array_like, shape (num_frames, num_joints, 3, 3)
-            Rotation matrix per joint per frame.
-            Joint order must match self.nodes (end sites excluded).
+            Rotation matrix per joint per frame. The frame count must be
+            the clip's. Joint order must match ``self.joint_names``.
         inplace : bool
             If True, modify self and return None.
             If False, return a modified copy while leaving self unchanged.
@@ -3180,39 +3648,44 @@ class Bvh:
         -------
         None or Bvh
             None if inplace, otherwise a new Bvh object.
+
+        Raises
+        ------
+        TypeError
+            If ``inplace`` is not a bool, as in a call of the old
+            signature with two arguments,
+            ``from_rotmat(root_pos, joint_rotmats)``. Python's own
+            ``TypeError`` refuses the other old calls, with ``inplace``
+            as a third argument or a keyword.
+        ValueError
+            If the frame or joint count does not match the clip, or if
+            the rotations turn a static root (``CHANNELS 0``): a rotation
+            other than the identity, each matrix entry within ``1e-7``.
         """
-        target = self if inplace else self.copy()
-        root_pos_arr = np.asarray(root_pos, dtype=np.float64)
-        joint_rotmats_arr = np.asarray(joint_rotmats, dtype=np.float64)
-        target._set_from_rotmats(root_pos_arr, joint_rotmats_arr, "joint_rotmats")
-        if inplace:
-            return None
-        return target
+        return self._from_rotations(
+            "from_rotmat", "joint_rotmats", joint_rotmats, lambda r: r, inplace
+        )
 
     @overload
-    def from_6d(
-        self, root_pos: npt.ArrayLike, joint_rot6d: npt.ArrayLike, *, inplace: Literal[True]
-    ) -> None: ...
+    def from_6d(self, joint_rot6d: npt.ArrayLike, *, inplace: Literal[True]) -> None: ...
     @overload
-    def from_6d(
-        self, root_pos: npt.ArrayLike, joint_rot6d: npt.ArrayLike, inplace: Literal[False] = ...
-    ) -> Bvh: ...
-    def from_6d(
-        self, root_pos: npt.ArrayLike, joint_rot6d: npt.ArrayLike, inplace: bool = False
-    ) -> Bvh | None:
+    def from_6d(self, joint_rot6d: npt.ArrayLike, inplace: Literal[False] = ...) -> Bvh: ...
+    def from_6d(self, joint_rot6d: npt.ArrayLike, inplace: bool = False) -> Bvh | None:
         """
-        Set motion data from root positions and 6D rotation data.
+        Set the joint rotations from 6D rotation data.
 
-        Converts 6D rotations back to Euler angles using each joint's
-        rot_channels order, then writes into root_pos and joint_angles.
+        Converts 6D rotations to Euler angles in each joint's
+        rot_channels order and writes :attr:`joint_angles`. Inverse of
+        :meth:`to_6d`. :attr:`root_pos` and :attr:`joint_translations`
+        stay as they are; to replace them too, assign them, or build a new
+        clip with the :class:`Bvh` constructor. Like an assignment of
+        :attr:`joint_angles`, the call starts the world-up guess again.
 
         Parameters
         ----------
-        root_pos : array_like, shape (num_frames, 3)
-            Root position per frame.
         joint_rot6d : array_like, shape (num_frames, num_joints, 6)
-            6D rotation per joint per frame.
-            Joint order must match self.nodes (end sites excluded).
+            6D rotation per joint per frame. The frame count must be the
+            clip's. Joint order must match ``self.joint_names``.
         inplace : bool
             If True, modify self and return None.
             If False, return a modified copy while leaving self unchanged.
@@ -3221,41 +3694,45 @@ class Bvh:
         -------
         None or Bvh
             None if inplace, otherwise a new Bvh object.
+
+        Raises
+        ------
+        TypeError
+            If ``inplace`` is not a bool, as in a call of the old
+            signature with two arguments,
+            ``from_6d(root_pos, joint_rot6d)``. Python's own
+            ``TypeError`` refuses the other old calls, with ``inplace``
+            as a third argument or a keyword.
+        ValueError
+            If the frame or joint count does not match the clip, or if
+            the rotations turn a static root (``CHANNELS 0``): a rotation
+            other than the identity, each matrix entry within ``1e-7``.
         """
-        target = self if inplace else self.copy()
-        root_pos_arr = np.asarray(root_pos, dtype=np.float64)
-        joint_rot6d_arr = np.asarray(joint_rot6d, dtype=np.float64)
-        target._set_from_rotmats(
-            root_pos_arr, rotations.rot6d_to_rotmat(joint_rot6d_arr), "joint_rot6d"
+        return self._from_rotations(
+            "from_6d", "joint_rot6d", joint_rot6d, rotations.rot6d_to_rotmat, inplace
         )
-        if inplace:
-            return None
-        return target
 
     @overload
-    def from_quat(
-        self, root_pos: npt.ArrayLike, joint_quats: npt.ArrayLike, *, inplace: Literal[True]
-    ) -> None: ...
+    def from_quat(self, joint_quats: npt.ArrayLike, *, inplace: Literal[True]) -> None: ...
     @overload
-    def from_quat(
-        self, root_pos: npt.ArrayLike, joint_quats: npt.ArrayLike, inplace: Literal[False] = ...
-    ) -> Bvh: ...
-    def from_quat(
-        self, root_pos: npt.ArrayLike, joint_quats: npt.ArrayLike, inplace: bool = False
-    ) -> Bvh | None:
+    def from_quat(self, joint_quats: npt.ArrayLike, inplace: Literal[False] = ...) -> Bvh: ...
+    def from_quat(self, joint_quats: npt.ArrayLike, inplace: bool = False) -> Bvh | None:
         """
-        Set motion data from root positions and quaternion data.
+        Set the joint rotations from quaternions.
 
-        Converts quaternions back to Euler angles using each joint's
-        rot_channels order, then writes into root_pos and joint_angles.
+        Converts quaternions to Euler angles in each joint's
+        rot_channels order and writes :attr:`joint_angles`. Inverse of
+        :meth:`to_quat`. :attr:`root_pos` and :attr:`joint_translations`
+        stay as they are; to replace them too, assign them, or build a new
+        clip with the :class:`Bvh` constructor. Like an assignment of
+        :attr:`joint_angles`, the call starts the world-up guess again.
 
         Parameters
         ----------
-        root_pos : array_like, shape (num_frames, 3)
-            Root position per frame.
         joint_quats : array_like, shape (num_frames, num_joints, 4)
-            Quaternion (w, x, y, z) per joint per frame.
-            Joint order must match self.nodes (end sites excluded).
+            Quaternion (w, x, y, z) per joint per frame. The frame count
+            must be the clip's. Joint order must match
+            ``self.joint_names``.
         inplace : bool
             If True, modify self and return None.
             If False, return a modified copy while leaving self unchanged.
@@ -3264,41 +3741,45 @@ class Bvh:
         -------
         None or Bvh
             None if inplace, otherwise a new Bvh object.
+
+        Raises
+        ------
+        TypeError
+            If ``inplace`` is not a bool, as in a call of the old
+            signature with two arguments,
+            ``from_quat(root_pos, joint_quats)``. Python's own
+            ``TypeError`` refuses the other old calls, with ``inplace``
+            as a third argument or a keyword.
+        ValueError
+            If the frame or joint count does not match the clip, or if
+            the rotations turn a static root (``CHANNELS 0``): a rotation
+            other than the identity, each matrix entry within ``1e-7``.
         """
-        target = self if inplace else self.copy()
-        root_pos_arr = np.asarray(root_pos, dtype=np.float64)
-        joint_quats_arr = np.asarray(joint_quats, dtype=np.float64)
-        target._set_from_rotmats(
-            root_pos_arr, rotations.quat_to_rotmat(joint_quats_arr), "joint_quats"
+        return self._from_rotations(
+            "from_quat", "joint_quats", joint_quats, rotations.quat_to_rotmat, inplace
         )
-        if inplace:
-            return None
-        return target
 
     @overload
-    def from_axisangle(
-        self, root_pos: npt.ArrayLike, joint_aa: npt.ArrayLike, *, inplace: Literal[True]
-    ) -> None: ...
+    def from_axisangle(self, joint_aa: npt.ArrayLike, *, inplace: Literal[True]) -> None: ...
     @overload
-    def from_axisangle(
-        self, root_pos: npt.ArrayLike, joint_aa: npt.ArrayLike, inplace: Literal[False] = ...
-    ) -> Bvh: ...
-    def from_axisangle(
-        self, root_pos: npt.ArrayLike, joint_aa: npt.ArrayLike, inplace: bool = False
-    ) -> Bvh | None:
+    def from_axisangle(self, joint_aa: npt.ArrayLike, inplace: Literal[False] = ...) -> Bvh: ...
+    def from_axisangle(self, joint_aa: npt.ArrayLike, inplace: bool = False) -> Bvh | None:
         """
-        Set motion data from root positions and axis-angle data.
+        Set the joint rotations from axis-angle vectors.
 
-        Converts axis-angle vectors back to Euler angles using each joint's
-        rot_channels order, then writes into root_pos and joint_angles.
+        Converts axis-angle vectors to Euler angles in each joint's
+        rot_channels order and writes :attr:`joint_angles`. Inverse of
+        :meth:`to_axisangle`. :attr:`root_pos` and
+        :attr:`joint_translations` stay as they are; to replace them too,
+        assign them, or build a new clip with the :class:`Bvh`
+        constructor. Like an assignment of :attr:`joint_angles`, the call
+        starts the world-up guess again.
 
         Parameters
         ----------
-        root_pos : array_like, shape (num_frames, 3)
-            Root position per frame.
         joint_aa : array_like, shape (num_frames, num_joints, 3)
-            Axis-angle vector per joint per frame.
-            Joint order must match self.nodes (end sites excluded).
+            Axis-angle vector per joint per frame. The frame count must be
+            the clip's. Joint order must match ``self.joint_names``.
         inplace : bool
             If True, modify self and return None.
             If False, return a modified copy while leaving self unchanged.
@@ -3307,16 +3788,23 @@ class Bvh:
         -------
         None or Bvh
             None if inplace, otherwise a new Bvh object.
+
+        Raises
+        ------
+        TypeError
+            If ``inplace`` is not a bool, as in a call of the old
+            signature with two arguments,
+            ``from_axisangle(root_pos, joint_aa)``. Python's own
+            ``TypeError`` refuses the other old calls, with ``inplace``
+            as a third argument or a keyword.
+        ValueError
+            If the frame or joint count does not match the clip, or if
+            the rotations turn a static root (``CHANNELS 0``): a rotation
+            other than the identity, each matrix entry within ``1e-7``.
         """
-        target = self if inplace else self.copy()
-        root_pos_arr = np.asarray(root_pos, dtype=np.float64)
-        joint_aa_arr = np.asarray(joint_aa, dtype=np.float64)
-        target._set_from_rotmats(
-            root_pos_arr, rotations.axisangle_to_rotmat(joint_aa_arr), "joint_aa"
+        return self._from_rotations(
+            "from_axisangle", "joint_aa", joint_aa, rotations.axisangle_to_rotmat, inplace
         )
-        if inplace:
-            return None
-        return target
 
     # ----------------------------------------------------------------
     # Frame slicing, concatenation, and resampling
@@ -3350,7 +3838,8 @@ class Bvh:
         """Raise ``ValueError`` unless ``other`` has this clip's topology.
 
         The hierarchy (names, node kinds, parents, rest offsets within
-        ``1e-6``) and the channel layout (each joint's rotation order),
+        ``1e-6``) and the channel layout (which joints translate, each
+        joint's rotation order),
         as :meth:`matches_topology` compares them: ``+``, ``+=`` and slice
         assignment write ``other``'s motion onto this clip's bones, which
         would silently change it where the two skeletons differ. The
@@ -3408,8 +3897,8 @@ class Bvh:
         ----------
         other : Bvh
             Must have the same topology (:meth:`matches_topology`): the
-            same names, node kinds, parents, rest offsets within ``1e-6``
-            and rotation orders.
+            same names, node kinds, parents, rest offsets within ``1e-6``,
+            translating joints and rotation orders.
 
         Returns
         -------
@@ -3562,6 +4051,16 @@ class Bvh:
         descendant via vector addition (valid at rest pose).  Their
         rotation contribution during animation is lost.
 
+        A kept joint keeps its position channels. A removed translating
+        joint's translation is summed into its nearest kept descendant,
+        per frame, in place of its offset, and that descendant becomes a
+        translating joint (see :attr:`joint_translations`); a removed
+        joint that does not translate adds its offset to every frame of a
+        translating descendant. So a kept joint's FK position is the
+        source's whenever the removed joints above it do not rotate. An
+        end site added below a childless kept joint reads the rest
+        offsets of the removed joints between them.
+
         The result lists its nodes in depth-first order, as a file
         would, so writing it and reading it back keeps
         :meth:`matches_hierarchy`. A kept joint left with nothing below
@@ -3622,6 +4121,8 @@ class Bvh:
         # node's flag before its parent reads it, since parents precede
         # their children in ``nodes``.
         survives = [survives_extraction(node) for node in self.nodes]
+        # The rows of the joints, which a clip without motion holds too.
+        motion = self._motion_on_skeleton()
         position = {id(node): i for i, node in enumerate(self.nodes)}
         survivor_below = [False] * len(self.nodes)
         for i in range(len(self.nodes) - 1, 0, -1):
@@ -3629,8 +4130,14 @@ class Bvh:
             if survives[i] or survivor_below[i]:
                 survivor_below[parent_position] = True
 
+        translation_column_of = {
+            id(node): column
+            for column, node in enumerate(n for n in self.nodes if _is_translating_joint(n))
+        }
+
         rows: list[dict[str, Any]] = []
         kept_old_j_indices: list[int] = []
+        new_translations: list[npt.NDArray[np.float64]] = []
         # Original joint (by identity: names repeat) -> its row index
         row_of: dict[int, int] = {}
 
@@ -3660,13 +4167,29 @@ class Bvh:
             else:
                 # Removed ancestors collapse into this joint's offset,
                 # summed up to the nearest kept one (the root at the latest).
-                acc_offset = node.offset.copy()
+                # Each frame sums the same chain, with a translating joint's
+                # translation in place of its offset; the joint translates
+                # when one joint of the chain does.
+                chain = [node]
                 walker = node.parent
                 while walker is not None and id(walker) not in kept:
-                    acc_offset = walker.offset + acc_offset
+                    chain.append(walker)
                     walker = walker.parent
                 row["parent"] = row_of[id(walker)]
-                row["offset"] = acc_offset
+                row["offset"] = np.sum([link.offset for link in chain], axis=0)
+                if any(_is_translating_joint(link) for link in chain):
+                    row["pos_channels"] = ["X", "Y", "Z"]
+                    new_translations.append(
+                        np.sum(
+                            [
+                                motion["joint_translations"][:, translation_column_of[id(link)]]
+                                if _is_translating_joint(link)
+                                else np.broadcast_to(link.offset, (self.frame_count, 3))
+                                for link in chain
+                            ],
+                            axis=0,
+                        )
+                    )
             row["rot_channels"] = node.rot_channels  # type: ignore[attr-defined]
 
             row_of[id(node)] = len(rows)
@@ -3686,7 +4209,10 @@ class Bvh:
         new_bvh = self._derive_clip(
             {
                 "root_pos": self._root_pos.copy(),
-                "joint_angles": self._joint_angles[:, kept_old_j_indices, :],
+                "joint_angles": motion["joint_angles"][:, kept_old_j_indices, :],
+                "joint_translations": np.stack(new_translations, axis=1)
+                if new_translations
+                else np.empty((self.frame_count, 0, 3)),
             },
             nodes=new_nodes,
         )
@@ -4028,6 +4554,7 @@ class Bvh:
         feet: Sequence[NodeSelector] | None = None,
         stencil: str = "central",
         pad: str = "edge",
+        include_joint_translations: bool = False,
     ) -> npt.NDArray[np.float64]:
         """Export motion as a flat feature array.  See :func:`pybvh.features.to_feature_array`."""
         from . import features
@@ -4042,6 +4569,7 @@ class Bvh:
             feet=feet,
             stencil=stencil,
             pad=pad,
+            include_joint_translations=include_joint_translations,
         )
 
     def feature_array_layout(
@@ -4050,6 +4578,7 @@ class Bvh:
         num_feet: int = 0,
         representation: str = "6d",
         include_root_pos: bool = True,
+        include_joint_translations: bool = False,
         include_velocities: bool = False,
         include_foot_contacts: bool = False,
     ) -> dict[str, slice]:
@@ -4059,8 +4588,10 @@ class Bvh:
         return features.feature_array_layout(
             num_joints=self.joint_count,
             num_feet=num_feet,
+            num_translating_joints=_TRANSLATING_JOINTS.count(self.nodes),
             representation=representation,
             include_root_pos=include_root_pos,
+            include_joint_translations=include_joint_translations,
             include_velocities=include_velocities,
             include_foot_contacts=include_foot_contacts,
         )

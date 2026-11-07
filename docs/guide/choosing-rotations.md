@@ -45,13 +45,28 @@ Any pair converts directly. For the conversion API and the shape conventions, se
 ## Typical ML pipeline
 
 ```python
-# Extract 6D features for training
-root_pos, rot6d = bvh.to_6d()  # (F, J, 6)
+import pybvh
+from pybvh import Bvh, rotations
 
-# After model prediction, convert back
-bvh_pred = bvh.from_6d(pred_root_pos, pred_rot6d)
+bvh = pybvh.read_bvh_file("walk.bvh")
+
+# Extract 6D features for training
+rot6d = bvh.to_6d()  # (F, J, 6)
+
+# The model predicts new motion on the same skeleton: a root path and 6D rotations
+pred_root_pos, pred_rot6d = model(bvh.root_pos, rot6d)
+
+# Build the predicted clip with the constructor
+bvh_pred = Bvh(
+    nodes=bvh.nodes,
+    root_pos=pred_root_pos,
+    joint_angles=rotations.rot6d_to_euler(pred_rot6d, bvh.euler_orders),
+    frame_time=bvh.frame_time,
+)
 
 # Evaluate with quaternion distance or rotation matrix comparison
-_, q_gt = bvh.to_quat()
-_, q_pred = bvh_pred.to_quat()
+q_gt = bvh.to_quat()
+q_pred = bvh_pred.to_quat()
 ```
+
+The constructor takes any frame count, so the prediction can be longer or shorter than the input. If the skeleton has joints with position channels, give their predicted positions too, with `joint_translations=` (shape `(F, P, 3)`, see [`Bvh.joint_translations`](../api/bvh.md)). To change the rotations of an existing clip and keep its `root_pos` and `joint_translations`, use `bvh.from_6d(pred_rot6d)` instead: its frame count must be the clip's.

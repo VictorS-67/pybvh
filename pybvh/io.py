@@ -9,18 +9,22 @@ Public functions:
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from fractions import Fraction
 from itertools import chain
 from pathlib import Path
-from typing import Any, NamedTuple, TextIO
+from typing import TYPE_CHECKING, Any, NamedTuple, TextIO
 
 import numpy as np
 import numpy.typing as npt
 
-from .bvh import Bvh
-from .bvhnode import BvhNode
+from .bvh import Bvh, _euler_blocks, _static_root_pos
+from .bvhnode import BvhNode, _is_joint, _pos_channels
 from .node_tree import nodes_from_table
 from .tools import _require_rate, _validate_bvh_path, _validate_frame_time
+
+if TYPE_CHECKING:
+    from .bvhnode import BvhJoint
 
 # ----------------------------------------------------------------
 #  Reading
@@ -76,13 +80,23 @@ def read_bvh_file(
     ------
     ValueError
         If the file is malformed, for example if its ``Frame Time`` is
-        missing, zero, negative, NaN or infinite.
+        missing, zero, negative, NaN or infinite, or if a joint declares
+        other channels than 3 rotation channels, or 3 position + 3
+        rotation channels (the error names the joint). The root declares
+        3 position + 3 rotation channels, or none (``CHANNELS 0``).
 
     Notes
     -----
     BVH files store joint angles in degrees. pybvh holds them in
     radians, on :attr:`Bvh.joint_angles`. This function converts them on
     read. :func:`write_bvh_file` converts them back on write.
+
+    A root that declares ``CHANNELS 0`` (Blender's exporter writes one,
+    ``ROOT __0``, above an armature with several root bones) is a static
+    root (:meth:`~pybvh.bvhnode.BvhRoot.is_static`). It stays at its
+    ``OFFSET`` with no rotation: :attr:`Bvh.root_pos` holds its offset in
+    every frame, and its row of :attr:`Bvh.joint_angles` is zero.
+    :func:`write_bvh_file` writes it back as ``CHANNELS 0``.
 
     The reader normalizes three things, rather than preserving them
     verbatim. So a round-trip is lossless in *motion*, but not
@@ -121,15 +135,19 @@ def read_bvh_file(
       whole (``0.033367`` gives 30 fps, ``0.017`` 59 fps). In a file at
       6 decimals, it also differs on some whole rates above 720 fps
       (``0.001386`` gives 722 fps, where pybvh reads 721).
-    - **Root channels are reordered** to position-first, with the
-      position channels in X, Y, Z order, the order of a
-      :attr:`Bvh.root_pos` row. A file that declares rotations before
-      positions, or ``Zposition Yposition Xposition``, parses correctly,
-      and ``bvh.root.pos_channels`` is ``('X', 'Y', 'Z')``: the declared
-      order is not kept. :func:`write_bvh_file` writes the canonical
-      order, so a write changes such a declaration once, and the output
-      is the same from then on. The rotation channels keep their
-      declared order, which is the root's Euler order.
+    - **Channels are reordered** to position-first, with the position
+      channels in X, Y, Z order, the order of a :attr:`Bvh.root_pos`
+      row, on the root and on every translating joint (a joint whose
+      ``CHANNELS`` line declares 3 position + 3 rotation channels; its
+      values are :attr:`Bvh.joint_translations`). A file that declares
+      rotations before positions, or ``Zposition Yposition Xposition``,
+      parses correctly, and the node's ``pos_channels`` is ``('X', 'Y',
+      'Z')``: the declared order is not kept. Position channels
+      interleaved with rotation channels are read as translate first,
+      then rotate. :func:`write_bvh_file` writes the canonical order, so
+      a write changes such a declaration once, and the output is the
+      same from then on. The rotation channels keep their declared
+      order, which is the node's Euler order.
     - **Offsets and motion values are written at 6 decimal places**, so
       re-reading a written file quantizes at ~1e-6 in the file's own
       units. The frame time is written at 17 significant digits, which
@@ -152,8 +170,57 @@ class _ParsedBvh(NamedTuple):
     """What :func:`_extract_bvh_file_info` reads from a BVH file."""
 
     nodes: list[BvhNode]
-    frames: npt.NDArray[np.float64]  # root position first; angles in degrees
+    # Each joint's channel block in node order, as pybvh stores it
+    # (_frame_columns); angles in degrees.
+    frames: npt.NDArray[np.float64]
     frame_time: float
+
+
+class _FrameColumns(NamedTuple):
+    """Where each motion value sits in a frame line, as pybvh writes it.
+
+    Each joint's channel block, in node order: its position channels
+    (``X Y Z``) if it has any, then its rotation channels in its Euler
+    order. The reader puts a file's columns in this order, so both
+    directions read the same layout. A static root (``CHANNELS 0``) has
+    no block: its ``root_pos`` is its offset and its row of
+    ``joint_angles`` is zero, in every frame.
+    """
+
+    root_pos: npt.NDArray[np.intp]  # (3,), or (0,) on a static root
+    joint_translations: npt.NDArray[np.intp]  # (P, 3), in node order
+    joint_angles: npt.NDArray[np.intp]  # (R, 3): the rotating joints, in node order
+    rotating_joints: npt.NDArray[np.intp]  # (R,): their rows of joint_angles
+    width: int  # the values per frame
+
+
+def _frame_columns(nodes: Sequence[BvhNode]) -> _FrameColumns:
+    """The column of each motion value in a frame line of ``nodes``' file.
+
+    A frame line holds the blocks of ``to_df_dict``'s euler layout
+    (:func:`~pybvh.bvh._euler_blocks`), three columns each, in order.
+    """
+    root_pos: list[int] = []
+    translations: list[list[int]] = []
+    angles: list[list[int]] = []
+    rotating: list[int] = []
+    blocks = _euler_blocks(nodes)
+    for index, block in enumerate(blocks):
+        columns = list(range(3 * index, 3 * index + 3))
+        if block.array == "root_pos":
+            root_pos = columns
+        elif block.array == "joint_translations":
+            translations.append(columns)
+        else:
+            rotating.append(block.row)
+            angles.append(columns)
+    return _FrameColumns(
+        np.array(root_pos, dtype=np.intp),
+        np.array(translations, dtype=np.intp).reshape(-1, 3),
+        np.array(angles, dtype=np.intp).reshape(-1, 3),
+        np.array(rotating, dtype=np.intp),
+        3 * len(blocks),
+    )
 
 
 def _bvh_from_parsed(
@@ -172,17 +239,24 @@ def _bvh_from_parsed(
     only thread whose stack holds the caller's line for the warning.
     """
     node_list, frame_array, frame_time = parsed
-    num_joints = len([n for n in node_list if not n.is_end_site()])
-    root_pos = frame_array[:, :3].astype(np.float64)
-    # BVH stores angles in degrees; pybvh holds them in radians.
-    joint_angles_deg = (
-        frame_array[:, 3:].reshape(frame_array.shape[0], num_joints, 3).astype(np.float64)
-    )
-    joint_angles = np.deg2rad(joint_angles_deg)
+    columns = _frame_columns(node_list)
+    frame_array = frame_array.astype(np.float64)
+    frame_count = len(frame_array)
+    if columns.root_pos.size:
+        root_pos = frame_array[:, columns.root_pos]
+    else:
+        root_pos = _static_root_pos(node_list[0].offset, frame_count)
+    joint_translations = frame_array[:, columns.joint_translations]
+    # A static root's row stays zero. BVH stores angles in degrees; pybvh
+    # holds them in radians.
+    joint_count = sum(1 for node in node_list if _is_joint(node))
+    joint_angles = np.zeros((frame_count, joint_count, 3))
+    joint_angles[:, columns.rotating_joints] = np.deg2rad(frame_array[:, columns.joint_angles])
     return Bvh(
         nodes=node_list,
         root_pos=root_pos,
         joint_angles=joint_angles,
+        joint_translations=joint_translations,
         frame_time=frame_time,
         world_up=world_up,
         lr_mapping=lr_mapping,
@@ -268,7 +342,7 @@ def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
 
     The hierarchy is read token by token into node-table rows (see :func:`~pybvh.nodes_to_table`), one per ROOT, JOINT or End Site in file order, and the tree is built once by :func:`~pybvh.nodes_from_table`, which wires ``parent`` and ``children`` and checks the tree. Syntax errors (a second ROOT, a JOINT or End Site outside the ROOT block, an unmatched ``}``, an unreadable block) are raised here, with the line and the file.
 
-    The returned frame array is normalized to pybvh's internal column layout: the root's 3 position columns first, in X, Y, Z order, then all rotation columns (root's, then each joint's in hierarchy order). Files whose root declares rotation channels before position channels, or its position channels in another order, are reordered on read (see :func:`_stored_channel_order`); :func:`write_bvh_file` always writes ``Xposition Yposition Zposition`` first.
+    The returned frame array is normalized to pybvh's internal column layout (:func:`_frame_columns`): each joint's channel block in node order, its position columns first, in X, Y, Z order, then its rotation columns. A block that declares rotation channels before position channels, interleaves them, or lists its position channels in another order, is reordered on read (see :func:`_stored_channel_order`); :func:`write_bvh_file` always writes ``Xposition Yposition Zposition`` first.
     """
     table: list[dict[str, Any]] = []
     # Brace stack of the open ROOT/JOINT blocks, as row indices: a row is
@@ -279,9 +353,9 @@ def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
     line_number: int = 0
     frame_count: int = 0
     frame_time: float = 0.0
-    # Column indices of the root's channel block, in the order pybvh
-    # stores them (see _stored_channel_order).
-    root_cols: list[int] = []
+    # The file's column of each stored column: each joint's channel block,
+    # in the order pybvh stores it (see _stored_channel_order).
+    file_columns: list[int] = []
 
     filepath = _validate_bvh_path(filepath)
 
@@ -322,10 +396,13 @@ def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
                     "offset": offset,
                 }
                 stored = [channels[i] for i in cols]
-                if token == "ROOT":
-                    row["pos_channels"] = [ax for kind, ax in stored if kind == "pos"]
-                    root_cols = cols
+                pos_channels = [ax for kind, ax in stored if kind == "pos"]
+                # A joint without position channels has no key: it only rotates.
+                if token == "ROOT" or pos_channels:
+                    row["pos_channels"] = pos_channels
                 row["rot_channels"] = [ax for kind, ax in stored if kind == "rot"]
+                block_start = len(file_columns)
+                file_columns.extend(block_start + i for i in cols)
                 open_rows.append(len(table))
                 table.append(row)
 
@@ -383,9 +460,8 @@ def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
 
         # ----------  End of the Hierarchy part. After the hierarchy comes the frames data.
 
-        # Expected channels: 6 for root (3 pos + 3 rot), 3 for each other non-end-site joint
-        non_end_site_nodes = [n for n in node_list if not n.is_end_site()]
-        num_channels = 3 + 3 * len(non_end_site_nodes)
+        # Expected channels: the sum of the CHANNELS lines.
+        num_channels = len(file_columns)
 
         # loadtxt warns, rather than raises, on input with no data row; the
         # first one is found here so that the parse never warns (it runs on
@@ -407,11 +483,11 @@ def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
                 f"frame but the hierarchy declares {num_channels} channels"
             )
 
-    # Put the root's columns in the order pybvh stores them: a
+    # Put each block's columns in the order pybvh stores them: a
     # rotation-first or interleaved block, or position channels in another
     # order than X Y Z, are read as if the file declared the stored order.
-    if root_cols != [0, 1, 2, 3, 4, 5]:
-        frame_array = frame_array[:, root_cols + list(range(6, num_channels))]
+    if file_columns != list(range(num_channels)):
+        frame_array = frame_array[:, file_columns]
 
     return _ParsedBvh(node_list, frame_array, frame_time)
 
@@ -562,19 +638,16 @@ def _read_node_block(
     num_pos = sum(1 for kind, _ in channels if kind == "pos")
     num_rot = len(channels) - num_pos
     if node_type == "root":
-        if num_pos != 3 or num_rot != 3:
+        if (num_pos, num_rot) not in ((3, 3), (0, 0)):
             raise ValueError(
-                f"root must have 3 position + 3 rotation channels, "
-                f"got {num_pos} position + {num_rot} rotation"
+                f"root must have 3 position + 3 rotation channels, or none "
+                f"(CHANNELS 0), got {num_pos} position + {num_rot} rotation"
             )
-    else:
-        if num_pos != 0:
-            raise ValueError(
-                f"pybvh does not model position channels on non-root joints "
-                f"(got {num_pos} position channels)"
-            )
-        if num_rot != 3:
-            raise ValueError(f"joint must have exactly 3 rotation channels, got {num_rot}")
+    elif (num_pos, num_rot) not in ((0, 3), (3, 3)):
+        raise ValueError(
+            f"joint must have 3 rotation channels, or 3 position + 3 rotation "
+            f"channels, got {num_pos} position + {num_rot} rotation"
+        )
 
     return (offset, channels, line_number)
 
@@ -610,7 +683,9 @@ def write_bvh_file(
     ValueError
         If the file extension is not ``.bvh``, or if ``bvh.frame_time``
         is 0 (unset). A file must state its frame time, and
-        :func:`read_bvh_file` refuses ``Frame Time: 0``.
+        :func:`read_bvh_file` refuses ``Frame Time: 0``. Also if the
+        clip's motion arrays disagree on frame count (the setters do not
+        check it); the file is then left as it was.
     FileNotFoundError
         If the parent directory does not exist.
     FileExistsError
@@ -641,12 +716,12 @@ def write_bvh_file(
 
     The BVH format carries no place for ``world_up``, ``lr_mapping``, or
     ``source_path``. Those are lost on write, and re-inferred on read.
-    The root's channels are always written position-first, as
-    ``Xposition Yposition Zposition``, then the rotation channels in the
-    root's Euler order, whatever order the source file declared. So a
-    write reorders a root whose file declared its position channels in
-    another order, or after its rotations (:func:`read_bvh_file` reads
-    both).
+    The root's channels, and a translating joint's, are always written
+    position-first, as ``Xposition Yposition Zposition``, then the
+    rotation channels in the node's Euler order, whatever order the
+    source file declared. So a write reorders a node whose file declared
+    its position channels in another order, after its rotations or
+    interleaved with them (:func:`read_bvh_file` reads all three).
     """
     filepath = Path(filepath)
     if filepath.suffix != ".bvh":
@@ -659,6 +734,9 @@ def write_bvh_file(
         raise FileExistsError(f"{filepath} already exists; pass overwrite=True to replace it.")
     # A BVH file must state its frame time, and the reader refuses 0.
     _require_rate(bvh.frame_time, f"Writing {filepath.name}")
+    # Read before the file is opened: it raises on arrays that disagree on
+    # frame count, which would otherwise be broadcast across the frames.
+    arrays = bvh._motion_on_skeleton()
 
     def offset_to_str(node: BvhNode) -> str:
         offset_str = "OFFSET"
@@ -666,19 +744,12 @@ def write_bvh_file(
             offset_str += " " + f"{num:.6f}"
         return offset_str
 
-    def channels_to_str(node: BvhNode) -> str:
-        chanels_str = "CHANNELS"
-        if node.parent is None:
-            chanels_str += " 6"
-            for pos_ax in node.pos_channels:  # type: ignore[attr-defined]
-                chanels_str += " " + pos_ax + "position"
-        else:
-            chanels_str += " 3"
-
-        for rot_ax in node.rot_channels:  # type: ignore[attr-defined]
-            chanels_str += " " + rot_ax + "rotation"
-
-        return chanels_str
+    def channels_to_str(node: BvhJoint) -> str:
+        # The joint's block as _frame_columns lays it out: its position
+        # channels, if any, then its rotation channels.
+        tokens = [f"{axis}position" for axis in _pos_channels(node)]
+        tokens += [f"{axis}rotation" for axis in node.rot_channels]
+        return " ".join(["CHANNELS", str(len(tokens)), *tokens])
 
     def rec_node_to_file(node: BvhNode, file: TextIO, depth: int = 0) -> None:
         if node.is_end_site():
@@ -694,7 +765,7 @@ def write_bvh_file(
             print("\t" * depth + type_str + " " + node.name, file=file)
             print("\t" * depth + "{", file=file)
             print("\t" * (depth + 1) + offset_to_str(node), file=file)
-            print("\t" * (depth + 1) + channels_to_str(node), file=file)
+            print("\t" * (depth + 1) + channels_to_str(node), file=file)  # type: ignore[arg-type]
             for child in node.children:  # type: ignore[attr-defined]
                 rec_node_to_file(child, file=file, depth=depth + 1)
             print("\t" * depth + "}", file=file)
@@ -710,9 +781,17 @@ def write_bvh_file(
 
         F = bvh.frame_count
         if F > 0:
+            columns = _frame_columns(bvh.nodes)
+            motion = np.empty((F, columns.width), dtype=np.float64)
+            # A static root has no column: its root_pos and its row of
+            # joint_angles are not written.
+            if columns.root_pos.size:
+                motion[:, columns.root_pos] = arrays["root_pos"]
+            motion[:, columns.joint_translations] = arrays["joint_translations"]
             # pybvh stores angles in radians; BVH format requires degrees.
-            joint_angles_deg = np.rad2deg(bvh.joint_angles)
-            motion = np.column_stack([bvh.root_pos, joint_angles_deg.reshape(F, -1)])
+            motion[:, columns.joint_angles] = np.rad2deg(
+                arrays["joint_angles"][:, columns.rotating_joints]
+            )
             np.savetxt(f, motion, fmt="%.6f", delimiter=" ")
 
     if verbose:

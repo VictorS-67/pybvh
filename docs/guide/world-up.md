@@ -94,8 +94,8 @@ The report tells the three states apart:
 
 The guess starts again when the recording itself is replaced:
 
-- When you assign `root_pos`, `joint_angles` or frames (`bvh[i] = other`).
-- When you load new motion with `from_rotmat`, `from_6d`, `from_quat` or `from_axisangle`.
+- When you assign `root_pos`, `joint_angles`, `joint_translations` or frames (`bvh[i] = other`).
+- When you set new rotations with `from_rotmat`, `from_6d`, `from_quat` or `from_axisangle`.
 
 The clip then guesses again from its new first frame, whether its axis was inferred or inherited. The clips derived from it afterwards inherit the new guess. None of these clears a set axis.
 

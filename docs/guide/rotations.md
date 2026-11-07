@@ -34,15 +34,17 @@ All functions support arbitrary batch dimensions: `(3,)`, `(N, 3)`, `(F, J, 3)` 
 ## Bvh conversion methods
 
 ```python
-root_pos, rot6d = bvh.to_6d()           # (F, J, 6)
-root_pos, quats = bvh.to_quat()         # (F, J, 4)
-root_pos, aa = bvh.to_axisangle()    # (F, J, 3)
-root_pos, R = bvh.to_rotmat()       # (F, J, 3, 3)
+rot6d = bvh.to_6d()        # (F, J, 6)
+quats = bvh.to_quat()      # (F, J, 4)
+aa = bvh.to_axisangle()    # (F, J, 3)
+R = bvh.to_rotmat()        # (F, J, 3, 3)
 
-# Set frames back from a different representation
-bvh2 = bvh.from_6d(root_pos, rot6d)
-bvh3 = bvh.from_quat(root_pos, quats)
+# Set the rotations back from a different representation
+bvh2 = bvh.from_6d(rot6d)
+bvh3 = bvh.from_quat(quats)
 ```
+
+The conversions carry rotations only. `from_*` writes `joint_angles` and keeps `root_pos` and `joint_translations`; the frame count must be the clip's. To build a clip from new motion, use the `Bvh` constructor (see [Choosing a Representation](choosing-rotations.md#typical-ml-pipeline)).
 
 ## Changing Euler order
 

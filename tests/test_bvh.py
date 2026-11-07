@@ -894,20 +894,11 @@ class TestDataFrameConversion:
         df.loc[df.index[-1], "time"] = float("nan")
         return bvh.to_node_table(), df, "frame_time .* got nan"
 
-    @staticmethod
-    def _root_position_order_changed(bvh):
-        """Refused by the constructor, the last check before the freeze."""
-        table = bvh.to_node_table()
-        table[0]["pos_channels"] = "ZYX"
-        df = pd.DataFrame(bvh.to_df_dict(mode="euler"))
-        return table, df, "Non-standard root position channel order"
-
     REFUSALS = {
         "missing_column": _missing_column,
         "no_time_column": _no_time_column,
         "one_row": _one_row,
         "nan_frame_time": _nan_frame_time,
-        "root_position_order": _root_position_order_changed,
     }
 
     @pytest.mark.parametrize("refusal", REFUSALS.values(), ids=REFUSALS.keys())
@@ -1699,24 +1690,24 @@ class TestInplaceParameter:
     def test_from_6d_default_returns_copy(self, bvh_example):
         """from_6d() default should return a new object, not modify self."""
         original_angles = bvh_example.joint_angles.copy()
-        rp, r6d = bvh_example.to_6d()
-        result = bvh_example.from_6d(rp, r6d)
+        r6d = bvh_example.to_6d()
+        result = bvh_example.from_6d(r6d)
         assert result is not bvh_example
         np.testing.assert_allclose(bvh_example.joint_angles, original_angles, atol=1e-10)
 
     def test_from_quat_default_returns_copy(self, bvh_example):
         """from_quat() default should return a new object."""
         original_angles = bvh_example.joint_angles.copy()
-        rp, quats = bvh_example.to_quat()
-        result = bvh_example.from_quat(rp, quats)
+        quats = bvh_example.to_quat()
+        result = bvh_example.from_quat(quats)
         assert result is not bvh_example
         np.testing.assert_allclose(bvh_example.joint_angles, original_angles, atol=1e-10)
 
     def test_from_axisangle_default_returns_copy(self, bvh_example):
         """from_axisangle() default should return a new object."""
         original_angles = bvh_example.joint_angles.copy()
-        rp, aa = bvh_example.to_axisangle()
-        result = bvh_example.from_axisangle(rp, aa)
+        aa = bvh_example.to_axisangle()
+        result = bvh_example.from_axisangle(aa)
         assert result is not bvh_example
         np.testing.assert_allclose(bvh_example.joint_angles, original_angles, atol=1e-10)
 
@@ -1737,14 +1728,14 @@ class TestInplaceParameter:
     def test_inplace_true_returns_none(self, bvh_example):
         """All mutation methods with inplace=True should return None."""
         bvh = bvh_example.copy()
-        rp, r6d = bvh.to_6d()
-        assert bvh.from_6d(rp, r6d, inplace=True) is None
+        r6d = bvh.to_6d()
+        assert bvh.from_6d(r6d, inplace=True) is None
 
-        rp, quats = bvh.to_quat()
-        assert bvh.from_quat(rp, quats, inplace=True) is None
+        quats = bvh.to_quat()
+        assert bvh.from_quat(quats, inplace=True) is None
 
-        rp, aa = bvh.to_axisangle()
-        assert bvh.from_axisangle(rp, aa, inplace=True) is None
+        aa = bvh.to_axisangle()
+        assert bvh.from_axisangle(aa, inplace=True) is None
 
         assert bvh.change_euler_order("XYZ", joint="Spine", inplace=True) is None
         assert bvh.change_euler_order("ZYX", inplace=True) is None
@@ -1753,8 +1744,8 @@ class TestInplaceParameter:
 
     def test_copy_from_from_6d_is_independent(self, bvh_example):
         """Copy returned by from_6d should be independent from original."""
-        rp, r6d = bvh_example.to_6d()
-        result = bvh_example.from_6d(rp, r6d)
+        r6d = bvh_example.to_6d()
+        result = bvh_example.from_6d(r6d)
         # The two Bvhs must not share underlying storage.
         assert not np.may_share_memory(result._root_pos, bvh_example._root_pos)
         assert not np.may_share_memory(result._joint_angles, bvh_example._joint_angles)
@@ -1822,11 +1813,14 @@ class TestChannelProtection:
 class TestChannelOrdersAreTuples:
     """A channel order is a tuple on every node, so it never changes in place."""
 
-    @pytest.mark.parametrize("given", ["XZY", ["X", "Z", "Y"], ("X", "Z", "Y")])
-    def test_any_sequence_is_stored_as_a_tuple(self, given):
-        root = BvhRoot("Hips", pos_channels=given, rot_channels=given)
+    @pytest.mark.parametrize("form", [str, list, tuple])
+    def test_any_sequence_is_stored_as_a_tuple(self, form):
+        def given(order):
+            return order if form is str else form(order)
+
+        root = BvhRoot("Hips", pos_channels=given("XYZ"), rot_channels=given("XZY"))
         assert root.rot_channels == ("X", "Z", "Y")
-        assert root.pos_channels == ("X", "Z", "Y")
+        assert root.pos_channels == ("X", "Y", "Z")
 
     def test_a_node_takes_another_nodes_order(self, bvh_example):
         joint = BvhJoint("Copy", rot_channels=bvh_example.nodes[1].rot_channels)
@@ -1868,11 +1862,13 @@ class TestChannelOrdersAreTuples:
             getattr(n, "rot_channels", None) for n in bvh_example.nodes
         ]
 
-    def test_a_clip_refuses_a_root_position_order_other_than_xyz(self):
-        root = BvhRoot("Hips", pos_channels="ZYX")
-        root.children.append(BvhEndSite("Tip", offset=[0, 1, 0], parent=root))
+    def test_a_root_refuses_a_position_order_other_than_xyz(self):
+        """The check a clip made at construction, held by the node since #186."""
         with pytest.raises(ValueError, match="order 'ZYX' is not supported. Expected 'XYZ'"):
-            Bvh(nodes=[root, root.children[0]])
+            BvhRoot("Hips", pos_channels="ZYX")
+        root = BvhRoot("Hips")
+        with pytest.raises(ValueError, match="order 'ZYX' is not supported. Expected 'XYZ'"):
+            root.pos_channels = "ZYX"
 
 
 # The way every refusal names: edit the skeleton as a table, build a new clip.
@@ -2700,8 +2696,8 @@ class TestReadWriteReadEquality:
         with pytest.raises(ValueError, match="frame time"):
             read_bvh_file(p)
 
-    def test_six_channel_non_root_joint_raises(self, tmp_path):
-        """Layouts pybvh doesn't model get a clear error instead of silent corruption."""
+    def test_six_channel_non_root_joint_reads(self, tmp_path):
+        """A joint's position channels are its position relative to its parent (#186)."""
         content = (
             "HIERARCHY\n"
             "ROOT Hips\n"
@@ -2721,12 +2717,13 @@ class TestReadWriteReadEquality:
             "MOTION\n"
             "Frames: 1\n"
             "Frame Time: 0.033333\n"
-            "0 0 0 0 0 0 0 0 0 0 0 0\n"
+            "0 0 0 0 0 0 0 12 0 0 0 0\n"
         )
         p = tmp_path / "six_channel_joint.bvh"
         p.write_text(content)
-        with pytest.raises(ValueError, match="position channels on non-root"):
-            read_bvh_file(str(p))
+        clip = read_bvh_file(str(p))
+        np.testing.assert_array_equal(clip.joint_translations, [[[0, 12, 0]]])
+        np.testing.assert_array_equal(clip.node_positions()[0, 1], [0, 12, 0])
 
 
 # =============================================================================
@@ -3794,6 +3791,46 @@ class TestWhatACopyCarries:
         assert computations.fk == 2
 
 
+class TestAPickleFromBefore186:
+    """A clip pickled before joints translated (#186) loads whole: its nodes
+    have the channels they had then. The pickle was made by pybvh at
+    f605ef9 (tests/fixtures/README.md)."""
+
+    FIXTURES = Path(__file__).parent / "fixtures"
+    SOURCES = {
+        "bvh_test1": BVH_DATA_DIR / "bvh_test1.bvh",
+        "root_and_child": FIXTURES / "pre_186_root_and_child.bvh",
+    }
+
+    @pytest.fixture
+    def clips(self):
+        return pickle.loads((self.FIXTURES / "pre_186_clips.pickle").read_bytes())
+
+    @pytest.mark.parametrize("name", SOURCES)
+    def test_its_nodes_have_a_repr(self, clips, name):
+        assert "pos_channels = ('X', 'Y', 'Z')" in repr(clips[name].nodes)
+
+    @pytest.mark.parametrize("name", SOURCES)
+    def test_only_its_root_has_position_channels(self, clips, name):
+        clip = clips[name]
+        assert clip.root.pos_channels == ("X", "Y", "Z")
+        assert not clip.root.is_static()
+        joints = [node for node in clip.nodes[1:] if not node.is_end_site()]
+        assert joints
+        for joint in joints:
+            assert joint.pos_channels == ()
+
+    @pytest.mark.parametrize("name", SOURCES)
+    def test_it_equals_a_fresh_read_and_moves_the_same(self, clips, name):
+        fresh = read_bvh_file(self.SOURCES[name])
+        clip = clips[name]
+        assert clip == fresh
+        assert clip.joint_translations.shape == (clip.frame_count, 0, 3)
+        for field, value in clip.fk_topology._asdict().items():
+            np.testing.assert_array_equal(value, getattr(fresh.fk_topology, field))
+        np.testing.assert_array_equal(clip.node_positions(), fresh.node_positions())
+
+
 class TestCopyWithNodes:
     """`copy(nodes=...)` is a copy on a skeleton the caller edited, bound to
     the motion by position."""
@@ -3886,12 +3923,6 @@ class TestCopyWithNodes:
         return table, "identifies joints by name"
 
     @staticmethod
-    def _root_position_order_changed(bvh):
-        table = bvh.to_node_table()
-        table[0]["pos_channels"] = "ZYX"
-        return table, "Non-standard root position channel order"
-
-    @staticmethod
     def _mapped_name_missing_without_motion(bvh):
         """A clip without motion takes another joint count, and its mapping
         then goes by name."""
@@ -3905,7 +3936,6 @@ class TestCopyWithNodes:
         "euler_order": _order_changed,
         "joint_count": _joint_added,
         "rename_collision": _mapped_joints_renamed_alike,
-        "root_position_order": _root_position_order_changed,
     }
 
     @pytest.mark.parametrize("refusal", REFUSALS.values(), ids=REFUSALS.keys())
@@ -4113,10 +4143,10 @@ class TestInheritedWorldUp:
         '+y'. Loaded quiet: bvh_test3's frame 0 and rest pose disagree.
         """
         clip = read_bvh_file(BVH_DATA_DIR / "bvh_test3.bvh", warn_on_world_up_disagreement=False)
-        root_pos, rotmats = clip.to_rotmat()
+        rotmats = clip.to_rotmat()
         tilt = euler_to_rotmat(np.radians([45.0, 0.0, 0.0]), "XYZ")
         rotmats[5:, 0] = tilt @ rotmats[5:, 0]
-        return clip.from_rotmat(root_pos, rotmats)
+        return clip.from_rotmat(rotmats)
 
     def test_a_slice_reports_its_sources_axis(self, tilted):
         sliced = tilted[5:]
@@ -4172,6 +4202,7 @@ class TestInheritedWorldUp:
     ASSIGNMENTS = {
         "root_pos": lambda b: setattr(b, "root_pos", b.root_pos),
         "joint_angles": lambda b: setattr(b, "joint_angles", b.joint_angles),
+        "joint_translations": lambda b: setattr(b, "joint_translations", b.joint_translations),
         "setitem": lambda b: b.__setitem__(0, b[1]),
     }
 
@@ -4307,27 +4338,27 @@ class TestFreezePreservation:
 
     def test_freeze_survives_set_frames_6d(self, bvh_example):
         """from_6d(inplace=False) result is frozen."""
-        rp, r6d = bvh_example.to_6d()
-        result = bvh_example.from_6d(rp, r6d)
+        r6d = bvh_example.to_6d()
+        result = bvh_example.from_6d(r6d)
         self._assert_frozen(result)
 
     def test_freeze_survives_set_frames_6d_inplace(self, bvh_example):
         """from_6d(inplace=True), still frozen."""
         bvh = bvh_example.copy()
-        rp, r6d = bvh.to_6d()
-        bvh.from_6d(rp, r6d, inplace=True)
+        r6d = bvh.to_6d()
+        bvh.from_6d(r6d, inplace=True)
         self._assert_frozen(bvh)
 
     def test_freeze_survives_set_frames_quat(self, bvh_example):
         """from_quat result is frozen."""
-        rp, quats = bvh_example.to_quat()
-        result = bvh_example.from_quat(rp, quats)
+        quats = bvh_example.to_quat()
+        result = bvh_example.from_quat(quats)
         self._assert_frozen(result)
 
     def test_freeze_survives_set_frames_aa(self, bvh_example):
         """from_axisangle result is frozen."""
-        rp, aa = bvh_example.to_axisangle()
-        result = bvh_example.from_axisangle(rp, aa)
+        aa = bvh_example.to_axisangle()
+        result = bvh_example.from_axisangle(aa)
         self._assert_frozen(result)
 
     def test_freeze_survives_slice_frames(self, bvh_example):
@@ -4605,45 +4636,45 @@ class TestRotationConversionsAllFiles:
 
     def test_6d_roundtrip_test2(self, bvh_test2):
         """to_6d -> from_6d, compare joint_angles."""
-        rp, r6d = bvh_test2.to_6d()
-        result = bvh_test2.from_6d(rp, r6d)
+        r6d = bvh_test2.to_6d()
+        result = bvh_test2.from_6d(r6d)
         np.testing.assert_allclose(result.joint_angles, bvh_test2.joint_angles, atol=1e-4)
 
     def test_6d_roundtrip_test3(self, bvh_test3):
         """to_6d -> from_6d for mixed-order file."""
-        rp, r6d = bvh_test3.to_6d()
-        result = bvh_test3.from_6d(rp, r6d)
+        r6d = bvh_test3.to_6d()
+        result = bvh_test3.from_6d(r6d)
         np.testing.assert_allclose(result.joint_angles, bvh_test3.joint_angles, atol=1e-4)
 
     def test_quat_roundtrip_test2(self, bvh_test2):
         """to_quat -> from_quat."""
-        rp, quats = bvh_test2.to_quat()
-        result = bvh_test2.from_quat(rp, quats)
+        quats = bvh_test2.to_quat()
+        result = bvh_test2.from_quat(quats)
         np.testing.assert_allclose(result.joint_angles, bvh_test2.joint_angles, atol=1e-4)
 
     def test_quat_roundtrip_test3(self, bvh_test3):
         """to_quat -> from_quat for mixed-order."""
-        rp, quats = bvh_test3.to_quat()
-        result = bvh_test3.from_quat(rp, quats)
+        quats = bvh_test3.to_quat()
+        result = bvh_test3.from_quat(quats)
         np.testing.assert_allclose(result.joint_angles, bvh_test3.joint_angles, atol=1e-4)
 
     def test_aa_roundtrip_test2(self, bvh_test2):
         """to_axisangle -> from_axisangle."""
-        rp, aa = bvh_test2.to_axisangle()
-        result = bvh_test2.from_axisangle(rp, aa)
+        aa = bvh_test2.to_axisangle()
+        result = bvh_test2.from_axisangle(aa)
         np.testing.assert_allclose(result.joint_angles, bvh_test2.joint_angles, atol=1e-4)
 
     def test_aa_roundtrip_test3(self, bvh_test3):
         """to_axisangle -> from_axisangle for mixed-order."""
-        rp, aa = bvh_test3.to_axisangle()
-        result = bvh_test3.from_axisangle(rp, aa)
+        aa = bvh_test3.to_axisangle()
+        result = bvh_test3.from_axisangle(aa)
         np.testing.assert_allclose(result.joint_angles, bvh_test3.joint_angles, atol=1e-4)
 
     def test_6d_preserves_spatial_all_files(self, bvh_example, bvh_test2, bvh_test3):
         """Verify spatial coord preservation through 6d round-trip."""
         for bvh in [bvh_example, bvh_test2, bvh_test3]:
-            rp, r6d = bvh.to_6d()
-            result = bvh.from_6d(rp, r6d)
+            r6d = bvh.to_6d()
+            result = bvh.from_6d(r6d)
             orig_spatial = bvh.node_positions(centered="world")
             result_spatial = result.node_positions(centered="world")
             np.testing.assert_allclose(result_spatial, orig_spatial, atol=1e-4)
@@ -4651,8 +4682,8 @@ class TestRotationConversionsAllFiles:
     def test_quat_preserves_spatial_all_files(self, bvh_example, bvh_test2, bvh_test3):
         """Verify spatial coord preservation through quaternion round-trip."""
         for bvh in [bvh_example, bvh_test2, bvh_test3]:
-            rp, quats = bvh.to_quat()
-            result = bvh.from_quat(rp, quats)
+            quats = bvh.to_quat()
+            result = bvh.from_quat(quats)
             orig_spatial = bvh.node_positions(centered="world")
             result_spatial = result.node_positions(centered="world")
             np.testing.assert_allclose(result_spatial, orig_spatial, atol=1e-4)
@@ -4660,8 +4691,8 @@ class TestRotationConversionsAllFiles:
     def test_aa_preserves_spatial_all_files(self, bvh_example, bvh_test2, bvh_test3):
         """Verify spatial coord preservation through axisangle round-trip."""
         for bvh in [bvh_example, bvh_test2, bvh_test3]:
-            rp, aa = bvh.to_axisangle()
-            result = bvh.from_axisangle(rp, aa)
+            aa = bvh.to_axisangle()
+            result = bvh.from_axisangle(aa)
             orig_spatial = bvh.node_positions(centered="world")
             result_spatial = result.node_positions(centered="world")
             np.testing.assert_allclose(result_spatial, orig_spatial, atol=1e-4)
@@ -8563,24 +8594,24 @@ class TestFromRotmat:
     """from_rotmat is the inverse of to_rotmat."""
 
     def test_round_trip_preserves_positions(self, bvh_example):
-        root_pos, rotmats = bvh_example.to_rotmat()
-        result = bvh_example.from_rotmat(root_pos, rotmats)
+        rotmats = bvh_example.to_rotmat()
+        result = bvh_example.from_rotmat(rotmats)
         np.testing.assert_allclose(result.node_positions(), bvh_example.node_positions(), atol=1e-8)
 
     def test_inplace_returns_none(self, bvh_example):
         bvh = bvh_example.copy()
-        root_pos, rotmats = bvh.to_rotmat()
-        assert bvh.from_rotmat(root_pos, rotmats, inplace=True) is None
+        rotmats = bvh.to_rotmat()
+        assert bvh.from_rotmat(rotmats, inplace=True) is None
 
     def test_wrong_joint_count_raises(self, bvh_example):
-        root_pos, rotmats = bvh_example.to_rotmat()
+        rotmats = bvh_example.to_rotmat()
         with pytest.raises(ValueError, match="joints"):
-            bvh_example.from_rotmat(root_pos, rotmats[:, :3])
+            bvh_example.from_rotmat(rotmats[:, :3])
 
     def test_frame_mismatch_raises(self, bvh_example):
-        root_pos, rotmats = bvh_example.to_rotmat()
-        with pytest.raises(ValueError, match="Frame count mismatch"):
-            bvh_example.from_rotmat(root_pos[:-1], rotmats)
+        rotmats = bvh_example.to_rotmat()
+        with pytest.raises(ValueError, match="125 frames, but the clip has 126"):
+            bvh_example.from_rotmat(rotmats[:-1])
 
 
 class TestFromFileFromDf:

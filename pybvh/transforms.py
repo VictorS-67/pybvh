@@ -25,7 +25,7 @@ from . import rotations
 from ._orientation import (
     _resolve_lr_pairs,
 )
-from .bvhnode import BvhJoint
+from .bvhnode import BvhJoint, _euler_order, _is_translating_joint
 from .tools import (
     _AXIS_CHAR_TO_IDX,
     _axis_index_sign,
@@ -75,7 +75,14 @@ def translate_root(
     Returns
     -------
     Bvh or None
+
+    Raises
+    ------
+    ValueError
+        If ``offset`` is not of shape ``(3,)``, or if the root is static
+        (``CHANNELS 0``): it stays at its offset.
     """
+    bvh._refuse_static_root("translate_root moves the root")
     off = np.asarray(offset, dtype=np.float64)
     if off.shape != (3,):
         raise ValueError(f"offset must have shape (3,), got {off.shape}")
@@ -175,6 +182,8 @@ def add_rotation_noise(
     Returns
     -------
     Bvh or None
+        A static root's row (``CHANNELS 0``) gets no noise: the root
+        does not rotate.
 
     See Also
     --------
@@ -188,7 +197,11 @@ def add_rotation_noise(
 
     target = bvh if inplace else bvh.copy()
     if sigma_rad > 0:
-        noised = target.joint_angles + rng.normal(0.0, sigma_rad, target.joint_angles.shape)
+        noise = rng.normal(0.0, sigma_rad, target.joint_angles.shape)
+        if target.root.is_static():
+            # A static root does not rotate; the writer would drop its noise.
+            noise[:, 0] = 0.0
+        noised = target.joint_angles + noise
         if wrap:
             noised = (noised + np.pi) % (2.0 * np.pi) - np.pi
         target._set_motion(joint_angles=noised)
@@ -239,10 +252,17 @@ def add_position_noise(
     -------
     Bvh or None
 
+    Raises
+    ------
+    ValueError
+        If ``sigma`` is negative, or if the root is static
+        (``CHANNELS 0``): it stays at its offset.
+
     See Also
     --------
     add_rotation_noise : The joint-angle counterpart.
     """
+    bvh._refuse_static_root("add_position_noise moves the root")
     if sigma < 0:
         raise ValueError(f"sigma must be >= 0, got {sigma}")
     if rng is None:
@@ -616,6 +636,12 @@ def rotate_vertical(
     -------
     Bvh or None
 
+    Raises
+    ------
+    ValueError
+        If the root is static (``CHANNELS 0``): it does not move or
+        rotate.
+
     Notes
     -----
     The pivot moves only the root trajectory — the root's world
@@ -632,6 +658,7 @@ def rotate_vertical(
     which distribution to draw from is a pipeline's decision, not a
     motion's.
     """
+    bvh._refuse_static_root("rotate_vertical turns the root")
     target = bvh if inplace else bvh.copy()
 
     # Determine up axis — use the Bvh's world_up property so manual
@@ -644,7 +671,7 @@ def rotate_vertical(
 
     root_order = "".join(target.root.rot_channels)
     new_angles, new_root_pos = rotate_angles_vertical(
-        target.joint_angles,
+        target._motion_on_skeleton()["joint_angles"],
         target.root_pos,
         angle * up_sign,
         up_idx,
@@ -844,7 +871,9 @@ def mirror(
 
     Swaps left/right joint data and negates the appropriate rotation
     and position components so that the skeleton appears as a mirror
-    image.
+    image. :attr:`~pybvh.bvh.Bvh.joint_translations` are mirrored as the
+    offsets are: the lateral component negated, the columns of an L/R
+    pair swapped.
 
     Parameters
     ----------
@@ -879,8 +908,9 @@ def mirror(
     Raises
     ------
     ValueError
-        If no left/right pairs are available, or if an explicitly
-        passed ``lr_mapping`` names joints that don't exist.
+        If no left/right pairs are available, if an explicitly
+        passed ``lr_mapping`` names joints that don't exist, or if one
+        joint of an L/R pair translates and the other does not.
     """
     target = bvh if inplace else bvh.copy()
 
@@ -906,6 +936,26 @@ def mirror(
     joints = [n for n in target.nodes if isinstance(n, BvhJoint)]
     j_name2idx = {j.name: i for i, j in enumerate(joints)}
     lr_j_pairs = _resolve_lr_pairs(lr_mapping, j_name2idx, strict=explicit_mapping)
+
+    # A pair swaps its translation columns, so both joints of a pair
+    # translate or neither does: a one-sided pair has no column to swap
+    # into, and dropping or inventing position channels changes the
+    # skeleton's declaration.
+    translation_column = {
+        j_idx: column
+        for column, j_idx in enumerate(
+            j_idx for j_idx, joint in enumerate(joints) if _is_translating_joint(joint)
+        )
+    }
+    for lj, rj in lr_j_pairs:
+        if (lj in translation_column) != (rj in translation_column):
+            translating, other = (lj, rj) if lj in translation_column else (rj, lj)
+            raise ValueError(
+                f"Cannot mirror the L/R pair {joints[lj].name!r} / {joints[rj].name!r}: "
+                f"{joints[translating].name!r} declares position channels and "
+                f"{joints[other].name!r} does not. Mirroring swaps the pair's "
+                "translations, so both joints of a pair must translate or neither."
+            )
 
     # --- Detect lateral axis ---
     # Mirror is a skeleton operation (swap L/R joints, negate the lateral
@@ -945,13 +995,22 @@ def mirror(
 
     # --- Steps 1, 4, 5: Mirror arrays via NumPy-level API ---
     rot_ch = [j.rot_channels for j in joints]
+    motion = target._motion_on_skeleton()
     new_angles, new_root_pos = mirror_angles(
-        target.joint_angles,
+        motion["joint_angles"],
         target.root_pos,
         lr_j_pairs,
         lateral_idx,
         rot_ch,
     )
+    # Translations are positions, as offsets are: the lateral component is
+    # negated and the pairs swap their columns.
+    new_translations = motion["joint_translations"].copy()
+    new_translations[..., lateral_idx] *= -1
+    for lj, rj in lr_j_pairs:
+        if lj in translation_column:
+            lc, rc = translation_column[lj], translation_column[rj]
+            new_translations[:, [lc, rc]] = new_translations[:, [rc, lc]]
     target._set_motion(root_pos=new_root_pos, joint_angles=new_angles)
 
     # --- Step 2: Negate node offset lateral component for ALL nodes ---
@@ -961,7 +1020,7 @@ def mirror(
     # --- Step 3: Swap offsets for L/R paired nodes ---
     for li, ri in lr_node_pairs:
         offsets[[li, ri]] = offsets[[ri, li]]
-    target._replace_offsets(offsets)
+    target._replace_offsets(offsets, translations=new_translations)
 
     if inplace:
         return None
@@ -992,7 +1051,7 @@ def _apply_similarity_to_joints(
         joint_indices = list(joint_indices)
 
     sel = np.asarray(joint_indices)
-    per_joint = ["".join(joints[j].rot_channels) for j in joint_indices]  # type: ignore[attr-defined]
+    per_joint = [_euler_order(joints[j]) for j in joint_indices]
 
     block = angles[:, sel]  # (F, G, 3)
     R_j = rotations.euler_to_rotmat(block, per_joint)  # (F, G, 3, 3)
@@ -1001,7 +1060,8 @@ def _apply_similarity_to_joints(
 
 
 def _reorient_rest(target: Bvh, R_fix: npt.NDArray[np.float64]) -> None:
-    """Rotate rest-pose offsets by ``R_fix``, compensating rotations in place.
+    """Rotate rest-pose offsets and joint translations by ``R_fix``,
+    compensating rotations in place.
 
     Shared core of :func:`reorient_rest_up` and
     :func:`reorient_rest_forward`.  FK positions are unchanged:
@@ -1012,12 +1072,15 @@ def _reorient_rest(target: Bvh, R_fix: npt.NDArray[np.float64]) -> None:
     """
     R_fix_inv = R_fix.T  # orthogonal → inverse = transpose
 
-    # 1. Rotate all offsets
-    target._replace_offsets(target._offsets() @ R_fix.T)
+    # 1. Rotate all offsets, and the translations that stand in for them
+    motion = target._motion_on_skeleton()
+    target._replace_offsets(
+        target._offsets() @ R_fix.T, translations=motion["joint_translations"] @ R_fix.T
+    )
 
     # 2. Compensate joint rotations so FK positions are unchanged
     joints = [n for n in target.nodes if not n.is_end_site()]
-    angles_copy = target.joint_angles.copy()
+    angles_copy = motion["joint_angles"].copy()
 
     # Root (index 0): right-multiply by R_fix_inv only
     root_order = "".join(joints[0].rot_channels)  # type: ignore[attr-defined]
@@ -1040,9 +1103,11 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
     """Change the world coordinate system's vertical axis.
 
     Applies a global rotation to the entire animation (root translation,
-    skeleton offsets, root joint rotations) so the world vertical axis
+    skeleton offsets, joint translations, root joint rotations) so the world vertical axis
     changes from the current ``bvh.world_up`` to ``new_up``.  The character
-    looks visually identical; only the coordinate system changes.
+    looks visually identical; only the coordinate system changes. A
+    static root (``CHANNELS 0``) keeps its zero rotation: its offset and
+    ``root_pos`` turn with the world.
 
     Restricted to axis-aligned rotations (multiples of 90 degrees) for
     lossless transformation. Many rotations carry the old up onto the
@@ -1087,18 +1152,27 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
     R = rotations._axis_aligned_rotation(_axis_to_vector(old_up), _axis_to_vector(new_up))
     target._rotate_world_up_guess(R)
 
-    # 1. Rotate root positions
-    target._set_motion(root_pos=(R @ target.root_pos.T).T)
+    motion = target._motion_on_skeleton()
 
-    # 2. Rotate all node offsets
-    target._replace_offsets(target._offsets() @ R.T)
+    # 1. Rotate root positions
+    target._set_motion(root_pos=(R @ motion["root_pos"].T).T)
+
+    # 2. Rotate all node offsets, and the translations that stand in for them
+    target._replace_offsets(
+        target._offsets() @ R.T, translations=motion["joint_translations"] @ R.T
+    )
 
     # 3. Conjugate ALL joint rotations: R_j' = R @ R_j @ R^T
     #    This is the correct formula for a global scene rotation applied to
     #    the BVH hierarchy (both offsets and rotations change together).
+    #    A static root's row stays zero: it does not rotate, and its
+    #    offset, rotated in step 2, carries the world's turn.
     joints = [n for n in target.nodes if not n.is_end_site()]
-    angles_copy = target.joint_angles.copy()
-    _apply_similarity_to_joints(angles_copy, joints, R, R.T)
+    angles_copy = motion["joint_angles"].copy()
+    first = 1 if target.root.is_static() else 0
+    _apply_similarity_to_joints(
+        angles_copy, joints, R, R.T, joint_indices=range(first, len(joints))
+    )
     target._set_motion(joint_angles=angles_copy)
 
     # 4. Update metadata
@@ -1126,7 +1200,8 @@ def reorient_rest_up(bvh: Bvh, new_up: str, inplace: Literal[False] = ...) -> Bv
 def reorient_rest_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | None:
     """Rotate the skeleton's rest-pose offsets so its own up (rest up) aligns
     with ``new_up``, compensating all joint rotations so that FK positions
-    are unchanged.
+    are unchanged. :attr:`~pybvh.bvh.Bvh.joint_translations` turn with the
+    offsets.
 
     This fixes files where the rest pose and animation disagree on the up
     axis (e.g. rest pose authored in Y-up but animation plays in Z-up).
@@ -1158,8 +1233,11 @@ def reorient_rest_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | None
     Raises
     ------
     ValueError
-        If the rest pose is degenerate (no up axis can be inferred).
+        If the rest pose is degenerate (no up axis can be inferred), or
+        if the root is static (``CHANNELS 0``): the root would have to
+        take the inverse turn, and a static root does not rotate.
     """
+    bvh._refuse_static_root("reorient_rest_up turns the root to keep the motion in place")
     current_rest_up = _required_rest_up(bvh)
     new_up = _validate_axis_string(new_up)
 
@@ -1180,7 +1258,8 @@ def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: Literal[False] = 
 def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: bool = False) -> Bvh | None:
     """Rotate the skeleton's rest-pose offsets so the character faces
     ``new_forward``, compensating all joint rotations so FK positions are
-    unchanged.
+    unchanged. :attr:`~pybvh.bvh.Bvh.joint_translations` turn with the
+    offsets.
 
     The rotation is about the rest pose's own up,
     :attr:`~pybvh.bvh.Bvh.rest_up`: the rest pose turns in its own frame,
@@ -1210,10 +1289,13 @@ def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: bool = False) -> 
     Raises
     ------
     ValueError
-        If the rest pose is degenerate (no up axis can be inferred), or
-        ``new_forward`` is parallel to ``rest_up``.
+        If the rest pose is degenerate (no up axis can be inferred),
+        ``new_forward`` is parallel to ``rest_up``, or the root is static
+        (``CHANNELS 0``): the root would have to take the inverse turn,
+        and a static root does not rotate.
     """
     new_forward = _validate_axis_string(new_forward)
+    bvh._refuse_static_root("reorient_rest_forward turns the root to keep the motion in place")
     rest_up = _required_rest_up(bvh)
     if rest_up[1] == new_forward[1]:
         raise ValueError(f"new_forward ({new_forward}) cannot be parallel to rest_up ({rest_up})")

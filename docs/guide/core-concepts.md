@@ -5,7 +5,13 @@
 A BVH file has two sections:
 
 - **HIERARCHY** defines a skeleton as a tree of joints. Each joint has an offset (bone vector from parent) and rotation channels (e.g., `Zrotation Yrotation Xrotation`). Leaf nodes called "End Sites" have only an offset.
-- **MOTION** holds the per-frame data: the number of frames (`Frames:`), the seconds per frame (`Frame Time:`), then one row of floats per frame. Its columns are the channels, in the depth-first order in which the HIERARCHY declares them. The root's six values (position and rotation) come first. Then come three Euler angles for every joint other than the root.
+- **MOTION** holds the per-frame data: the number of frames (`Frames:`), the seconds per frame (`Frame Time:`), then one row of floats per frame. Its columns are the channels, in the depth-first order in which the HIERARCHY declares them. Each joint has one block of columns:
+
+    - The root has six values: three positions and three Euler angles. A static root (`CHANNELS 0`) has no columns. It stays at its offset in every frame.
+    - A joint other than the root has three Euler angles.
+    - A translating joint is a joint other than the root with `CHANNELS 6`. It has three positions and three Euler angles. Its positions replace its offset in each frame.
+
+    pybvh writes the three positions of a block before its Euler angles. It reads a block that declares its channels in another order, and reorders it.
 
 ## The Bvh object
 
@@ -15,9 +21,10 @@ A BVH file has two sections:
 |---|---|---|
 | `root_pos` | `(F, 3)` | Root translation per frame |
 | `joint_angles` | `(F, J, 3)` | Euler angles (**radians**) per joint per frame |
+| `joint_translations` | `(F, P, 3)` | Per frame, the position relative to its parent of each translating joint; `P = 0` on a skeleton whose joints other than the root only rotate |
 | `nodes` | tuple | All skeleton nodes (joints + end sites) in depth-first order; frozen, see [Editing a skeleton](skeleton-ops.md#editing-a-skeleton) |
 | `joint_names` | list of str | Non-end-site joint names |
-| `euler_orders` | list of str | Per-joint Euler orders (e.g. `['ZYX', ...]`) |
+| `euler_orders` | list of str | Per-joint Euler orders (e.g. `['ZYX', ...]`); `''` on a static root, which declares no rotation channel |
 | `edges` | list of tuples | Skeleton edge list as `(child_idx, parent_idx)` |
 | `frame_time` | float | Seconds per frame |
 | `world_up` | str | Gravity axis (e.g. `'+y'`, `'+z'`). Auto-detected, settable. |

@@ -485,21 +485,21 @@ class TestMissingForwarding:
 
     def test_from_6d_mismatched_frames_raises(self):
         bvh = read_bvh_file(EXAMPLE)
-        root_pos, rot6d = bvh.to_6d()
+        rot6d = bvh.to_6d()
         with pytest.raises(ValueError, match="[Ff]rame"):
-            bvh.from_6d(root_pos[:10], rot6d[:20])
+            bvh.from_6d(rot6d[:20])
 
     def test_from_quat_mismatched_frames_raises(self):
         bvh = read_bvh_file(EXAMPLE)
-        root_pos, quats = bvh.to_quat()
+        quats = bvh.to_quat()
         with pytest.raises(ValueError, match="[Ff]rame"):
-            bvh.from_quat(root_pos[:10], quats[:20])
+            bvh.from_quat(quats[:20])
 
     def test_from_axisangle_mismatched_frames_raises(self):
         bvh = read_bvh_file(EXAMPLE)
-        root_pos, aa = bvh.to_axisangle()
+        aa = bvh.to_axisangle()
         with pytest.raises(ValueError, match="[Ff]rame"):
-            bvh.from_axisangle(root_pos[:10], aa[:20])
+            bvh.from_axisangle(aa[:20])
 
     def test_spatial_coords_negative_index(self):
         bvh = read_bvh_file(EXAMPLE)

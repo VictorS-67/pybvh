@@ -27,6 +27,8 @@ Migration: grep for the old name in the left column, replace with the right colu
 | `foot_joints=` on `skeleton_size`, `cadence`, `stride_length`, `gait_parameters` (in `analysis` and on `Bvh`) and on `to_feature_array` (in `features` and on `Bvh`) | `feet=` | Same, as on `foot_contacts`. |
 | `analysis.auto_detect_foot_joints(bvh)`, `Bvh.auto_detect_foot_joints()` | `auto_detect_feet` | Returns the feet as nodes of the clip, not their names: `[foot.name for foot in feet]` gives the names. |
 | `Bvh.extract_joints(joint_names=)` | `joints=` | Each entry is a name or a `BvhNode` (`pybvh.NodeSelector`) and must select one joint, end sites excluded, so the parameter is `joints`. Pass the node to keep one of two joints that share a name. |
+| `root_pos, q = bvh.to_quat()`, and the same for `to_rotmat`, `to_6d`, `to_axisangle` | `q = bvh.to_quat()` | Each `to_*` returns the rotation array only; the root position stays on `bvh.root_pos`. |
+| `bvh.from_quat(root_pos, q)`, and the same for `from_rotmat`, `from_6d`, `from_axisangle` | `bvh.from_quat(q)` | Each `from_*` writes `joint_angles` only and keeps `root_pos` and `joint_translations`. Set `bvh.root_pos` first, or build a new clip with `Bvh(...)`. The old call raises `TypeError` naming the new signature. |
 
 ---
 

@@ -24,7 +24,8 @@ def _load(name):
     p = os.path.join(FX, name + ".npz")
     if not os.path.exists(p):
         pytest.skip(
-            f"missing fixture {name}.npz (run tests/fixtures/generate_fixtures.py in pybvh_test)"
+            f"missing fixture {name}.npz "
+            "(run tests/fixtures/generate_fixtures.py in its env, see tests/fixtures/README.md)"
         )
     return np.load(p)
 

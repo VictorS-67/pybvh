@@ -40,6 +40,13 @@ Install the `dev` dependency group. It includes `jupytext` and `nbmake`. It need
 pip install -e ".[all-viz,pandas]" --group dev
 ```
 
+Or, with uv, into the `.venv` at the root of the checkout (see `CONTRIBUTING.md`), then activate it, so that the `jupytext` and `ruff` commands below run from it:
+
+```bash
+uv pip install --python .venv -e ".[all-viz,pandas]" --group dev
+source .venv/bin/activate
+```
+
 Then edit either side:
 
 - **In Jupyter Lab** — edit the `.ipynb` as usual. On save, Jupytext rewrites the paired `.py` automatically.

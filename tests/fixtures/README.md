@@ -15,7 +15,7 @@ And it holds `public_namespace.txt`, the names a user can import from the packag
 The `.npz` fixtures here are **committed**, and the tests (`tests/test_*_golden.py`) only `np.load` them. So anyone who clones the repo can run the full suite with just the normal dev deps — **scipy / pytransform3d are *not* required to run tests**:
 
 ```bash
-pip install -e . --group dev  # or: conda run -n pybvh ...
+pip install -e . --group dev  # or the .venv of CONTRIBUTING.md
 python -m pytest tests/ -v
 ```
 
@@ -23,25 +23,31 @@ This keeps pybvh numpy-only at runtime *and* in CI (the charter), while still va
 
 ## Regenerating the fixtures (only when adding/changing one)
 
-The references are run **once, offline**, in a dedicated env, and the outputs are committed. Recreate that env reproducibly — conda (pinned) **or** pip:
+The references are run **once, offline**, in a dedicated env, and the outputs are committed. That env is `tests/fixtures/.venv`, with Python 3.12 and the versions pinned in `requirements.txt`. The `.venv/` line of `.gitignore` keeps it out of the repository. Recreate it reproducibly with uv (pinned) **or** pip:
 
 ```bash
-# conda (pinned versions → reproducible reference values)
-conda env create -f tests/fixtures/environment.yml
-conda run -n pybvh_test python tests/fixtures/generate_fixtures.py
+# uv (pinned versions → reproducible reference values)
+uv venv --python 3.12 tests/fixtures/.venv
+uv pip install --python tests/fixtures/.venv -r tests/fixtures/requirements.txt
+tests/fixtures/.venv/bin/python tests/fixtures/generate_fixtures.py
 
-# …or pip, into any env
+# …or the same env with Python 3.12's venv and pip
+python3.12 -m venv tests/fixtures/.venv
+tests/fixtures/.venv/bin/pip install -r tests/fixtures/requirements.txt
+tests/fixtures/.venv/bin/python tests/fixtures/generate_fixtures.py
+
+# …or pip, unpinned, into any env
 pip install -e ".[fixtures]"          # scipy + pytransform3d
 python tests/fixtures/generate_fixtures.py
 ```
 
-Then re-run the golden tests in the normal env:
+The generator writes over the committed `.npz` files. Then re-run the golden tests in the development `.venv` of `CONTRIBUTING.md`:
 
 ```bash
-conda run -n pybvh python -m pytest tests/ -k golden -v
+.venv/bin/python -m pytest tests/ -k golden -v
 ```
 
-Pinned reference versions (see `environment.yml`): scipy 1.17, pytransform3d 3.15, numpy 2.4 — pin so regeneration is deterministic (no version drift in the golden values).
+Pinned reference versions (see `requirements.txt`): scipy 1.17, pytransform3d 3.15, numpy 2.4 — pin so regeneration is deterministic (no version drift in the golden values).
 
 ## Convention discipline (important)
 
@@ -61,12 +67,12 @@ Each fixture embeds a `meta` JSON string documenting the exact convention mappin
 | `foot_contacts_pinned.npz` | CMU walk clip → contacts + every `ContactReport` field for each run of `FOOT_CONTACT_RUNS` in `generate_fixtures.py`: calls to `foot_contacts` and `ground_contacts`, one of them on a one-frame cut of the clip | **pybvh itself (behavior pin)** | `test_analysis.py::TestFootContactsPinnedGolden` (active) |
 | `follow_azimuths_pinned.npz` | CMU walk clip → the follow camera's azimuth per frame (degrees, base azimuth −20°) | **pybvh itself (behavior pin)** | `test_plot.py::TestComputeFollowAzimuths` (active) |
 
-**`foot_contacts_pinned.npz` is a behavior pin, not a reference fixture:** it freezes pybvh's *own* contact detection output (`foot_contacts`, `ground_contacts`) bit-exactly so refactors of the contacts machinery can be proven behavior-neutral. It is excluded from the default generator run and regenerates only via `conda run -n pybvh python tests/fixtures/generate_fixtures.py --foot-contacts-pin` — and doing so **re-baselines the pin**, so the committed file must come from the pre-refactor tree; never regenerate it to make a failing pin test pass. Its contacts arrays are never regenerated; its report half only through a mapping checked against the old values on every run (ADR 0002).
+**`foot_contacts_pinned.npz` is a behavior pin, not a reference fixture:** it freezes pybvh's *own* contact detection output (`foot_contacts`, `ground_contacts`) bit-exactly so refactors of the contacts machinery can be proven behavior-neutral. It is excluded from the default generator run and regenerates only via `.venv/bin/python tests/fixtures/generate_fixtures.py --foot-contacts-pin`, in the development `.venv` — and doing so **re-baselines the pin**, so the committed file must come from the pre-refactor tree; never regenerate it to make a failing pin test pass. Its contacts arrays are never regenerated; its report half only through a mapping checked against the old values on every run (ADR 0002).
 
-`follow_azimuths_pinned.npz` is a second behavior pin of the same kind, of the follow camera's azimuth schedule: it proves that a refactor of the facing geometry or of the viewport does not move the camera. `test_plot.py::TestComputeFollowAzimuths` compares both `compute_follow_azimuths` and the viewport's `follow` schedule with it, and writes seven of its values out, so a re-baselined fixture fails there. It regenerates only via `conda run -n pybvh python tests/fixtures/generate_fixtures.py --follow-azimuths-pin`, which re-baselines the pin, under the same rule.
+`follow_azimuths_pinned.npz` is a second behavior pin of the same kind, of the follow camera's azimuth schedule: it proves that a refactor of the facing geometry or of the viewport does not move the camera. `test_plot.py::TestComputeFollowAzimuths` compares both `compute_follow_azimuths` and the viewport's `follow` schedule with it, and writes seven of its values out, so a re-baselined fixture fails there. It regenerates only via `.venv/bin/python tests/fixtures/generate_fixtures.py --follow-azimuths-pin`, which re-baselines the pin, under the same rule.
 
 The SE(3) and smoothness fixtures were committed as pre-built oracles before the functions they test existed; those functions shipped in 0.8.0 (`rotations.se3_exp`, `se3_log`, `screw_interpolate`, `rotation_geodesic_distance`; `analysis.sparc`, `dimensionless_jerk`, `log_dimensionless_jerk`), and the tests now validate them. SE(3) fixtures deliberately over-cover the failure-prone regimes: θ→0 (V left-Jacobian Taylor), θ→π (log branch), pure translation, and large-translation V-coupling.
 
 **Convention locks (pinned by these fixtures):** se(3) twist = `[ω(3), v(3)]` rotation-first, V-Jacobian-coupled (= pytransform3d / Vemulapalli 2014). SPARC defaults `padlevel=4, fc=10 Hz, amp_th=0.05`.
 
-> **Note on the smoothness reference:** it's not on PyPI, so `gen_smoothness()` fetches `scripts/smoothness.py` from siva82kb/SPARC **at a pinned commit** (`7deff21…`) over the network at regeneration time, runs it offline, and commits only the numbers. Its code never enters this repo. So regenerating the smoothness fixture needs network (the others need only `environment.yml`).
+> **Note on the smoothness reference:** it's not on PyPI, so `gen_smoothness()` fetches `scripts/smoothness.py` from siva82kb/SPARC **at a pinned commit** (`7deff21…`) over the network at regeneration time, runs it offline, and commits only the numbers. Its code never enters this repo. So regenerating the smoothness fixture needs network (the others need only the env of `requirements.txt`).

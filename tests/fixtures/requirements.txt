@@ -1,0 +1,8 @@
+# The pinned env for REGENERATING the golden reference fixtures
+# (tests/fixtures/*.npz). Running the tests does not need it: the fixtures are
+# committed and load with numpy alone. Pinned so that a regeneration does not
+# drift with a new scipy or pytransform3d. tests/fixtures/README.md has the
+# commands that make the env, with Python 3.12, and run the generator in it.
+numpy==2.4.*
+scipy==1.17.*
+pytransform3d==3.15.0

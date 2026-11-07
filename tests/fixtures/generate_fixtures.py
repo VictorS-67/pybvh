@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Generate golden reference fixtures for pybvh's differential tests.
 
-Run ONCE, offline, in the `pybvh_test` conda env (which has the reference libraries). The committed `.npz` outputs are then loaded by numpy-only tests in the `pybvh` env — so CI validates pybvh against scipy/pytransform3d WITHOUT those libraries being a runtime (or even CI) dependency.
+Run ONCE, offline, in the fixture env `tests/fixtures/.venv`, pinned by `tests/fixtures/requirements.txt` (it has the reference libraries; `tests/fixtures/README.md` makes it). The committed `.npz` outputs are then loaded by numpy-only tests in the development `.venv` at the root of the checkout — so CI validates pybvh against scipy/pytransform3d WITHOUT those libraries being a runtime (or even CI) dependency.
 
-    conda run -n pybvh_test python tests/fixtures/generate_fixtures.py
+    tests/fixtures/.venv/bin/python tests/fixtures/generate_fixtures.py
 
 Each fixture stores its INPUTS, the reference OUTPUTS, and a `meta` JSON string documenting the exact convention mapping (the antidote to "definition drift": a future mismatch should be debugged against this meta, not assumed to be a bug).
 
@@ -11,13 +11,13 @@ References used:
 - scipy.spatial.transform.Rotation  (rotation conversions)
 - pytransform3d                      (SE(3) exp/log/interp — added when those land)
 
-One fixture is different in kind: `foot_contacts_pinned.npz` is a BEHAVIOR PIN of pybvh's own contact detection, `foot_contacts` and `ground_contacts` (no external reference). It is excluded from the default run above and regenerates only via an explicit flag, in the `pybvh` env — see `gen_foot_contacts` for the re-baselining warning:
+One fixture is different in kind: `foot_contacts_pinned.npz` is a BEHAVIOR PIN of pybvh's own contact detection, `foot_contacts` and `ground_contacts` (no external reference). It is excluded from the default run above and regenerates only via an explicit flag, in the development `.venv` — see `gen_foot_contacts` for the re-baselining warning:
 
-    conda run -n pybvh python tests/fixtures/generate_fixtures.py --foot-contacts-pin
+    .venv/bin/python tests/fixtures/generate_fixtures.py --foot-contacts-pin
 
 `follow_azimuths_pinned.npz` is a second behavior pin of the same kind, of the follow camera's azimuth schedule (`gen_follow_azimuths`):
 
-    conda run -n pybvh python tests/fixtures/generate_fixtures.py --follow-azimuths-pin
+    .venv/bin/python tests/fixtures/generate_fixtures.py --follow-azimuths-pin
 """
 
 from __future__ import annotations
@@ -33,8 +33,8 @@ import numpy as np
 # The reference libraries (scipy, pytransform3d) are imported inside the
 # gen_* functions that need them, not here: the behavior-pin generator and
 # the pin tests (tests/test_analysis.py) import this module in the
-# numpy-only `pybvh` env, where those libraries do not exist. The import
-# below is for annotations only and never runs.
+# numpy-only development `.venv`, where those libraries do not exist. The
+# import below is for annotations only and never runs.
 if TYPE_CHECKING:
     from scipy.spatial.transform import Rotation as SR
 
@@ -468,7 +468,7 @@ def gen_foot_contacts() -> None:
             "ref": "pybvh itself — BEHAVIOR PIN, no external reference",
             "source": "bvh_data/cmu_12_01_walk.bvh",
             "runs": [name for name, _ in FOOT_CONTACT_RUNS],
-            "env": "pybvh (numpy-only), NOT pybvh_test",
+            "env": "the development .venv (numpy-only), NOT the fixture env",
             "warning": "regenerating re-baselines the pin; the committed "
             "fixture must come from the pre-refactor tree",
         },
@@ -506,7 +506,7 @@ def gen_follow_azimuths() -> None:
             "source": "bvh_data/cmu_12_01_walk.bvh",
             "quantity": "compute_follow_azimuths(view, base_azim), degrees, one per frame",
             "base_azim": FOLLOW_AZIMUTH_BASE,
-            "env": "pybvh (numpy-only), NOT pybvh_test",
+            "env": "the development .venv (numpy-only), NOT the fixture env",
             "warning": "regenerating re-baselines the pin",
         },
         azimuths=compute_follow_azimuths(view, FOLLOW_AZIMUTH_BASE),

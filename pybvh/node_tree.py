@@ -397,9 +397,17 @@ def nodes_to_table(nodes: Sequence[BvhNode]) -> list[dict[str, Any]]:
     Examples
     --------
     The rig of one joint carrying two end sites, which no name-keyed
-    export can hold:
+    export can hold, built here from a table by the inverse:
 
-    >>> nodes_to_table(bvh.nodes)
+    >>> nodes = nodes_from_table([
+    ...     {'name': 'Hips', 'parent': None, 'offset': [0, 0, 0],
+    ...      'rot_channels': 'ZYX'},
+    ...     {'name': 'Hand', 'parent': 0, 'offset': [0, 1, 0],
+    ...      'rot_channels': 'ZYX'},
+    ...     {'parent': 1, 'offset': [1, 0, 0]},
+    ...     {'parent': 1, 'offset': [0, 0, 2]},
+    ... ])
+    >>> nodes_to_table(nodes)
     [{'name': 'Hips', 'parent': None, 'offset': array([0., 0., 0.]),
       'pos_channels': ['X', 'Y', 'Z'], 'rot_channels': ['Z', 'Y', 'X']},
      {'name': 'Hand', 'parent': 0, 'offset': array([0., 1., 0.]),

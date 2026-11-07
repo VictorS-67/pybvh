@@ -769,8 +769,10 @@ def quat_unwrap(
 
     Examples
     --------
+    >>> from pybvh import read_bvh_file
+    >>> bvh = read_bvh_file('bvh_data/bvh_test1.bvh')
     >>> quats = bvh.to_quat()                # (F, J, 4), canonical w >= 0
-    >>> quats = rotations.quat_unwrap(quats)  # continuous along frames
+    >>> quats = quat_unwrap(quats)           # continuous along frames
 
     See Also
     --------

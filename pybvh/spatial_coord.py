@@ -134,9 +134,9 @@ class FkTopology(_FkTopologyFields):
     ...          joint_idx=topology.joint_idx, euler_orders=topology.euler_orders,
     ...          translation_idx=topology.translation_idx)
     >>> # at train time, no Bvh in sight
-    >>> d = np.load(path)
-    >>> topology = FkTopology(d['offsets'], d['parent_idx'], d['joint_idx'],
-    ...                       list(d['euler_orders']), d['translation_idx'])
+    >>> with np.load(path) as d:
+    ...     topology = FkTopology(d['offsets'], d['parent_idx'], d['joint_idx'],
+    ...                           list(d['euler_orders']), d['translation_idx'])
     >>> coords = frames_to_node_positions(topology, root_pos, joint_angles,
     ...                                   joint_translations=joint_translations)
     >>> folder.cleanup()

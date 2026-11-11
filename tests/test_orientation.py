@@ -601,7 +601,7 @@ def _anchor_of(nodes, lr_pairs):
     found = _find_body_anchor(skeleton)
     names = skeleton.node_names
     return (
-        names[found.node],
+        None if found.node is None else names[found.node],
         found.source,
         [names[index] for index in found.candidates],
     )
@@ -664,6 +664,65 @@ class TestBodyAnchor:
             "lr_pairs",
             ["Hips", "Helper"],
         )
+
+    @pytest.mark.parametrize(
+        ("sizes", "expected"),
+        [
+            # Each other candidate fewer than half as many joints: the larger.
+            ((20, 9), ("A", "lr_pairs", ["A", "B"])),
+            # At least half is the tie: no body.
+            ((20, 10), (None, "ambiguous", ["A", "B"])),
+            ((10, 10), (None, "ambiguous", ["A", "B"])),
+            # The larger one listed first, wherever it lies in node order.
+            ((9, 20), ("B", "lr_pairs", ["B", "A"])),
+            # Three candidates: every other one must be under half.
+            ((20, 9, 9), ("A", "lr_pairs", ["A", "B", "C"])),
+            ((20, 9, 10), (None, "ambiguous", ["A", "C", "B"])),
+        ],
+        ids=["20-9", "20-10", "10-10", "9-20", "20-9-9", "20-9-10"],
+    )
+    def test_of_several_candidates_the_larger_one_or_no_body(self, sizes, expected):
+        # Candidates A, B, C under one root, each of the given size.
+        nodes, pairs = [("Root", None)], []
+        for name, size in zip("ABC"[: len(sizes)], sizes, strict=True):
+            candidate_nodes, pair = _candidate(name, size)
+            nodes += candidate_nodes
+            pairs.append(pair)
+        assert _anchor_of(nodes, pairs) == expected
+
+    def test_two_figures_under_a_root_give_no_body(self):
+        # The second figure numbered before the end sites' suffix.
+        second = [(_numbered(name), _numbered(parent)) for name, parent in _BODY]
+        nodes = [("Root", None), ("Hips", "Root"), *_BODY, ("Hips2", "Root"), *second]
+        pairs = [_LEGS, ("LeftUpLeg2", "RightUpLeg2")]
+        assert _anchor_of(nodes, pairs) == (None, "ambiguous", ["Hips", "Hips2"])
+
+
+def _numbered(name):
+    """*name* with a 2 after its joint's name: ``LeftFoot_End`` gives
+    ``LeftFoot2_End``."""
+    base, end, suffix = name.partition("_End")
+    return f"{base}2{end}{suffix}"
+
+
+def _candidate(name, size):
+    """Rows of a joint *name* under ``Root`` holding a left/right pair of
+    leaves and a chain, *size* joints in all (*name* included, the end
+    sites not), and the pair."""
+    left, right = f"Left{name}", f"Right{name}"
+    rows = [
+        (name, "Root"),
+        (left, name),
+        (f"{left}_End", left),
+        (right, name),
+        (f"{right}_End", right),
+    ]
+    parent = name
+    for k in range(size - 3):
+        rows.append((f"{name}{k}", parent))
+        parent = f"{name}{k}"
+    rows.append((f"{parent}_End", parent))
+    return rows, (left, right)
 
 
 def _body_of(nodes, anchor):
@@ -878,6 +937,21 @@ class TestReport:
             body_anchor_source="lr_pairs",
             body_anchor_candidates=("Hips",),
         )
+
+    def test_a_skeleton_with_no_body(self):
+        report = _build_orientation_report(
+            _skeleton(_NAMES, _REST, self._PAIRS),
+            "+y",
+            False,
+            "names",
+            _BodyAnchor(None, "ambiguous", (2, 1)),
+            _NAMES,
+        )
+        assert (
+            report.body_anchor,
+            report.body_anchor_source,
+            report.body_anchor_candidates,
+        ) == (None, "ambiguous", (_NAMES[2], _NAMES[1]))
 
     def test_an_axis_the_user_set(self):
         report = _build_orientation_report(

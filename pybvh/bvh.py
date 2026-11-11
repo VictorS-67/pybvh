@@ -553,6 +553,7 @@ class Bvh:
         source_path: str | None = None,
         warn_on_world_up_disagreement: bool = True,
         joint_translations: npt.ArrayLike | None = None,
+        body_anchor: NodeSelector | None = None,
     ) -> None:
         # The derived state exists before any property setter runs, so the
         # setters can report their change unconditionally. Each value in it
@@ -570,6 +571,10 @@ class Bvh:
         # right), None once they cleared it, or "names" (the default) for
         # the pairs detected from the joint names.
         self._lr_mapping_setting: dict[str, str] | Literal["names"] | None = "names"
+        # The body anchor the user set, as its position in ``nodes``, or
+        # None for the one the rule finds. A position, not a node: pybvh's
+        # own skeleton edits replace the nodes and keep their order.
+        self._body_anchor_setting: int | None = None
 
         if nodes is None:
             nodes = [BvhRoot()]
@@ -609,6 +614,9 @@ class Bvh:
             self._world_up_override = _validate_axis_string(world_up)
         if lr_mapping is not None:
             self._validate_and_set_lr_mapping(lr_mapping)
+        # Before the guess below, which may read the anchor.
+        if body_anchor is not None:
+            self.body_anchor = body_anchor
 
         if world_up == "auto":
             self._settle_world_up()
@@ -1358,8 +1366,8 @@ class Bvh:
 
         The node hierarchy, ``root_pos``, ``joint_angles`` and
         ``joint_translations``, ``frame_time``, ``source_path``, a manual
-        ``world_up``, the warn preference and a user-set L/R mapping are
-        copied. Editing either
+        ``world_up``, the warn preference, a user-set L/R mapping and a
+        set :attr:`body_anchor` are copied. Editing either
         clip afterwards, its arrays or its nodes, never affects the other.
         A guessed world up is inherited (see :attr:`world_up`). Values the
         clip computes from these (forward-kinematics positions, the floor
@@ -1391,6 +1399,10 @@ class Bvh:
             under their new names, so each mapped joint's new name must be
             one no other joint carries (the mapping goes by name); one
             detected from the names is detected again from the new names.
+            A set :attr:`body_anchor` follows its joint by position too,
+            under its new name; on a clip without motion that takes
+            another joint count, it goes by name, and without exactly one
+            joint of that name the copy uses the rule.
             World up is inherited, set or guessed: new offsets do not
             change which way is up. To guess it again from the new
             skeleton, ``edited.world_up = edited.world_up_inferred``.
@@ -1503,7 +1515,37 @@ class Bvh:
         edited = self._derive_clip(motion, nodes=new_nodes)
         if isinstance(setting, dict):
             edited._set_lr_mapping_setting(setting)
+        anchor = self._body_anchor_setting
+        if anchor is not None:
+            edited._set_body_anchor_setting(
+                self._anchor_on(new_nodes, joints, new_joints, self.nodes[anchor])
+            )
         return edited
+
+    @staticmethod
+    def _anchor_on(
+        new_nodes: Sequence[BvhNode],
+        joints: Sequence[BvhNode],
+        new_joints: Sequence[BvhNode],
+        anchor: BvhNode,
+    ) -> int | None:
+        """The position in ``new_nodes`` of the set body anchor ``anchor``,
+        carried as ``copy(nodes=)`` carries a user L/R mapping.
+
+        By position among the joints when the joint count stays, so a
+        renamed anchor is followed; else by name, when exactly one joint
+        of ``new_joints`` carries it. ``None`` when neither finds it: the
+        copy then uses the rule.
+        """
+        if len(new_joints) == len(joints):
+            joint = next(j for j, node in enumerate(joints) if node is anchor)
+            carried = new_joints[joint]
+        else:
+            named = [node for node in new_joints if node.name == anchor.name]
+            if len(named) != 1:
+                return None
+            carried = named[0]
+        return next(i for i, node in enumerate(new_nodes) if node is carried)
 
     def _derive_clip(
         self,
@@ -1515,7 +1557,9 @@ class Bvh:
         The one way pybvh derives a clip (ADR 0003): the result carries what
         :meth:`__getstate__` lists, with the given motion and skeleton
         (default: a deep copy of this one's), and none of this clip's
-        derived state. ``motion`` holds every motion array by name
+        derived state. On a skeleton given as ``nodes`` it carries no set
+        body anchor: the caller carries it over with
+        :meth:`_set_body_anchor_setting`. ``motion`` holds every motion array by name
         (``_MOTION_ARRAYS``): an array it leaves out is refused, not taken
         from this clip. The arrays are taken as they are, not copied; the
         caller hands over arrays no other clip holds.
@@ -1531,7 +1575,13 @@ class Bvh:
         for entry in self._MOTION_ARRAYS:
             del state[entry.name]
         state.update(motion)
-        state["nodes"] = copy.deepcopy(self.nodes) if nodes is None else nodes
+        if nodes is None:
+            state["nodes"] = copy.deepcopy(self.nodes)
+        else:
+            # A position in this clip's nodes says nothing of another
+            # skeleton's: the caller carries a set anchor over to it.
+            state["nodes"] = nodes
+            state["body_anchor_setting"] = None
         setting = state["lr_mapping_setting"]
         if isinstance(setting, dict):
             state["lr_mapping_setting"] = dict(setting)
@@ -1543,7 +1593,8 @@ class Bvh:
         """What a pickle and every derived clip carry (ADR 0003).
 
         The primary state (skeleton, motion, frame time, source path), the
-        user's settings (world-up override, warn preference, L/R choice)
+        user's settings (world-up override, warn preference, L/R choice,
+        set body anchor)
         and the world up this clip guessed, which the rebuilt clip
         inherits; never a derived value, which the rebuilt clip computes
         again on first read.
@@ -1565,6 +1616,10 @@ class Bvh:
             "world_up_guess": None if guess is None else tuple(guess),
             "warn_on_world_up_disagreement": self._warn_on_world_up_disagreement,
             "lr_mapping_setting": self._lr_mapping_setting,
+            # The set body anchor's position in "nodes", or None for the
+            # rule: a position, so a name that several nodes carry is
+            # carried too.
+            "body_anchor_setting": self._body_anchor_setting,
         }
 
     def __setstate__(self, state: dict[str, Any]) -> None:
@@ -1587,6 +1642,8 @@ class Bvh:
             self._check_motion_fits_skeleton()
         self._world_up_override = state["world_up_override"]
         self._set_lr_mapping_setting(state["lr_mapping_setting"])
+        # Absent from a pickle made before the anchor could be set.
+        self._set_body_anchor_setting(state.get("body_anchor_setting"))
         guess = state["world_up_guess"]
         self._derived.inherited_world_up = None if guess is None else _WorldUpGuess(*guess)
 
@@ -1733,6 +1790,9 @@ class Bvh:
           :attr:`rest_up`, which is read from the legs of the mapping, so
           the clip gets the axis that mapping passed at load gives. A guess
           from the first frame comes out the same, and does not warn again.
+          Setting :attr:`body_anchor` guesses it again as well, since the
+          guess measures from the anchor: the clip gets the axis that
+          ``body_anchor=`` passed at load gives.
         - **Inherited**: a clip pybvh derives from this one reports the
           axis guessed here, without guessing from its own frames:
           ``copy()``, slicing, ``a + b`` and ``a += b`` (from ``a``),
@@ -1742,7 +1802,7 @@ class Bvh:
           slice whose first frame is a crouch or a fall would be guessed
           differently on its own. Assigning motion to the derived clip
           guesses again, as for an inferred axis; setting
-          :attr:`lr_mapping` on it does not.
+          :attr:`lr_mapping` or :attr:`body_anchor` on it does not.
 
         :attr:`world_up_inferred` always guesses from this clip's own
         motion: where it differs from ``world_up`` and you set no axis,
@@ -1989,7 +2049,8 @@ class Bvh:
         defaulted fact itself is read (:attr:`world_up`, once per guess;
         :attr:`rest_forward`; the facing), and each points here. Computed on first read and
         kept until the skeleton changes, :attr:`world_up` or
-        :attr:`lr_mapping` is assigned, or the motion is assigned
+        :attr:`lr_mapping` or :attr:`body_anchor` is assigned, or the
+        motion is assigned
         (:attr:`root_pos`, :attr:`joint_angles`, ``bvh[i] = other``),
         which guesses world up again.
 
@@ -2044,7 +2105,8 @@ class Bvh:
     def body_anchor(self) -> BvhNode:
         """The joint the body's measures start from, a node of the clip.
 
-        Read-only. Found from the hierarchy and the L/R pairs of
+        The joint you set (see *Setting it* below), else the one a rule
+        finds from the hierarchy and the L/R pairs of
         :attr:`lr_mapping`: each pair meets at the lowest joint that both
         its joints' chains to the root pass through, and the anchor is
         the meeting joint closest to the root. The legs meet at the hips,
@@ -2057,20 +2119,78 @@ class Bvh:
         ``body_anchor_source``, and which joints were compared, in
         ``body_anchor_candidates``.
 
-        Found on first read and kept until the skeleton changes or
-        :attr:`lr_mapping` is assigned. A clip derived from this one
-        finds its own.
+        The rule's anchor is found on first read and kept until the
+        skeleton changes or :attr:`lr_mapping` is assigned. A clip derived
+        from this one finds its own.
+
+        **Setting it.** Where you know better than the rule, assign a
+        joint: its name or the node itself, one of :attr:`nodes`, resolved
+        as :meth:`index` resolves one with ``space='joint'``. Pass
+        ``body_anchor=`` to :func:`~pybvh.read_bvh_file` to set it at
+        load, by name. The joint you set is the anchor, and
+        :attr:`orientation_report` gives the source ``"set"`` and no
+        candidate. Assign ``None`` to return to the rule, as
+        ``world_up = None`` returns to the guess. Setting it, or returning
+        to the rule, clears the values computed from the anchor (the
+        report, the world up this clip guessed and the floor height),
+        which are computed again on first read; a world up set or
+        inherited stays (see :attr:`world_up`).
+
+        A set anchor is one of your settings, as a set :attr:`lr_mapping`
+        is (ADR 0003). Assigning the motion or :attr:`lr_mapping`, and
+        pybvh's own edits of the skeleton (:meth:`scale`,
+        :meth:`reorient_rest_up`, ...), keep it. Every clip derived from
+        this one carries it: a slice, :meth:`copy`, a concatenation,
+        :meth:`resample`, a transformed clip, and a pickle. ``copy(nodes=)``
+        carries it to the joint at the same position, under its new name,
+        as it carries a set :attr:`lr_mapping`. :meth:`extract_joints`
+        carries it when the joint is kept. A derived clip that no longer
+        holds the joint drops the setting and uses the rule.
+
+        Raises
+        ------
+        TypeError
+            On assignment, if the value is neither a name, a ``BvhNode``
+            nor ``None``. An integer is refused: node ``i`` is
+            ``bvh.nodes[i]``.
+        ValueError
+            On assignment, if the node is not one of :attr:`nodes`, if no
+            joint carries the name or several do, or if it selects an end
+            site.
 
         Examples
         --------
         >>> bvh = Bvh.from_file('bvh_data/synthetic/reference_humanoid_6ch.bvh')
         >>> bvh.root.name, bvh.body_anchor.name
         ('Reference', 'Hips')
+        >>> bvh.body_anchor = 'Chest'
+        >>> bvh.orientation_report.body_anchor_source
+        'set'
+        >>> bvh.body_anchor = None
+        >>> bvh.body_anchor.name, bvh.orientation_report.body_anchor_source
+        ('Hips', 'lr_pairs')
         """
         return self._nodes[self._found_body_anchor().node]
 
+    @body_anchor.setter
+    def body_anchor(self, value: NodeSelector | None) -> None:
+        if value is None:
+            self._set_body_anchor_setting(None)
+            return
+        joint = self.index(value, space="joint")
+        self._set_body_anchor_setting(self._non_end_site_indices()[joint])
+
+    def _set_body_anchor_setting(self, setting: int | None) -> None:
+        """Store the user's body anchor, a position in ``nodes`` or
+        ``None``, and report the change."""
+        self._body_anchor_setting = setting
+        self._derived.body_anchor_changed()
+
     def _found_body_anchor(self) -> _BodyAnchor:
-        """The body anchor the rule finds, kept in the derived state."""
+        """The body anchor in effect: the one the user set, else the one
+        the rule finds, kept in the derived state."""
+        if self._body_anchor_setting is not None:
+            return _BodyAnchor(self._body_anchor_setting, "set", ())
         found = self._derived.body_anchor
         if found is None:
             found = _find_body_anchor(self._rest_skeleton())
@@ -2642,6 +2762,7 @@ class Bvh:
         world_up: str = "auto",
         warn_on_world_up_disagreement: bool = True,
         lr_mapping: dict[str, str] | None = None,
+        body_anchor: str | None = None,
     ) -> Bvh:
         """Read a Bvh from a ``.bvh`` file — the constructor counterpart of :meth:`write`.
 
@@ -2655,6 +2776,7 @@ class Bvh:
             world_up=world_up,
             warn_on_world_up_disagreement=warn_on_world_up_disagreement,
             lr_mapping=lr_mapping,
+            body_anchor=body_anchor,
         )
 
     @classmethod
@@ -4235,8 +4357,10 @@ class Bvh:
         none).
 
         ``source_path``, a manual ``world_up`` override, and a user-set
-        ``lr_mapping`` (filtered to pairs whose joints are both kept) are
-        preserved on the result. A guessed world up is inherited, not
+        ``lr_mapping`` (filtered to pairs whose joints are both kept) and a
+        set :attr:`body_anchor` whose joint is kept are preserved on the
+        result; a set anchor whose joint is removed is dropped, and the
+        result uses the rule. A guessed world up is inherited, not
         guessed again from the kept joints (see :attr:`world_up`).
 
         Parameters
@@ -4394,6 +4518,11 @@ class Bvh:
                 if left in kept_names and right in kept_names
             }
             new_bvh._set_lr_mapping_setting(kept_pairs or "names")
+        # A set body anchor stays when its joint is kept, at the joint's
+        # row of the new table, which is its position in the new nodes.
+        anchor = self._body_anchor_setting
+        if anchor is not None and id(self.nodes[anchor]) in row_of:
+            new_bvh._set_body_anchor_setting(row_of[id(self.nodes[anchor])])
         return new_bvh
 
     def _find_end_site_offset(self, node: BvhNode) -> npt.NDArray[np.float64]:

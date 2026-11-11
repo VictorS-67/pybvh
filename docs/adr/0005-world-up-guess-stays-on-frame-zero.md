@@ -10,6 +10,8 @@ World up is guessed once per clip (ADR 0003) from the direction of the head from
 
 **3. The disagreement warning names both of its causes:** a rest pose in another convention than the motion, where frame 0 is right, and a first frame that is not upright, where the rest pose's axis may be.
 
+ADR 0012 puts the body anchor in place of the root: the head's direction is read from the anchor, and decision 2 reads the anchor's world rotation at frame 0. The decisions stand.
+
 ## Why
 
 **A rule must not make a file whose rest pose and motion share their convention worse.** That is the common case, and on it the existing warnings already mark every wrong guess. Scored on the maintainer's corpus (22,879 clips with a confirmed up, rest pose and motion sharing their convention except on one file), today's rule is wrong on 68, and the disagreement warning fires on all 68 and on one correct clip. On an older export of one of its datasets (10,855 confirmed clips, 4,699 of them with a `+y` rest pose for a `+z` motion), today's rule is wrong on 99, 38 of them through the rest-up fallback, which did not warn.

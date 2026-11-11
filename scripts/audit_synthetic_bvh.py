@@ -3,7 +3,8 @@
 
 This parser consumes serialized files without using the generator's tree or
 pybvh. The expected body anchor is an author-supplied field; the audit
-checks that it names a joint of the file.
+checks that it names a joint of the file, or is None for a clip with no
+body.
 
 Run: python3 scripts/audit_synthetic_bvh.py bvh_data/synthetic
 """
@@ -126,7 +127,10 @@ def audit(text, expected_body_anchor, authored=None):
     nodes, rows, frame_time = parse_bvh(text)
     joints = [n for n in nodes if not n.end]
     names = [n.name for n in nodes]
-    require(expected_body_anchor in [n.name for n in joints], "missing body anchor")
+    require(
+        expected_body_anchor is None or expected_body_anchor in [n.name for n in joints],
+        "missing body anchor",
+    )
     six, rigid, moving, changing_position, changing_rotation = [], [], [], [], []
     position_samples = {}
     original = {j.name: j for j in authored.root.walk()} if authored else None
@@ -188,8 +192,14 @@ def audit(text, expected_body_anchor, authored=None):
         rotation_varying_joints=changing_rotation,
         position_samples_xyz=position_samples,
         root_position_channels=[c for c in nodes[0].channels if c.endswith("position")],
-        body_anchor_node_index=names.index(expected_body_anchor),
-        body_anchor_joint_index=[n.name for n in joints].index(expected_body_anchor),
+        body_anchor_node_index=(
+            None if expected_body_anchor is None else names.index(expected_body_anchor)
+        ),
+        body_anchor_joint_index=(
+            None
+            if expected_body_anchor is None
+            else [n.name for n in joints].index(expected_body_anchor)
+        ),
         node_identities=[
             {
                 "id": n.name,

@@ -93,6 +93,8 @@ def read_bvh_file(
         other channels than 3 rotation channels, or 3 position + 3
         rotation channels (the error names the joint). The root declares
         3 position + 3 rotation channels, or none (``CHANNELS 0``). Also
+        if the file holds several hierarchies (``ROOT`` blocks): a
+        ``Bvh`` is one hierarchy, and the error gives their count. Also
         if ``body_anchor`` names no joint, an end site, or more than one
         joint (the error of :meth:`Bvh.index`).
 

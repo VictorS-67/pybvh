@@ -2129,8 +2129,11 @@ class Bvh:
         the one with the most joints below it, end sites not counted,
         when each other one has fewer than half as many. Otherwise the
         clip has no body, for instance two figures under one root, and
-        the anchor is ``None``; reading it does not raise. Without a
-        pair, the root. The rest positions and the motion are not read.
+        the anchor is ``None``; reading it does not raise. Under a static
+        root (``CHANNELS 0``), each child of the root heads a tree, and
+        the trees are compared first, by the same half rule: a second
+        tree with at least half the joints of the largest gives no body,
+        and otherwise only the pairs inside the largest tree are read. Without a pair, the root. The rest positions and the motion are not read.
         :attr:`orientation_report` says how it was found, in
         ``body_anchor_source``, and which joints were compared, in
         ``body_anchor_candidates``.

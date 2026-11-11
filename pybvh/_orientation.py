@@ -1381,8 +1381,8 @@ class OrientationReport:
     world_up_source : {"set", "first_frame", "rest_up", "default"} or None
         ``"set"``: assigned by the user, passed as ``world_up=`` at load,
         or the target of ``reorient_world_up``. ``"first_frame"``:
-        guessed from the direction of the ``rest_up`` node above the
-        root at frame 0. ``"rest_up"``: the first frame could not decide
+        guessed from the direction of the ``rest_up`` node from the
+        body anchor at frame 0. ``"rest_up"``: the first frame could not decide
         (no frames, no such node, or a crouched, lying or leaning first
         pose), so the skeleton's own up stands in, a guess that assumes
         the rest pose is authored upright in the world.
@@ -1421,7 +1421,10 @@ class OrientationReport:
     body_anchor_candidates : tuple of BvhNode
         The meeting joints the rule compared, the most joints below them
         first: the anchor alone when the pairs meet at one joint closest
-        to the root. Empty for ``"set"`` and ``"default"``.
+        to the root. Under a static root, when the trees below it give no
+        body, the candidate of each tree with at least half the joints of
+        the largest, the largest tree first. Empty for ``"set"`` and
+        ``"default"``.
     """
 
     rest_up: str | None

@@ -47,8 +47,8 @@ def _read(path):
         return read_bvh_file(path)
 
 
-def test_the_manifest_lists_the_twelve_generated_clips():
-    assert len(EXPECTED) == 12
+def test_the_manifest_lists_the_fourteen_generated_clips():
+    assert len(EXPECTED) == 14
 
 
 @pytest.mark.parametrize("name", sorted(EXPECTED), ids=sorted(EXPECTED))
@@ -56,7 +56,7 @@ def test_a_corpus_clip_gives_the_anchor_its_manifest_expects(name):
     clip = _read(CORPUS / name)
     report = clip.orientation_report
     assert (clip.body_anchor.name, report.body_anchor_source) == EXPECTED[name]
-    assert report.body_anchor_candidates == (clip.body_anchor,)
+    assert report.body_anchor_candidates[0] is clip.body_anchor
 
 
 @pytest.mark.parametrize("name", NO_PAIRS)

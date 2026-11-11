@@ -44,6 +44,25 @@ def test_a_footsteps_node_beside_the_body_is_not_a_foot(name, feet):
     assert _feet(_read(CORPUS / name)) == feet
 
 
+def test_hips_beside_the_spine_read_up_from_the_head_joint():
+    # The hips hold no head joint: the body starts at the root, where the
+    # spine hangs beside them.
+    clip = _read(CORPUS / "hips_beside_spine.bvh")
+    report = clip.orientation_report
+    assert clip.body_anchor.name == "Hips"
+    assert report.rest_up_source == "named_joint"
+    assert (report.world_up, report.world_up_source) == ("+y", "first_frame")
+    assert _feet(clip) == ["LeftToeBase", "RightToeBase"]
+
+
+def test_chest_and_hips_at_the_same_depth_find_the_feet():
+    # The chest is the anchor and holds no foot: the body starts at the
+    # root, where the hips hang beside it.
+    clip = _read(CORPUS / "chest_and_hips_same_depth.bvh")
+    assert clip.body_anchor.name == "Chest"
+    assert _feet(clip) == ["LeftToeBase", "RightToeBase"]
+
+
 @pytest.mark.parametrize("name", ["reference_props_humanoid_6ch", "reference_props_rotation_only"])
 def test_rest_left_and_rest_forward_read_the_pairs_of_the_body(name):
     # The props hang from the reference root, beside the body: the clip

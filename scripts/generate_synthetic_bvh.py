@@ -48,7 +48,7 @@ from pathlib import Path
 
 from audit_synthetic_bvh import audit
 
-GENERATOR_VERSION = "2.3.0"
+GENERATOR_VERSION = "2.4.0"
 
 # Corpus files another script writes: the audit's inventory accepts them, and
 # their own generator, not this manifest, pins their bytes.
@@ -128,6 +128,14 @@ def humanoid_body(hips: Joint, hands: str = "simple") -> Joint:
     spine = hips.add(Joint("Spine", (0.0, 10.0, -1.0)))
     spine1 = spine.add(Joint("Spine1", (0.0, 12.0, 0.5)))
     chest = spine1.add(Joint("Chest", (0.0, 14.0, 0.5)))
+    upper_body(chest, hands)
+    legs(hips)
+    return hips
+
+
+def upper_body(chest: Joint, hands: str = "simple") -> Joint:
+    """The neck, the head and both arms under ``chest`` (see
+    :func:`humanoid_body` for ``hands``)."""
     neck = chest.add(Joint("Neck", (0.0, 14.0, 0.0)))
     head = neck.add(Joint("Head", (0.0, 10.0, 1.0)))
     head.end_site = (0.0, 12.0, 0.0)
@@ -156,6 +164,12 @@ def humanoid_body(hips: Joint, hands: str = "simple") -> Joint:
                 )
             helper = hand.add(Joint(f"{side}HandHelper", (sx * 2.0, -3.0, 0.0)))
             helper.end_site = (0.0, -2.0, 0.0)
+    return chest
+
+
+def legs(hips: Joint) -> Joint:
+    """Both legs, to the toes, under ``hips``."""
+    for side, sx in (("Left", 1.0), ("Right", -1.0)):
         upleg = hips.add(Joint(f"{side}UpLeg", (sx * 9.0, -3.0, 0.0)))
         leg = upleg.add(Joint(f"{side}Leg", (0.0, -42.0, 0.0)))
         foot = leg.add(Joint(f"{side}Foot", (0.0, -41.0, 0.0)))
@@ -612,6 +626,58 @@ def profiles() -> list[Profile]:
         )
     )
 
+    # 11. Hips beside the spine: a moving root with two children, a spine
+    # chain up to where the arms and the neck branch, and the hips with the
+    # legs. The legs meet at the hips, the anchor; no head name is below
+    # them, so the body starts at the root.
+    root = Joint("Root", (0.0, 0.0, 0.0))
+    spine = root.add(Joint("Spine", (0.0, 6.0, -1.0)))
+    spine1 = spine.add(Joint("Spine1", (0.0, 12.0, 0.5)))
+    chest = spine1.add(Joint("Chest", (0.0, 14.0, 0.5)))
+    upper_body(chest)
+    legs(root.add(Joint("Hips", (0.0, -4.0, 0.0))))
+    set_layout(root, root_only)
+    m = Motion(SEED + 11)
+    m.pos_override["Root"] = travel((0.0, 98.0, 0.0))
+    out.append(
+        Profile(
+            "hips_beside_spine",
+            root,
+            m,
+            DEFAULT_FRAME_TIME,
+            "Y",
+            "a moving root with two children: the spine chain, where the arms and the neck branch, and the hips with the legs; the legs meet at the hips, which hold no head joint",
+            "authored: a root at the waist that the spine and the hips both hang from",
+            "Hips",
+            "the body starts at the root, above the anchor, so it holds the head",
+        )
+    )
+
+    # 12. Chest and hips at the same depth: a moving root with two children,
+    # a chest where the arms (with fingers) and the neck branch directly,
+    # and the hips with the legs. Both are candidates; the chest's side
+    # has more than twice the joints of the hips' side, so the chest is the
+    # anchor, and the body starts at the root, for the feet.
+    root = Joint("Root", (0.0, 0.0, 0.0))
+    upper_body(root.add(Joint("Chest", (0.0, 30.0, 0.0))), hands="fingers")
+    legs(root.add(Joint("Hips", (0.0, -4.0, 0.0))))
+    set_layout(root, root_only)
+    m = Motion(SEED + 12)
+    m.pos_override["Root"] = travel((0.0, 98.0, 0.0))
+    out.append(
+        Profile(
+            "chest_and_hips_same_depth",
+            root,
+            m,
+            DEFAULT_FRAME_TIME,
+            "Y",
+            "a moving root with two children: a chest where the arms, with fingers, and the neck branch directly, and the hips with the legs; the arms and the legs meet at the same depth, and the chest's side is the larger",
+            "authored: an upper body and a lower body that both hang from the root",
+            "Chest",
+            "the accepted limit of #205: the chest is the anchor; the body starts at the root, above it, so it holds the feet",
+        )
+    )
+
     return out
 
 
@@ -676,7 +742,7 @@ def serialise(p: Profile) -> str:
 
 README_HEAD = """# bvh_data/synthetic — invented clips for conventions the bundled files lack
 
-Every file here is **synthetic**. `scripts/generate_synthetic_bvh.py` authors twelve of them, five frames each, deterministic, and `scripts/generate_lying_down_bvh.py` authors the thirteenth, `bvh_synthetic_lying_down.bvh` (see below). Skeleton *shapes* follow conventions of publicly documented rigs and exporters (named in the table); every offset and motion value of the twelve is invented in the generator. No numerical table or frame is copied from any third-party dataset. The generators, profiles and output are licensed under [pybvh's MIT licence](../../LICENSE). Regenerate with `python3 scripts/generate_synthetic_bvh.py --check` from the repository root; `manifest.json` records per-file conventions, the expected body anchor, and SHA-256 hashes.
+Every file here is **synthetic**. `scripts/generate_synthetic_bvh.py` authors fourteen of them, five frames each, deterministic, and `scripts/generate_lying_down_bvh.py` authors the fifteenth, `bvh_synthetic_lying_down.bvh` (see below). Skeleton *shapes* follow conventions of publicly documented rigs and exporters (named in the table); every offset and motion value of the fourteen is invented in the generator. No numerical table or frame is copied from any third-party dataset. The generators, profiles and output are licensed under [pybvh's MIT licence](../../LICENSE). Regenerate with `python3 scripts/generate_synthetic_bvh.py --check` from the repository root; `manifest.json` records per-file conventions, the expected body anchor, and SHA-256 hashes.
 
 What they show, and why pybvh needs them: in several widely used exports a joint other than the root declares **six channels**, three positions and three rotations. The position channels give the joint's complete position relative to its parent, frame by frame, the same quantity its `OFFSET` gives for the rest pose. In most joints that value never changes and equals the `OFFSET`; in a few it moves: the pelvis under a **static reference root** carries the whole body's travel, and an animator can stretch a bone. Some exports also put a non-body node beside or above the body (a reference point, a Footsteps node, a prop), so **node 0 is not always the pelvis**.
 

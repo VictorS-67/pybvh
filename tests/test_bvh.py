@@ -6265,6 +6265,23 @@ class TestAxisDetection:
                 f"Expected disagreement warning, got: {messages}"
             )
 
+    def test_world_up_from_a_straight_horizontal_first_frame(self):
+        """A figure straight and horizontal at frame 0 decides world up on a
+        horizontal axis, and the rest pose's disagreement is reported."""
+        clip = read_bvh_file(BVH_DATA_DIR / "synthetic" / "rotation_only_control.bvh")
+        assert clip.world_up == "+y"
+        angles = clip.joint_angles.copy()
+        angles[:, 0, :] = 0.0
+        # A quarter turn about x, every frame: the head goes from +y to +z.
+        angles[:, 0, clip.root.rot_channels.index("X")] = np.pi / 2
+        clip.joint_angles = angles
+
+        with pytest.warns(UserWarning, match="Rest pose suggests world up is '\\+y'") as caught:
+            assert clip.world_up == "+z"
+        assert clip.orientation_report.world_up_source == "first_frame"
+        assert clip.orientation_report.rest_up == "+y"
+        assert "closer to '+z'" in " ".join(str(caught[0].message).split())
+
     # --- Public: Bvh.forward_at() method ---
 
     def test_forward_at_returns_valid_axis(self, bvh_example):

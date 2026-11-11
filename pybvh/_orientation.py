@@ -754,7 +754,9 @@ class _WorldUpGuess(NamedTuple):
 
 # Frame 0 decides world up when the largest component of its
 # marker-above-root direction is at least this many times the second; below
-# it the pose is crouched, lying or leaning, and the frame is ambiguous.
+# it the direction has no clear main axis (a torso bent or leaning far from
+# every axis), and the frame is ambiguous. A straight horizontal pose with
+# its head near a horizontal axis decides, on that axis.
 _FIRST_FRAME_DOMINANCE = 2.0
 
 

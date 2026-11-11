@@ -90,14 +90,14 @@ On the velocity-like functions, the defaults are `stencil="central", pad="edge"`
 | **Joint velocities** | How fast each joint moves in 3D space (finite differences of FK positions) | Motion dynamics, action recognition |
 | **Joint accelerations** | Rate of velocity change per joint | Smoothness constraints, jerk detection |
 | **Angular velocities** | Per-joint rotation speed via rotation matrix log map | Rotation dynamics, independent of skeleton scale |
-| **Root trajectory** | Ground-plane position (2D) + heading as sin/cos (2D) | Locomotion conditioning, path prediction |
+| **Root trajectory** | Ground-plane position (2D) of the body anchor + heading as sin/cos (2D) | Locomotion conditioning, path prediction |
 | **Foot contacts** | Binary per-frame indicators (combined velocity + height by default; see `method=`) | Contact-aware generation, foot skating loss |
 
 The figure shows what the contact detector actually thresholds: foot speed and clearance above the floor, ANDed. The green spans are the detected stance:
 
 ![Foot speed and clearance signals over a walking clip with their thresholds. Green spans mark the detected stance phases where both signals sit below threshold](../gallery/img/foot-contacts.png)
 
-For root-relative positions, use `bvh.node_positions(centered='skeleton')`.
+For positions relative to the body anchor (the hips on most rigs), use `bvh.node_positions(centered='skeleton')`.
 
 ## One-stop feature export
 

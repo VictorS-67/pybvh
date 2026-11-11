@@ -240,6 +240,7 @@ def make_scene(
                 bone_chains=_chain_per_bone(get_bone_chains(b), len(bones)),
                 root_heading=root_heading,
                 coords_in_rest_unit=clip_frames is not None,
+                body=b._in_body() if has_body else None,
             )
         )
     return Scene(views=views)

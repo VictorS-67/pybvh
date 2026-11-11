@@ -183,7 +183,7 @@ def base_radius(body_size: float, bone_width: float) -> float:
     the viewer and the offscreen renderer.
 
     ``BASE_RADIUS_FRACTION`` of the body size
-    (:attr:`~._scene.SkeletonView.body_size`, the rest pose's height),
+    (:attr:`~._scene.SkeletonView.body_size`, the body's rest height),
     scaled by the style's bone width
     (:func:`~._style.bone_width_scale`: the paper default is the 1:1
     anchor). Taken from the body and not from the viewport's

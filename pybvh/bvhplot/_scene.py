@@ -161,6 +161,12 @@ class SkeletonView(GroundFrame):
       :attr:`body_size` needs the rest pose's. An unknown rest axis is
       not replaced by ``up``, which on such a file would name the rest
       pose's depth; :attr:`body_size` measures without it instead.
+    - ``body`` marks the nodes of the clip's body, the part of the
+      skeleton that :attr:`Bvh.body_anchor` names and that rest up and
+      the feet are looked for in. They are the nodes :attr:`body_size`
+      measures. ``None`` measures every node, as for a clip with no
+      body. A prop or a reference root beside the body would otherwise
+      add its distance from the body to the body's height.
     - ``coords_in_rest_unit`` states that ``coords`` were posed from
       ``rest_coords`` by forward kinematics, so they share its unit and
       :attr:`coords_per_rest_unit` is exactly 1. :func:`make_scene`
@@ -207,6 +213,7 @@ class SkeletonView(GroundFrame):
     bone_chains: list[str]  # chain name per bone, parallel to ``bones``
     root_heading: npt.NDArray[np.float64] | None  # (F, 2) [sin, cos] or None
     coords_in_rest_unit: bool = False  # coords posed from this rest pose: unit ratio exactly 1
+    body: npt.NDArray[np.bool_] | None = None  # (N,) which nodes are the body; None: every node
 
     def __post_init__(self) -> None:
         coords = np.asarray(self.coords)
@@ -240,6 +247,13 @@ class SkeletonView(GroundFrame):
             raise ValueError(
                 f"rest_coords must have shape ({num_nodes}, 3) to match "
                 f"coords, got {np.shape(self.rest_coords)}."
+            )
+        if self.body is not None and (
+            np.shape(self.body) != (num_nodes,) or np.asarray(self.body).dtype != bool
+        ):
+            raise ValueError(
+                f"body must be a boolean mask of shape ({num_nodes},) to match "
+                f"coords, got {np.shape(self.body)} of dtype {np.asarray(self.body).dtype}."
             )
         if len(self.bone_chains) != len(self.bones):
             raise ValueError(
@@ -290,8 +304,9 @@ class SkeletonView(GroundFrame):
     def body_size(self) -> float:
         """The body's height, the length what is drawn on it is sized from.
 
-        The rest pose's extent along the rest pose's own up axis
-        (``rest_up``), in the unit of ``coords``. It is a property of
+        The extent of the body (``body``) in the rest pose, along the
+        rest pose's own up axis (``rest_up``), in the unit of
+        ``coords``. It is a property of
         the skeleton, not of the motion: it does not change with the
         distance the clip travels, with the frames shown, or with the
         other skeletons of a Scene, so a still and the whole clip draw
@@ -300,6 +315,8 @@ class SkeletonView(GroundFrame):
         to measure is measured another way, and
         :attr:`body_size_measure` says which of these it got, first
         that applies:
+
+        Each measure reads the nodes of ``body`` alone.
 
         - ``"rest height"``: the rest pose's extent along ``rest_up``.
         - ``"rest extent"``: the rest pose's widest extent along any
@@ -356,9 +373,12 @@ class SkeletonView(GroundFrame):
     def _measured_body_size(self) -> tuple[float, BodySizeMeasure]:
         """:attr:`body_size` and :attr:`body_size_measure`, the first
         measure of the chain that is positive."""
+        # The body's nodes alone: a prop or a reference root beside the
+        # body is no part of its height.
+        body = slice(None) if self.body is None else self.body
         coords_per_rest_unit = self.coords_per_rest_unit
         if coords_per_rest_unit is not None:
-            rest_extents = np.ptp(self.rest_coords, axis=0) * coords_per_rest_unit
+            rest_extents = np.ptp(self.rest_coords[body], axis=0) * coords_per_rest_unit
             if self.rest_up is not None:
                 rest_height = float(rest_extents[parse_axis(self.rest_up).index])
                 if rest_height > 0.0:
@@ -366,7 +386,7 @@ class SkeletonView(GroundFrame):
             widest_rest_extent = float(rest_extents.max())
             if widest_rest_extent > 0.0:
                 return widest_rest_extent, "rest extent"
-        swept_extents = np.ptp(self.coords.reshape(-1, 3), axis=0)
+        swept_extents = np.ptp(self.coords[:, body].reshape(-1, 3), axis=0)
         widest_swept_extent = float(swept_extents.max())
         if widest_swept_extent > 0.0:
             return widest_swept_extent, "clip extent"
@@ -423,7 +443,7 @@ class SkeletonView(GroundFrame):
         median_ratio = float(np.median(ratios))
         return median_ratio if median_ratio > 0.0 else None
 
-    _ARRAY_FIELDS = ("coords", "rest_coords", "lr_pairs", "root_heading")
+    _ARRAY_FIELDS = ("coords", "rest_coords", "lr_pairs", "root_heading", "body")
 
     def _protect_arrays(self) -> None:
         """Swap each array field for a read-only view of itself."""

@@ -1299,8 +1299,9 @@ def play(
         factor (``"test2 ×0.13"``, or ``"×0.13"`` alone for a skeleton
         with no label). Only the
         drawing changes: the clips are not touched. The height matched
-        is the rest pose's, along the rest pose's own up axis
-        (:attr:`Bvh.rest_up`); the alternative, the median over the
+        is the body's in the rest pose, along the rest pose's own up
+        axis (:attr:`Bvh.rest_up`), without the nodes beside the body
+        (a prop, a reference root); the alternative, the median over the
         clip's frames of the pose's height, differs for a clip that does
         not stand as its rest pose does (crouched, seated or lying),
         which it would blow up to the first skeleton's standing height.

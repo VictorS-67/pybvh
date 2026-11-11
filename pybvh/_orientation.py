@@ -326,6 +326,44 @@ def _find_body(skeleton: _RestSkeleton, anchor: int) -> npt.NDArray[np.bool_]:
     return in_body
 
 
+def _size_reference(parent_idx: npt.NDArray[np.intp], feet: Sequence[int], anchor: int) -> int:
+    """The joint the sizes of a set of feet are read from.
+
+    The lowest joint that has the feet in two or more of its branches:
+    the meeting joint of all the feet, where the legs meet on a biped and
+    where the hind and the front chains part on a quadruped. When there
+    is none, because one foot is given or the feet lie along one leg (the
+    meeting joint is then one of the feet), it is the body anchor. The
+    hips and not the anchor, because the anchor can sit above the hips
+    (the chest, on a rig whose chest and hips meet the pairs at one
+    depth), and a size measured from the chest is not the leg's. Read by
+    the "feet below hips" check and the threshold scale of the contacts,
+    and by ``skeleton_size``.
+
+    Parameters
+    ----------
+    parent_idx : ndarray of shape (N,)
+        Each node's parent index, ``-1`` for the root; a parent comes
+        before its children.
+    feet : sequence of int
+        The feet's node indices, at least one.
+    anchor : int
+        The body anchor's index (:func:`_find_body_anchor`).
+
+    Returns
+    -------
+    int
+        The size reference's node index.
+    """
+    depth = np.zeros(len(parent_idx), dtype=np.intp)
+    for node in range(1, len(parent_idx)):
+        depth[node] = depth[parent_idx[node]] + 1
+    meeting = int(feet[0])
+    for foot in feet[1:]:
+        meeting = _meeting_joint(parent_idx, depth, meeting, int(foot))
+    return anchor if meeting in feet else meeting
+
+
 def _up_marker_index(skeleton: _RestSkeleton, anchor: int) -> int | None:
     """The node whose direction from the body anchor says which way is up.
 

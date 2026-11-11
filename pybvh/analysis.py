@@ -862,6 +862,8 @@ def foot_contacts(
     ``method="velocity"`` and ``method="height"`` remain available as
     single-signal escape hatches.
 
+    The sizes are read from the joint the feet branch from: the lowest joint that has the feet in two or more of its branches (the hips of a biped, where the hind and the front chains part on a quadruped), else, for one foot or feet along one leg, :attr:`~pybvh.Bvh.body_anchor`. The skeleton scale of the default thresholds is the feet's mean rest distance to that joint, as in :func:`skeleton_size`, and the "feet below hips" check compares the feet's rest height with its. A root above or beside the body is passed over.
+
     The positions tested are the clip's world-frame forward kinematics, which the clip caches (:meth:`Bvh.node_positions`). Positions the caller holds (smoothed, predicted or edited) take the array path: the node's row is ``bvh.index(name, space="node")``, and :mod:`pybvh.geometry` and :mod:`pybvh.signal` measure it.
 
     Each method reads its own settings, and a setting given that the chosen method does not read raises a ``ValueError`` instead of being ignored: ``method="velocity"`` reads ``vel_threshold`` and ``vel_smooth_duration``; ``method="height"`` reads ``height_threshold`` and ``floor``; ``method="combined"`` reads all four, and ``height_reference`` when ``height_threshold`` is not given. Every method reads ``min_contact_duration``, ``min_gap_duration`` and ``hysteresis``, and ``adaptive`` where it leaves a threshold to derive. The settings some method does not read default to ``None``, which stands for the default named under each.
@@ -889,7 +891,7 @@ def foot_contacts(
         the contacts' columns, such as a :class:`~pybvh.ContactReport`'s
         ``vel_threshold`` passed back.  ``None`` (default) derives it:
         ``0.12 × skeleton_scale`` u/s where ``skeleton_scale`` is the
-        mean rest-pose distance from the root to the feet
+        mean rest-pose distance from the joint the feet branch from to the feet
         (equivalent to the pre-v0.8 ``0.004 × skeleton_scale`` per
         frame at 30 fps).  Scale-invariant across cm- and m-scale
         skeletons, and unaffected by finger/spine subdivision (unlike
@@ -1028,7 +1030,8 @@ def foot_contacts(
           ``bvh.nodes``; or the same node selected twice.
         - If a duration (``vel_smooth_duration``, ``min_contact_duration``, ``min_gap_duration``) is negative or not finite, ``hysteresis`` is outside ``[0, 1)``, or a threshold given is not finite and above zero.
         - When the height signal is involved and ``bvh.world_up`` is
-          inconsistent with rest-pose geometry (feet above hips).
+          inconsistent with rest-pose geometry: the feet's mean rest height
+          is above that of the joint they branch from (feet above hips).
         - If ``frame_time == 0`` and the velocity signal (units/second)
           or a nonzero duration filter needs a time base.
     TypeError
@@ -1062,6 +1065,7 @@ def foot_contacts(
         settings,
         return_info=return_info,
         check_rest_height=True,
+        scale_reference=bvh._size_reference(node_indices),
         caller="foot_contacts()",
     )
 
@@ -1200,6 +1204,7 @@ def ground_contacts(
         settings,
         return_info=return_info,
         check_rest_height=False,
+        scale_reference=0,
         caller="ground_contacts()",
     )
 
@@ -1211,11 +1216,12 @@ def _contacts_on_clip(
     *,
     return_info: bool,
     check_rest_height: bool,
+    scale_reference: int,
     caller: str,
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]:
     """The clip's part of :func:`foot_contacts` and :func:`ground_contacts`, around the detector on plain arrays.
 
-    Both entry points resolve their selection with :func:`_selected_node_indices` into ``node_indices``, gather their settings into a :class:`~pybvh._contacts._ContactSettings`, and delegate here. This reads from the clip what the detector takes (the nodes and their positions, the rest pose, the frame time, the up axis), runs the checks whose messages name the clip (the frame time, the rest height), and hands the arrays to :func:`pybvh._contacts._contacts_from_positions`. ``check_rest_height`` enables the rest-pose "feet below hips" sanity check, which presumes the nodes are feet. ``caller`` names the public function in the messages (``"foot_contacts()"``).
+    Both entry points resolve their selection with :func:`_selected_node_indices` into ``node_indices``, gather their settings into a :class:`~pybvh._contacts._ContactSettings`, and delegate here. This reads from the clip what the detector takes (the nodes and their positions, the rest pose, the frame time, the up axis), runs the checks whose messages name the clip (the frame time, the rest height), and hands the arrays to :func:`pybvh._contacts._contacts_from_positions`. ``check_rest_height`` enables the rest-pose "feet below hips" sanity check, which presumes the nodes are feet. ``scale_reference`` is the node index that check and the skeleton scale of the default thresholds measure from: the size reference of the feet (:meth:`Bvh._size_reference`) for :func:`foot_contacts`, the root for :func:`ground_contacts`. ``caller`` names the public function in the messages (``"foot_contacts()"``).
     """
     if settings.reads_velocity:
         _require_rate(bvh.frame_time, f"{caller} with method={settings.method!r}")
@@ -1232,12 +1238,13 @@ def _contacts_on_clip(
     # ---- Sanity check for the height signal (feet-presuming entry only) ----
     if settings.reads_height and check_rest_height:
         rest_foot_height = rest_coords[node_indices, up_idx].mean() * up_sign
-        rest_hip_height = rest_coords[0, up_idx] * up_sign
+        rest_hip_height = rest_coords[scale_reference, up_idx] * up_sign
         if rest_foot_height > rest_hip_height:
             raise ValueError(
                 f"world_up={bvh.world_up!r} is inconsistent with rest-pose "
                 f"geometry: feet are above hips along the declared up axis "
-                f"({rest_foot_height:.3f} vs {rest_hip_height:.3f}). "
+                f"({rest_foot_height:.3f} vs {rest_hip_height:.3f} at "
+                f"{bvh.nodes[scale_reference].name!r}). "
                 f"`bvh.world_up` was likely auto-detected incorrectly; set "
                 f"it manually with `bvh.world_up = '<axis>'`."
             )
@@ -1247,7 +1254,7 @@ def _contacts_on_clip(
         bvh._world_node_positions()[:, node_indices, :],
         [bvh.nodes[i] for i in node_indices],
         rest_coords[node_indices],
-        rest_coords[0],
+        rest_coords[scale_reference],
         frame_time=bvh.frame_time,
         up_idx=up_idx,
         up_sign=up_sign,
@@ -1407,7 +1414,14 @@ def _selected_node_indices(
 
 
 def skeleton_size(bvh: Bvh, feet: Sequence[NodeSelector] | None = None) -> float:
-    """Absolute skeleton scale — mean rest-pose root-to-foot distance.
+    """Absolute skeleton scale — mean rest-pose distance from the feet to the joint they branch from.
+
+    That joint is the lowest one that has the feet in two or more of its
+    branches: the hips of a biped, where the hind and the front chains
+    part on a quadruped. For one foot, or feet along one leg, it is
+    :attr:`~pybvh.Bvh.body_anchor`. So a root above or beside the body
+    leaves the size alone, and on a rig whose anchor is its chest the
+    size is still measured from the hips.
 
     A size proxy that scales linearly with the whole skeleton (≈ half the
     standing height for a humanoid). Only the leg chain contributes, so
@@ -1417,7 +1431,7 @@ def skeleton_size(bvh: Bvh, feet: Sequence[NodeSelector] | None = None) -> float
     see :func:`relative_scale_factor`.
 
     A skeleton whose size cannot be measured — auto-detection finds no
-    feet, or every foot sits exactly on the root — raises rather than
+    feet, or every foot sits exactly on that joint — raises rather than
     returning a substitute: any fabricated number (``1.0`` reads as a
     plausible metre-scale humanoid, ``nan`` poisons everything scaled by
     it) would be indistinguishable from, or worse than, a measurement.
@@ -1440,14 +1454,16 @@ def skeleton_size(bvh: Bvh, feet: Sequence[NodeSelector] | None = None) -> float
     Returns
     -------
     float
-        Mean rest-pose distance from the root to the feet
+        Mean rest-pose distance from the joint the feet branch from to
+        the feet
         (always ``> 0``).
 
     Raises
     ------
     ValueError
         Where :func:`foot_contacts` raises it for ``feet``, or if all feet
-        coincide with the root in the rest pose (no measurable size).
+        coincide with the joint they branch from in the rest pose (no
+        measurable size).
     TypeError
         Where :func:`foot_contacts` raises it for ``feet``.
 
@@ -1457,11 +1473,13 @@ def skeleton_size(bvh: Bvh, feet: Sequence[NodeSelector] | None = None) -> float
     """
     foot_indices = _feet_indices(bvh, feet, "skeleton_size()")
     rest_coords = bvh._rest_pose()
-    distance = geometry._mean_distance_to_root(rest_coords[foot_indices], rest_coords[0])
+    reference = bvh._size_reference(foot_indices)
+    distance = geometry._mean_distance_to_root(rest_coords[foot_indices], rest_coords[reference])
     if distance is None:
         raise ValueError(
-            "skeleton_size: every foot coincides with the root in the "
-            "rest pose, so this skeleton has no measurable size. Pass "
+            "skeleton_size: every foot coincides with the size reference "
+            f"{bvh.nodes[reference].name!r} in the rest pose, so this "
+            "skeleton has no measurable size. Pass "
             "different feet=, or catch this error and choose your own "
             "scale."
         )

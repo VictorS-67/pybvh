@@ -418,9 +418,21 @@ def _side_token_partners(base: str) -> Iterator[tuple[str, bool]]:
         yield "".join(parts[:i] + [partner_token] + parts[i + 1 :]), is_left
 
 
+# The Japanese side characters, read as the name's first character only.
+_JAPANESE_SIDES = {"左": ("右", True), "右": ("左", False)}
+
+
+def _japanese_prefix_partners(base: str) -> Iterator[tuple[str, bool]]:
+    """``左足`` to ``右足``: the side character first, swapped."""
+    side = _JAPANESE_SIDES.get(base[:1])
+    if side is not None:
+        partner_char, is_left = side
+        yield partner_char + base[1:], is_left
+
+
 # The rules tried after the three of ``_detect_lr_mapping_by_names``'s
 # first pass, in order.
-_LR_NAME_RULES: tuple[_LrNameRule, ...] = (_side_token_partners,)
+_LR_NAME_RULES: tuple[_LrNameRule, ...] = (_side_token_partners, _japanese_prefix_partners)
 
 
 def _pairs_by_rule(

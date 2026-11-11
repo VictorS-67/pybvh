@@ -46,12 +46,12 @@ if TYPE_CHECKING:
 #      against rest up), read together with one set of pairs by
 #      _infer_rest_up_and_left; _infer_rest_forward (rest left × rest up,
 #      or the house default keyed on rest up). Used by mirror, the rest
-#      reorientations and root_trajectory's heading, where the root
-#      rotation carries rest forward into the world.
+#      reorientations and root_trajectory's heading, where the body
+#      anchor's world rotation carries rest forward into the world.
 #   2. THE WORLD FRAME — world up, guessed from the first frame through the
-#      same up marker (_infer_world_up); the root's heading
-#      (_root_heading_units: the root rotation carries rest forward into
-#      the world, NaN where its ground projection is unreadable); and the
+#      same up marker (_infer_world_up); the heading (_heading_units: the
+#      body anchor's world rotation carries rest forward into the world,
+#      NaN where its ground projection is unreadable); and the
 #      facing at a frame, read from that frame's joint positions against
 #      world up.
 #
@@ -68,8 +68,8 @@ if TYPE_CHECKING:
 #           │   (array kernel)      geometry is computed; bvhplot
 #           │                       follow-mode azimuths read it too
 #           ▼
-#     _facing_basis: the frame's leftward, else the root's heading at that
-#           │        frame (_root_heading_units), else the house default
+#     _facing_basis: the frame's leftward, else the heading at that
+#           │        frame (_heading_units), else the house default
 #           │        (_fallback_leftward); forward = left × up
 #           ├──→ Bvh._facing_at ──→ analysis.facing_frame
 #           └──→ _facing_labels (the snap) ──→ Bvh.forward_at / Bvh.left_at
@@ -1072,13 +1072,14 @@ def _world_up_disagrees(guess: _WorldUpGuess, rest_up: str | None) -> bool:
 
 
 def _root_contradicts_rest_up(
-    guess: _WorldUpGuess, root_rotation: npt.NDArray[np.float64] | None
+    guess: _WorldUpGuess, anchor_rotation: npt.NDArray[np.float64] | None
 ) -> str | None:
-    """The axis frame 0's root rotation carries rest up onto, when a guess
-    that fell back on rest up names another axis.
+    """The axis the body anchor's world rotation at frame 0 carries rest up
+    onto, when a guess that fell back on rest up names another axis.
 
-    The root rotation is what carries a fact of the skeleton's own frame
-    into the world (ADR 0004); the rest-up fallback skips it. Rest up
+    The body anchor's world rotation is what carries a fact of the
+    skeleton's own frame into the world (ADR 0004); the rest-up fallback
+    skips it. Rest up
     carried by it is snapped as frame 0's head direction is
     (:func:`_dominant_axis`), and only the axis letter is compared, as in
     :func:`_world_up_disagrees`. A disagreement says the rest pose may be
@@ -1090,9 +1091,9 @@ def _root_contradicts_rest_up(
     ----------
     guess : _WorldUpGuess
         The clip's guess; only a ``"rest_up"`` one is read.
-    root_rotation : ndarray of shape (3, 3) or None
-        The root's rotation matrix at frame 0, ``None`` for a clip
-        without frames.
+    anchor_rotation : ndarray of shape (3, 3) or None
+        The body anchor's world rotation matrix at frame 0, ``None`` for a
+        clip without frames.
 
     Returns
     -------
@@ -1101,17 +1102,17 @@ def _root_contradicts_rest_up(
         rest up, the carried direction does not decide, or it names rest
         up's own axis.
     """
-    if guess.source != "rest_up" or root_rotation is None:
+    if guess.source != "rest_up" or anchor_rotation is None:
         return None
-    carried = _dominant_axis(root_rotation @ _axis_to_vector(guess.axis))
+    carried = _dominant_axis(anchor_rotation @ _axis_to_vector(guess.axis))
     if carried is None or carried[1] == guess.axis[1]:
         return None
     return carried
 
 
 def _warn_rest_up_contradicted_by_root(rest_up: str, carried: str) -> None:
-    """Warn that world up fell back on rest up while the root rotation of
-    frame 0 carries rest up onto another axis."""
+    """Warn that world up fell back on rest up while the body anchor's world
+    rotation at frame 0 carries rest up onto another axis."""
     # The fallback is otherwise silent: the report's "rest_up" source is
     # its only trace, and on a rest pose authored in another convention
     # than the motion it is wrong.
@@ -1119,7 +1120,7 @@ def _warn_rest_up_contradicted_by_root(rest_up: str, carried: str) -> None:
         f"World up fell back on the rest pose's up {rest_up!r}: at the "
         f"first animation frame the direction from the body anchor to the head "
         f"joint (else the neck, chest or spine) does not decide it. But "
-        f"the root's rotation at that frame carries the rest pose's up "
+        f"the body anchor's rotation at that frame carries the rest pose's up "
         f"onto {carried!r}, so the rest pose may be authored in another "
         f"convention than the motion, and world up may be {carried!r}. "
         f"Check the clip and set it explicitly via "
@@ -1151,8 +1152,8 @@ class OrientationReport:
     frame* is read from the rest pose alone, the skeleton with every
     rotation zero, and never from world up: ``rest_up``, ``rest_left``,
     ``rest_forward``. The *world frame* is read from the motion:
-    ``world_up``. The root rotation of a frame is what carries a
-    skeleton fact into the world. Per-frame facts (the facing at a
+    ``world_up``. The world rotation of the body anchor at a frame is
+    what carries a skeleton fact into the world. Per-frame facts (the facing at a
     frame) are not here: :meth:`~pybvh.bvh.Bvh.forward_at`,
     :meth:`~pybvh.bvh.Bvh.left_at` and
     :meth:`~pybvh.bvh.Bvh.facing_frame` carry them, with
@@ -1369,14 +1370,14 @@ def _ground_units(
     return projected, valid
 
 
-def _root_heading_units(
-    root_rotmats: npt.NDArray[np.float64],
+def _heading_units(
+    anchor_rotmats: npt.NDArray[np.float64],
     rest_forward: str,
     world_up: str,
 ) -> npt.NDArray[np.float64]:
-    """The root's heading per frame: rest forward carried into the world.
+    """The body's heading per frame: rest forward carried into the world.
 
-    The root rotation of each frame applied to *rest_forward* (a
+    The body anchor's world rotation at each frame applied to *rest_forward* (a
     direction in the skeleton's own frame), projected on the ground of
     *world_up* and normalised. Where that projection is too short to read
     (the root's forward stands along world up) the row is ``NaN``, the
@@ -1385,8 +1386,8 @@ def _root_heading_units(
 
     Parameters
     ----------
-    root_rotmats : ndarray of shape (F, 3, 3)
-        The root's rotation matrix per frame.
+    anchor_rotmats : ndarray of shape (F, 3, 3)
+        The body anchor's world rotation matrix per frame.
     rest_forward : str
         Signed axis string, the direction the rest pose faces.
     world_up : str
@@ -1397,7 +1398,7 @@ def _root_heading_units(
     ndarray of shape (F, 3)
         Unit ground vectors, ``NaN`` on the unreadable rows.
     """
-    forward = np.einsum("fij,j->fi", root_rotmats, _axis_to_vector(rest_forward))
+    forward = np.einsum("fij,j->fi", anchor_rotmats, _axis_to_vector(rest_forward))
     heading, valid = _ground_units(forward, _axis_to_vector(world_up))
     heading[~valid] = np.nan
     return heading
@@ -1419,7 +1420,7 @@ def _facing_basis(
     coords: npt.NDArray[np.float64],
     lr_pairs: npt.NDArray[np.intp],
     world_up: str,
-    root_rotmats: npt.NDArray[np.float64] | None = None,
+    anchor_rotmats: npt.NDArray[np.float64] | None = None,
     rest_forward: str | None = None,
 ) -> tuple[
     npt.NDArray[np.float64],
@@ -1434,7 +1435,7 @@ def _facing_basis(
     frame's own leftward (:func:`_leftward_units_from_pairs`); where that
     is unreadable (the left/right axis vertical, the body on its side, or
     the pairs coinciding),
-    the root's heading at that frame turned a quarter turn about up
+    the heading at that frame turned a quarter turn about up
     (``left = up × heading``); where that is unreadable too, or not
     given, the house default (:func:`_fallback_leftward`). Then
     ``forward = left × up`` and ``up`` is the exact world-up vector on
@@ -1450,11 +1451,11 @@ def _facing_basis(
         ``(left_idx, right_idx)`` rows into the N axis.
     world_up : str
         Signed axis string for the world vertical axis.
-    root_rotmats : ndarray of shape (F, 3, 3), optional
-        The root's rotation at each row's frame.
+    anchor_rotmats : ndarray of shape (F, 3, 3), optional
+        The body anchor's world rotation at each row's frame.
     rest_forward : str, optional
-        The direction the rest pose faces, read with *root_rotmats* into
-        the root's heading (:func:`_root_heading_units`). Pass it only
+        The direction the rest pose faces, read with *anchor_rotmats* into
+        the heading (:func:`_heading_units`). Pass it only
         when it is measured: the heading of a defaulted rest forward is
         no measurement either. Without both, the heading stage is
         skipped.
@@ -1473,10 +1474,10 @@ def _facing_basis(
     leftward, valid = _leftward_units_from_pairs(coords, lr_pairs, up_vec)
 
     defaulted = ~valid
-    if root_rotmats is not None and rest_forward is not None and defaulted.any():
+    if anchor_rotmats is not None and rest_forward is not None and defaulted.any():
         # Only the rows the frame's own leftward leaves unread.
         rows = np.flatnonzero(defaulted)
-        heading = _root_heading_units(root_rotmats[rows], rest_forward, world_up)
+        heading = _heading_units(anchor_rotmats[rows], rest_forward, world_up)
         readable = ~np.isnan(heading).any(axis=1)
         leftward[rows[readable]] = np.cross(up_vec, heading[readable])
         defaulted[rows[readable]] = False
@@ -1547,7 +1548,7 @@ def _warn_rows_facing_defaulted(world_up: str, where: str) -> None:
         f"{where}, the facing direction cannot be measured: the left/right "
         f"joints give no direction on the ground (they line up with "
         f"world_up={world_up!r}, a body on its side, or coincide), and the "
-        f"root's heading cannot stand in (it lies along world_up too, or "
+        f"body's heading cannot stand in (it lies along world_up too, or "
         f"rest_forward is itself a default). Falling back to {fallback!r}, "
         f"the arbitrary-but-stable horizontal axis for that up. "
         f"`facing_frame().valid` is False on such frames.",

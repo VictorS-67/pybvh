@@ -8469,11 +8469,11 @@ class TestFacingOnAFrameLyingOnItsSide:
             assert lying.forward_at(0) == expected
 
     def test_the_default_warning_names_the_frame(self):
-        # A root rotation that stands rest forward (+y) along world up -x
-        # makes the heading unreadable. The spine turns back, so the arms
-        # keep the rest pose's left/right axis, vertical; the legs turn with
-        # the root, so only the arms are paired. Frame 0 takes the house
-        # default.
+        # Only the arms are paired, so the body anchor is Spine3, where they
+        # meet. Its rotation stands rest forward (+y) along world up -x and
+        # makes the heading unreadable. The shoulders turn back, so the arms
+        # keep the rest pose's left/right axis, vertical. Frame 0 takes the
+        # house default.
         bvh = read_bvh_file(BVH_DATA_DIR / "bvh_test1.bvh")
         bvh.lr_mapping = {
             side + part: other + part
@@ -8481,8 +8481,11 @@ class TestFacingOnAFrameLyingOnItsSide:
             for part in ("Shoulder", "Arm", "ForeArm", "Hand")
         }
         tilt = np.array([[0.0, 1, 0], [-1, 0, 0], [0, 0, 1]])  # turns +y onto -x
-        self._pose_frame_zero(bvh, {"Hips": tilt, "Spine": tilt.T})
+        self._pose_frame_zero(
+            bvh, {"Spine3": tilt, "LeftShoulder": tilt.T, "RightShoulder": tilt.T}
+        )
         bvh.world_up = "-x"
+        assert bvh.body_anchor.name == "Spine3"
         assert bvh.rest_forward == "+y"
         with pytest.warns(UserWarning, match="At frame 0, the facing direction cannot"):
             forward = bvh.forward_at(0)

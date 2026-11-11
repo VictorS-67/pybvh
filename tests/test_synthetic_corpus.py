@@ -187,19 +187,17 @@ class TestStaticReferenceRoot:
             clip.node_positions()[:, 1:], control.node_positions(), atol=1e-9
         )
 
-    def test_the_root_based_descriptors_describe_the_reference(self):
-        # They read the root, which stays at the origin; the body's travel
-        # is the hips' world position, even under "skeleton" centering.
+    def test_the_travel_descriptors_describe_the_hips(self):
+        # They read the body anchor, the hips, not the root, which stays at
+        # the origin: under "skeleton" centering the hips stay still and the
+        # reference node travels the other way.
         clip = _read("reference_humanoid_6ch.bvh")
-        assert clip.walking_pace() == 0.0
-        trajectory = clip.root_trajectory()
-        np.testing.assert_array_equal(trajectory[:, :2], np.zeros((5, 2)))
-        np.testing.assert_allclose(trajectory[:, 2:], np.tile(trajectory[0, 2:], (5, 1)))
-        np.testing.assert_allclose(
-            clip.node_positions(centered="skeleton")[:, clip.node_index["Hips"]],
-            _travel((0.0, 95.0, 0.0)),
-            atol=1e-6,
-        )
+        hips = _travel((0.0, 95.0, 0.0))
+        assert clip.walking_pace() > 0.0
+        np.testing.assert_allclose(clip.root_trajectory()[:, :2], hips[:, [0, 2]], atol=1e-6)
+        centred = clip.node_positions(centered="skeleton")
+        np.testing.assert_array_equal(centred[:, clip.node_index["Hips"]], np.zeros((5, 3)))
+        np.testing.assert_allclose(centred[:, clip.node_index["Reference"]], -hips, atol=1e-6)
 
     def test_the_props_body_is_the_same_body_moved_by_120_0_600(self):
         clip = _read("reference_props_humanoid_6ch.bvh")

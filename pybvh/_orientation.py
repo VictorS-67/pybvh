@@ -485,7 +485,7 @@ class _RestUp(NamedTuple):
     ``source`` is ``"named_joint"`` (the up marker,
     :func:`_up_marker_index`), ``"leg_pair"`` (no marker: opposite the
     legs, :func:`_up_from_leg_pair`) or ``"largest_spread"`` (neither:
-    the axis along which the rest pose spreads most).
+    the axis along which the body spreads most in the rest pose).
     """
 
     axis: str
@@ -553,8 +553,8 @@ def _infer_rest_up(skeleton: _RestSkeleton, anchor: int) -> _RestUp | None:
     :func:`_up_marker_index` finds; without one, the axis opposite the
     legs, the L/R pair that meets at the anchor
     (:func:`_up_from_leg_pair`); without such a pair, the axis along
-    which the rest pose spreads most, signed by the side of the anchor
-    its nodes lie on. The largest spread is the weakest reading: a
+    which the body (:func:`_find_body`) spreads most in the rest pose,
+    signed by the side of the anchor its nodes lie on. The largest spread is the weakest reading: a
     T-pose wider than tall spreads most along its arms, and hips
     mid-body put as much of it below the anchor as above.
 
@@ -585,12 +585,15 @@ def _infer_rest_up(skeleton: _RestSkeleton, anchor: int) -> _RestUp | None:
     if leg_pair_up is not None:
         return _RestUp(leg_pair_up, "leg_pair")
 
-    spread = np.ptp(local, axis=0)
+    # The body's nodes alone: a prop or a reference root beside the body
+    # would spread the pose along an axis the body does not stand on.
+    body = local[_find_body(skeleton, anchor)]
+    spread = np.ptp(body, axis=0)
     if float(np.max(spread)) < _MIN_REST_SPREAD:
         return None  # degenerate rest pose: all joints coincide
     up_idx = int(np.argmax(spread))
     # The sign of the mean: the side of the anchor most of the body lies on.
-    sign = "+" if np.mean(local[:, up_idx]) >= 0 else "-"
+    sign = "+" if np.mean(body[:, up_idx]) >= 0 else "-"
     return _RestUp(sign + "xyz"[up_idx], "largest_spread")
 
 
@@ -1370,7 +1373,7 @@ class OrientationReport:
         ``"leg_pair"``: no such joint, so the axis opposite the legs:
         from the far ends of the two branches of the body anchor that
         an L/R pair is split across, to the anchor.
-        ``"largest_spread"``: no such pair either, so the axis along which the rest pose spreads most, signed by
+        ``"largest_spread"``: no such pair either, so the axis along which the body spreads most in the rest pose, signed by
         the side most of the body lies on, a weak reading (wrong in axis
         on a T-pose wider than tall, in sign when the hips sit
         mid-body). ``None`` with ``rest_up``.

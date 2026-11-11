@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from pybvh import read_bvh_file
+from pybvh import Bvh, nodes_from_table, read_bvh_file
 
 REPO = Path(__file__).resolve().parent.parent
 CORPUS = REPO / "bvh_data" / "synthetic"
@@ -117,3 +117,22 @@ def test_a_clip_whose_body_is_its_whole_skeleton_gives_what_it_gave(
         report.world_up,
     ) == (rest_up, source, rest_left, rest_forward, world_up)
     assert tuple(_feet(clip)) == feet
+
+
+def test_the_largest_spread_reads_the_body_the_user_names():
+    # No head name, no pairs: the body the user names stands along +y, and
+    # the prop beside it, under the root, spreads farther along +x.
+    rows = [
+        {"name": "Scene", "parent": None, "offset": [0, 0, 0], "rot_channels": "ZYX"},
+        {"name": "Body", "parent": 0, "offset": [0, 0, 0], "rot_channels": "ZYX"},
+        {"name": "Torso", "parent": 1, "offset": [0, 1, 0], "rot_channels": "ZYX"},
+        {"name": "Skull", "parent": 2, "offset": [0, 1, 0]},
+        {"name": "Prop", "parent": 0, "offset": [100, 0, 0]},
+    ]
+    clip = Bvh(nodes_from_table(rows))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        clip.body_anchor = "Body"
+        report = clip.orientation_report
+    assert (report.rest_up, report.rest_up_source) == ("+y", "largest_spread")
+    assert (report.world_up, report.world_up_source) == ("+y", "rest_up")

@@ -309,6 +309,17 @@ class TestUpFromTheBodyAnchor:
         skeleton = _skeleton(names, _REFERENCE_REST, [[7, 9]], parents=parents)
         assert _infer_rest_up(skeleton, _HIPS).source == "largest_spread"
 
+    def test_the_largest_spread_reads_the_body_alone(self):
+        # No head name, no pairs: the body is the anchor and the nodes below
+        # it, which stand along +y; the prop beside it, under the root,
+        # spreads farther along +x.
+        names = ["Scene", "Body", "Torso", "Skull", "Prop"]
+        rest = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 2.0, 0.0]]
+        rest.append([100.0, 0.0, 0.0])
+        skeleton = _skeleton(names, rest, parents=[-1, 0, 1, 2, 0])
+        assert _infer_rest_up(skeleton, 1) == _RestUp("+y", "largest_spread")
+        assert _infer_world_up(skeleton, 1, None) == ("+y", "rest_up")
+
     def test_world_up_at_the_first_frame_from_the_anchor(self):
         # Frame 0 is the rest pose: from the root, the neck lies along +z.
         skeleton = _skeleton(_REFERENCE_NAMES, _REFERENCE_REST, parents=_REFERENCE_PARENTS)

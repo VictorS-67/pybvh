@@ -196,7 +196,7 @@ report = b3.orientation_report
 
 | Field | Values | Says |
 |---|---|---|
-| `rest_up_source` | `"named_joint"`, `"leg_pair"`, `"largest_spread"`, `None` | rest up read from a joint of the body named for the head, neck, chest or spine; else opposite the legs, the L/R pair split across two branches of the body anchor; else from the axis along which the rest pose spreads most; `None` when the rest pose carries no direction |
+| `rest_up_source` | `"named_joint"`, `"leg_pair"`, `"largest_spread"`, `None` | rest up read from a joint of the body named for the head, neck, chest or spine; else opposite the legs, the L/R pair split across two branches of the body anchor; else from the axis along which the body spreads most in the rest pose; `None` when the rest pose carries no direction |
 | `rest_left` | a signed axis or `None` | the skeleton's own left (next sections) |
 | `rest_forward_source` | `"lr_geometry"`, `"default"` | rest forward measured as rest left × rest up, or the house default for a rest pose without usable L/R geometry |
 | `world_up_source` | `"set"`, `"first_frame"`, `"rest_up"`, `"default"` | world up set by you, guessed from frame 0, guessed from rest up because frame 0 could not decide, or the house `'+y'` |
@@ -317,7 +317,7 @@ bvh.rest_forward                    # '+z' — the direction the rest pose faces
 
     Without such a joint, `rest_up` is the axis opposite the legs. The legs are the first L/R pair whose two joints lie in two different branches of the body anchor. The axis is read from the anchor to the far ends of those two branches, the feet. With a mapping of the arms alone, the anchor is where the arms meet, so the arms are read as the legs there.
 
-    Without such a pair either, `rest_up` is the axis along which the rest pose spreads most. This is a weak reading. A T-pose wider than tall spreads most along its arms. And hips mid-body put as much of the body below the body anchor as above.
+    Without such a pair either, `rest_up` is the axis along which the body spreads most in the rest pose. This is a weak reading. A T-pose wider than tall spreads most along its arms. And hips mid-body put as much of the body below the body anchor as above.
 
     `rest_up_source` says which (`"named_joint"`, `"leg_pair"`, `"largest_spread"`).
 

@@ -730,7 +730,9 @@ def facing_frame(bvh: Bvh) -> FacingFrame:
 
     Construction (per frame, all in world space): the leftward
     direction is the average of ``(left_pos - right_pos)`` over the
-    L/R joint pairs in :attr:`Bvh.lr_mapping`, projected onto the
+    L/R joint pairs in :attr:`Bvh.lr_mapping` whose two joints are in
+    the body that :attr:`Bvh.body_anchor` heads, so a prop or a second
+    figure beside it is not read, projected onto the
     horizontal plane and normalized; ``forward = leftward × up``;
     ``left = up × forward`` (re-orthogonalized). The triple satisfies
     ``forward × left = up``.

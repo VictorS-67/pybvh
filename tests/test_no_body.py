@@ -244,7 +244,20 @@ def _body_facts(clip):
         "walking_pace": round(walking_pace(clip), 9),
         "heading": np.round(root_trajectory(clip)[:, 2:4], 9).tolist(),
         "centred": np.round(clip.node_positions(centered="skeleton")[:, torso], 9).tolist(),
+        "facing": np.round(np.stack(clip.facing_frame()[:3]), 9).tolist(),
+        "forward_at": clip.forward_at(0),
+        "left_at": clip.left_at(0),
     }
+
+
+def _second_figure_turned(clip):
+    """*clip* with its second figure turned a quarter turn about its hips'
+    Y axis, so the two figures face two ways."""
+    hips = clip.nodes[clip.node_index["Hips_2"]]
+    angles = clip.joint_angles.copy()
+    angles[:, clip.joint_names.index("Hips_2"), hips.rot_channels.index("Y")] += np.pi / 2
+    clip.joint_angles = angles
+    return clip
 
 
 class TestNamingOneFigure:
@@ -257,6 +270,14 @@ class TestNamingOneFigure:
         alone = _figure_alone(clip, suffix)
         clip.body_anchor = f"Hips{suffix}"
         assert alone.body_anchor.name == f"Hips{suffix}"
+        assert _body_facts(clip) == _body_facts(alone)
+
+    @pytest.mark.parametrize("name", TWO_FIGURES)
+    @pytest.mark.parametrize("suffix", ["", "_2"])
+    def test_faces_as_the_figure_alone(self, name, suffix):
+        clip = _second_figure_turned(_read(name))
+        alone = _figure_alone(clip, suffix)
+        clip.body_anchor = f"Hips{suffix}"
         assert _body_facts(clip) == _body_facts(alone)
 
     @pytest.mark.parametrize("name", TWO_FIGURES)

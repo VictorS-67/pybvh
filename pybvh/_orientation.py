@@ -62,6 +62,7 @@ if TYPE_CHECKING:
 # The facing chain, per frame, one up throughout (→ = "used by"):
 #
 #     Bvh._facing_lr_pairs ──→ bvhplot SkeletonView.lr_pairs
+#     (the body's pairs only)  (the follow camera)
 #           │                       │
 #           ▼                       ▼
 #     _leftward_units_from_pairs ── the ONLY place the per-frame leftward
@@ -1067,9 +1068,21 @@ def _infer_rest_up_and_left(
     """
     rest_up = _infer_rest_up(skeleton, anchor)
     rest_up_axis = None if rest_up is None else rest_up.axis
-    in_body = _find_body(skeleton, anchor)
-    pairs = skeleton.lr_pairs[in_body[skeleton.lr_pairs].all(axis=1)]
+    pairs = _lr_pairs_in_body(skeleton.lr_pairs, _find_body(skeleton, anchor))
     return rest_up, _infer_rest_left(skeleton.rest_positions, pairs, rest_up_axis)
+
+
+def _lr_pairs_in_body(
+    lr_pairs: npt.NDArray[np.intp], in_body: npt.NDArray[np.bool_]
+) -> npt.NDArray[np.intp]:
+    """The rows of *lr_pairs* whose two nodes are both in the body.
+
+    *in_body* is :func:`_find_body`'s mask. Rest left and the facing read
+    these pairs, so a second figure or a prop beside the body is never
+    averaged into the body's left. The rows keep their order, so a body
+    that holds every pair reads the same pairs as the whole skeleton.
+    """
+    return lr_pairs[in_body[lr_pairs].all(axis=1)]
 
 
 # The up axis the house defaults are keyed on when a skeleton has none: the

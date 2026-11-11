@@ -40,6 +40,7 @@ from ._orientation import (
     _infer_rest_up_and_left,
     _infer_world_up,
     _iter_unique_lr_pairs,
+    _lr_pairs_in_body,
     _LrMappingSource,
     _resolve_lr_pairs,
     _resolve_node_lr_pairs,
@@ -1913,7 +1914,7 @@ class Bvh:
             self._rest_pose(),
             topology.parent_idx,
             topology.joint_idx < 0,
-            self._facing_lr_pairs(),
+            self._mapping_lr_pairs(),
             self.root.is_static(),
         )
 
@@ -2585,19 +2586,31 @@ class Bvh:
             topology.joint_idx < 0,
         )
 
-    def _facing_lr_pairs(self) -> npt.NDArray[np.intp]:
-        """The L/R pairs the rest left and the facing read, in ``nodes`` index space.
+    def _mapping_lr_pairs(self) -> npt.NDArray[np.intp]:
+        """Every joint pair of the L/R mapping in effect, in ``nodes`` index space.
 
         Joint pairs only, as :attr:`lr_mapping` names them, resolved into
         ``nodes`` index space so they index :meth:`node_positions` output.
         End sites are not included: that is :attr:`node_lr_pairs`' job,
         for mirroring positions, not for reading the facing. An ``(P, 2)``
         int array, ``(0, 2)`` without an L/R mapping, so array code needs
-        no ``None`` branch. bvhplot stores it on its ``SkeletonView``, so
-        the follow camera needs no ``Bvh``.
+        no ``None`` branch. The rest skeleton holds them, for the body
+        anchor rule and for rest up and rest left, which keep the body's.
         """
         pairs = _resolve_lr_pairs(self._lr_mapping, self.node_index)
         return np.asarray(pairs, dtype=np.intp).reshape(-1, 2)
+
+    def _facing_lr_pairs(self) -> npt.NDArray[np.intp]:
+        """The L/R pairs the facing reads: those of :meth:`_mapping_lr_pairs`
+        with both joints in the body (:meth:`_in_body`), in their order.
+
+        A second figure or a prop beside the body is not averaged into the
+        body's facing. On a clip whose body holds every pair, they are
+        :meth:`_mapping_lr_pairs`. bvhplot stores them on its
+        ``SkeletonView``, so the follow camera needs no ``Bvh``. Raises
+        ``ValueError`` on a clip with no body, as :meth:`_in_body` does.
+        """
+        return _lr_pairs_in_body(self._mapping_lr_pairs(), self._in_body())
 
     def _validate_and_set_lr_mapping(self, mapping: dict[str, str]) -> None:
         """Validate the user's lr_mapping dict and make it the mapping in effect."""
@@ -2608,7 +2621,7 @@ class Bvh:
 
         Computed from actual joint positions at the given frame — the
         leftward axis is derived by averaging (left − right) across
-        matching L/R joint pairs in world space, then crossed with
+        the L/R joint pairs of the body in world space, then crossed with
         ``world_up`` to produce the forward direction (forward =
         leftward × up). This tracks the character's actual facing as
         they rotate through the animation.

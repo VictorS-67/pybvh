@@ -5,7 +5,8 @@ world up or L/R mapping setting, and one method per change to those inputs. Each
 exactly the values computed from what changed, and nothing else: a value left
 in place after its input changed is stale, and a value cleared needlessly is a
 recomputation every caller pays for. The expected rows below are ADR 0003's
-table, with ADR 0004's row for the orientation report.
+table, with ADR 0004's row for the orientation report and #205's row for
+the body anchor.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ ALL_VALUES = {
     "joint_index",
     "names_lr_mapping",
     "orientation_report",
+    "body_anchor",
 }
 MOTION_DEPENDENTS = {"node_positions", "floor_height"}
 # The guessed world up, inferred on the clip or inherited from the clip it
@@ -41,12 +43,16 @@ GUESSED_HERE = {"inferred_world_up", "floor_height"}
 # setting, and none of pybvh's own motion writes (ADR 0004).
 REPORT = {"orientation_report"}
 
+# The body anchor the rule finds reads the hierarchy and the L/R mapping in
+# effect, never the motion or world up.
+BODY_ANCHOR = {"body_anchor"}
+
 CLEARED_BY = {
     "skeleton_changed": ALL_VALUES - GUESSED_WORLD_UP,
     "motion_changed": MOTION_DEPENDENTS,
     "user_replaced_motion": MOTION_DEPENDENTS | GUESSED_WORLD_UP | REPORT,
     "world_up_changed": {"floor_height"} | REPORT,
-    "lr_mapping_changed": GUESSED_HERE | REPORT,
+    "lr_mapping_changed": GUESSED_HERE | REPORT | BODY_ANCHOR,
 }
 
 
@@ -62,6 +68,7 @@ def _filled() -> DerivedState:
     derived.joint_index = {"Hips": 0, "Spine": 1}
     derived.names_lr_mapping = {"LeftArm": "RightArm"}
     derived.orientation_report = object()  # type: ignore[assignment]
+    derived.body_anchor = object()  # type: ignore[assignment]
     return derived
 
 

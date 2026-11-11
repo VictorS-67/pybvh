@@ -3,12 +3,13 @@
 The skeleton's own frame read from the rest pose alone (rest up, rest
 left, rest forward), the world up axis inferred from a clip's first frame,
 the left/right joint pairs found by name and their resolution into
-joint-space and node-space index pairs, and the per-frame leftward,
+joint-space and node-space index pairs, the body anchor where those pairs
+meet, and the per-frame leftward,
 forward and facing basis, with the house default for a skeleton that
 carries no left/right information; and :class:`OrientationReport`, which
 says for each clip-level fact whether it was set, measured or defaulted.
 :class:`~pybvh.bvh.Bvh` exposes their results as ``world_up``,
-``rest_up``, ``rest_forward``, ``lr_mapping``, ``lr_pairs``,
+``rest_up``, ``rest_forward``, ``lr_mapping``, ``lr_pairs``, ``body_anchor``,
 ``forward_at``, ``left_at`` and ``facing_frame``; ``transforms``,
 ``analysis`` and bvhplot call them rather than keep their own. The axis
 vocabulary they are written in (signed axis strings, :class:`Axis`,
@@ -21,13 +22,16 @@ import re
 import warnings
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
-from typing import Literal, NamedTuple
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 import numpy as np
 import numpy.typing as npt
 
 from ._warnings import user_stacklevel
 from .tools import _AXIS_CHAR_TO_IDX, _axis_to_vector, get_main_direction
+
+if TYPE_CHECKING:
+    from .bvhnode import BvhNode
 
 # ===========================================================================
 # ORIENTATION HELPERS (internal)
@@ -164,6 +168,91 @@ class _RestSkeleton(NamedTuple):
     parent_idx: npt.NDArray[np.intp]
     is_end_site: npt.NDArray[np.bool_]
     lr_pairs: npt.NDArray[np.intp]
+
+
+# ---------------------------------------------------------------------------
+# The body anchor: where the L/R pairs meet, read from the hierarchy alone
+# ---------------------------------------------------------------------------
+
+# How the body anchor was found, as OrientationReport names it.
+_BodyAnchorSource = Literal["lr_pairs", "default"]
+
+
+class _BodyAnchor(NamedTuple):
+    """The joint the body's measures start from, and how it was found.
+
+    Attributes
+    ----------
+    node : int
+        The anchor's index in node order.
+    source : {"lr_pairs", "default"}
+        ``"lr_pairs"``: found where the L/R pairs meet
+        (:func:`_find_body_anchor`). ``"default"``: no pair, so the root.
+    candidates : tuple of int
+        The meeting joints the rule compared, the most joints below them
+        first; empty for ``"default"``.
+    """
+
+    node: int
+    source: _BodyAnchorSource
+    candidates: tuple[int, ...]
+
+
+def _find_body_anchor(skeleton: _RestSkeleton) -> _BodyAnchor:
+    """The body anchor the rule finds, from the hierarchy and the L/R pairs.
+
+    Each pair has a meeting joint: the lowest joint that both joints'
+    chains to the root pass through. The candidates are the meeting
+    joints at the shallowest depth, the root at depth 0, so the legs,
+    which meet at the hips, win over the arms, which meet lower, at the
+    chest, and a root above the hips or a helper beside them is passed
+    over. Of several candidates, the anchor is the one with the most
+    joints below it, itself included and end sites excluded; on equal
+    counts, the first in node order. Without a pair, the anchor is the
+    root. Neither the rest positions nor the motion are read.
+
+    Parameters
+    ----------
+    skeleton : _RestSkeleton
+        The hierarchy (``parent_idx``, ``is_end_site``) and the pairs of
+        the L/R mapping in effect (``lr_pairs``).
+
+    Returns
+    -------
+    _BodyAnchor
+    """
+    parent_idx = skeleton.parent_idx
+    if len(skeleton.lr_pairs) == 0:
+        return _BodyAnchor(0, "default", ())
+    depth = np.zeros(len(parent_idx), dtype=np.intp)
+    for node in range(1, len(parent_idx)):
+        depth[node] = depth[parent_idx[node]] + 1
+    meeting = {_meeting_joint(parent_idx, depth, int(a), int(b)) for a, b in skeleton.lr_pairs}
+    shallowest = min(depth[joint] for joint in meeting)
+    # A node's joints, itself included, end sites excluded: summed from the
+    # leaves up, a parent coming before its children.
+    joints_below = (~skeleton.is_end_site).astype(np.intp)
+    for node in range(len(parent_idx) - 1, 0, -1):
+        joints_below[parent_idx[node]] += joints_below[node]
+    candidates = sorted(
+        (joint for joint in meeting if depth[joint] == shallowest),
+        key=lambda joint: (-joints_below[joint], joint),
+    )
+    return _BodyAnchor(candidates[0], "lr_pairs", tuple(candidates))
+
+
+def _meeting_joint(
+    parent_idx: npt.NDArray[np.intp], depth: npt.NDArray[np.intp], a: int, b: int
+) -> int:
+    """The lowest node that the chains from *a* and from *b* to the root
+    both pass through, each chain holding its own node."""
+    while depth[a] > depth[b]:
+        a = int(parent_idx[a])
+    while depth[b] > depth[a]:
+        b = int(parent_idx[b])
+    while a != b:
+        a, b = int(parent_idx[a]), int(parent_idx[b])
+    return a
 
 
 def _up_marker_index(skeleton: _RestSkeleton) -> int | None:
@@ -1134,6 +1223,21 @@ class OrientationReport:
         ``lr_mapping=`` at load), ``"names"`` detected from the joint
         names, ``None`` when there is none (the names give no pairs, or
         the user cleared the mapping).
+    body_anchor : BvhNode
+        The joint the body's measures start from, a node of the clip:
+        what :attr:`Bvh.body_anchor <pybvh.bvh.Bvh.body_anchor>` returns.
+    body_anchor_source : {"lr_pairs", "default"}
+        ``"lr_pairs"``: where the L/R pairs of the mapping in effect
+        meet. Each pair meets at the lowest joint that both its joints'
+        chains to the root pass through; the anchor is the meeting joint
+        closest to the root, so the legs, which meet at the hips, win
+        over the arms, which meet at the chest. Of several at the same
+        depth, the one with the most joints below it, end sites not
+        counted. ``"default"``: no pair, so the root.
+    body_anchor_candidates : tuple of BvhNode
+        The meeting joints the rule compared, the most joints below them
+        first: the anchor alone when the pairs meet at one joint closest
+        to the root. Empty for ``"default"``.
     """
 
     rest_up: str | None
@@ -1145,6 +1249,9 @@ class OrientationReport:
     world_up_source: _WorldUpSource
     world_up_inherited: bool
     lr_mapping_source: _LrMappingSource | None
+    body_anchor: BvhNode
+    body_anchor_source: _BodyAnchorSource
+    body_anchor_candidates: tuple[BvhNode, ...]
 
 
 def _build_orientation_report(
@@ -1152,6 +1259,8 @@ def _build_orientation_report(
     world_up: str | _WorldUpGuess,
     world_up_inherited: bool,
     lr_mapping_source: _LrMappingSource | None,
+    body_anchor: _BodyAnchor,
+    nodes: Sequence[BvhNode],
 ) -> OrientationReport:
     """Read the skeleton's own frame from the rest pose, beside world up.
 
@@ -1170,6 +1279,10 @@ def _build_orientation_report(
     lr_mapping_source : {"set", "names"} or None
         The source of the L/R mapping the skeleton's pairs come from, the
         caller's setting.
+    body_anchor : _BodyAnchor
+        The body anchor as the caller found it, in node index space.
+    nodes : sequence of BvhNode
+        The clip's nodes, which the anchor's indices are read into.
 
     Returns
     -------
@@ -1192,6 +1305,9 @@ def _build_orientation_report(
         world_up_source=world_up_source,
         world_up_inherited=world_up_inherited,
         lr_mapping_source=lr_mapping_source,
+        body_anchor=nodes[body_anchor.node],
+        body_anchor_source=body_anchor.source,
+        body_anchor_candidates=tuple(nodes[index] for index in body_anchor.candidates),
     )
 
 

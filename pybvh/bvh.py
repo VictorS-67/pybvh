@@ -30,10 +30,12 @@ from . import rotations
 from ._derived import DerivedState as _DerivedState
 from ._orientation import (
     OrientationReport,
+    _BodyAnchor,
     _build_orientation_report,
     _detect_lr_mapping_by_names,
     _facing_basis,
     _facing_labels,
+    _find_body_anchor,
     _infer_rest_up_and_left,
     _infer_world_up,
     _iter_unique_lr_pairs,
@@ -2021,6 +2023,8 @@ class Bvh:
             world_up,
             world_up_inherited,
             self._lr_mapping_source(),
+            self._found_body_anchor(),
+            self._nodes,
         )
 
     def _lr_mapping_source(self) -> _LrMappingSource | None:
@@ -2029,6 +2033,43 @@ class Bvh:
         if isinstance(setting, dict):
             return "set"
         return "names" if setting == "names" and self._lr_mapping is not None else None
+
+    @property
+    def body_anchor(self) -> BvhNode:
+        """The joint the body's measures start from, a node of the clip.
+
+        Read-only. Found from the hierarchy and the L/R pairs of
+        :attr:`lr_mapping`: each pair meets at the lowest joint that both
+        its joints' chains to the root pass through, and the anchor is
+        the meeting joint closest to the root. The legs meet at the hips,
+        the arms lower, at the chest, so on most rigs the anchor is the
+        hips, also when the root is a reference node above them or has a
+        helper beside them. Of several meeting joints at the same depth,
+        the one with the most joints below it, end sites not counted.
+        Without a pair, the root. The rest positions and the motion are
+        not read. :attr:`orientation_report` says how it was found, in
+        ``body_anchor_source``, and which joints were compared, in
+        ``body_anchor_candidates``.
+
+        Found on first read and kept until the skeleton changes or
+        :attr:`lr_mapping` is assigned. A clip derived from this one
+        finds its own.
+
+        Examples
+        --------
+        >>> bvh = Bvh.from_file('bvh_data/synthetic/reference_humanoid_6ch.bvh')
+        >>> bvh.root.name, bvh.body_anchor.name
+        ('Reference', 'Hips')
+        """
+        return self._nodes[self._found_body_anchor().node]
+
+    def _found_body_anchor(self) -> _BodyAnchor:
+        """The body anchor the rule finds, kept in the derived state."""
+        found = self._derived.body_anchor
+        if found is None:
+            found = _find_body_anchor(self._rest_skeleton())
+            self._derived.body_anchor = found
+        return found
 
     @property
     def rest_up(self) -> str | None:

@@ -14,10 +14,12 @@ import pytest
 
 from pybvh._orientation import (
     OrientationReport,
+    _BodyAnchor,
     _build_orientation_report,
     _detect_lr_mapping_by_names,
     _facing_basis,
     _facing_labels,
+    _find_body_anchor,
     _infer_rest_forward,
     _infer_rest_left,
     _infer_rest_up,
@@ -485,6 +487,121 @@ class TestFacingLabels:
         np.testing.assert_array_equal(np.cross(vectors[forward], vectors[left]), up)
 
 
+def _tree(nodes, lr_pairs=(), end_sites=()):
+    """The rest skeleton of a tree given as ``(name, parent name)`` rows in
+    node order, the root's parent ``None``; ``lr_pairs`` and ``end_sites``
+    by name. The rest pose is all zeros: the body anchor reads none of it."""
+    names = [name for name, _ in nodes]
+    parents = [-1 if parent is None else names.index(parent) for _, parent in nodes]
+    return _skeleton(
+        names,
+        np.zeros((len(names), 3)),
+        [[names.index(left), names.index(right)] for left, right in lr_pairs],
+        [names.index(name) for name in end_sites],
+        parents,
+    )
+
+
+# A body whose root is its hips: two legs to their feet, a spine to a chest
+# that holds two arms and a head, each chain ending in an end site.
+_BODY = [
+    ("LeftUpLeg", "Hips"),
+    ("LeftFoot", "LeftUpLeg"),
+    ("LeftFoot_End", "LeftFoot"),
+    ("RightUpLeg", "Hips"),
+    ("RightFoot", "RightUpLeg"),
+    ("RightFoot_End", "RightFoot"),
+    ("Spine", "Hips"),
+    ("Chest", "Spine"),
+    ("LeftArm", "Chest"),
+    ("LeftArm_End", "LeftArm"),
+    ("RightArm", "Chest"),
+    ("RightArm_End", "RightArm"),
+    ("Head", "Chest"),
+    ("Head_End", "Head"),
+]
+_BODY_END_SITES = [name for name, _ in _BODY if name.endswith("_End")]
+_LEGS = ("LeftUpLeg", "RightUpLeg")
+_FEET = ("LeftFoot", "RightFoot")
+_ARMS = ("LeftArm", "RightArm")
+
+
+def _anchor_of(nodes, lr_pairs):
+    """The body anchor the rule finds, as names: the anchor, its source and
+    the candidates."""
+    skeleton = _tree(nodes, lr_pairs, [n for n, _ in nodes if n.endswith("_End")])
+    found = _find_body_anchor(skeleton)
+    names = skeleton.node_names
+    return (
+        names[found.node],
+        found.source,
+        [names[index] for index in found.candidates],
+    )
+
+
+class TestBodyAnchor:
+    """The joint the body's measures start from: where the L/R pairs meet,
+    at the shallowest depth; the root without a pair."""
+
+    def test_the_root_is_the_hips(self):
+        nodes = [("Hips", None), *_BODY]
+        # The arms meet lower, at the chest: the legs' meeting joint is
+        # the shallowest.
+        assert _anchor_of(nodes, [_LEGS, _FEET, _ARMS]) == ("Hips", "lr_pairs", ["Hips"])
+
+    def test_a_root_above_the_hips(self):
+        nodes = [("Reference", None), ("Hips", "Reference"), *_BODY]
+        assert _anchor_of(nodes, [_LEGS, _ARMS]) == ("Hips", "lr_pairs", ["Hips"])
+
+    def test_a_reference_root_that_carries_props(self):
+        nodes = [
+            ("Reference", None),
+            ("Hips", "Reference"),
+            *_BODY,
+            ("Sword", "Reference"),
+            ("SwordTip", "Sword"),
+            ("SwordTip_End", "SwordTip"),
+            ("Marker", "Reference"),
+            ("Marker_End", "Marker"),
+        ]
+        assert _anchor_of(nodes, [_LEGS, _ARMS]) == ("Hips", "lr_pairs", ["Hips"])
+
+    def test_a_helper_leaf_beside_the_body(self):
+        nodes = [("Bip01", None), ("Footsteps", "Bip01"), ("Hips", "Bip01"), *_BODY]
+        assert _anchor_of(nodes, [_LEGS, _ARMS]) == ("Hips", "lr_pairs", ["Hips"])
+
+    def test_a_mapping_of_the_arms_only(self):
+        nodes = [("Hips", None), *_BODY]
+        assert _anchor_of(nodes, [_ARMS]) == ("Chest", "lr_pairs", ["Chest"])
+
+    def test_no_pair_gives_the_root(self):
+        nodes = [("Reference", None), ("Hips", "Reference"), *_BODY]
+        assert _anchor_of(nodes, []) == ("Reference", "default", [])
+
+    def test_of_candidates_at_one_depth_the_one_with_more_joints_below(self):
+        # Two pairs that meet at depth 1: the hips, with 10 joints counted
+        # from them, and a helper with 3; end sites are not counted.
+        nodes = [
+            ("Root", None),
+            ("Helper", "Root"),
+            ("LeftTarget", "Helper"),
+            ("LeftTarget_End", "LeftTarget"),
+            ("RightTarget", "Helper"),
+            ("RightTarget_End", "RightTarget"),
+            ("Hips", "Root"),
+            *_BODY,
+        ]
+        assert _anchor_of(nodes, [("LeftTarget", "RightTarget"), _LEGS]) == (
+            "Hips",
+            "lr_pairs",
+            ["Hips", "Helper"],
+        )
+
+
+# The body anchor of a skeleton without pairs: its root.
+_NO_ANCHOR = _BodyAnchor(0, "default", ())
+
+
 class TestReport:
     """The skeleton's own frame read from the rest pose, beside a world up
     the caller settled, each fact with its source."""
@@ -492,11 +609,14 @@ class TestReport:
     _PAIRS = np.array([[3, 4]])  # LeftHand, RightHand
 
     def test_a_measured_skeleton(self):
+        # The hands meet at the root. Names stand for the clip's nodes.
         report = _build_orientation_report(
             _skeleton(_NAMES, _REST, self._PAIRS),
             _WorldUpGuess("+z", "first_frame"),
             False,
             "names",
+            _BodyAnchor(0, "lr_pairs", (0,)),
+            _NAMES,
         )
         assert report == OrientationReport(
             rest_up="+y",
@@ -508,11 +628,14 @@ class TestReport:
             world_up_source="first_frame",
             world_up_inherited=False,
             lr_mapping_source="names",
+            body_anchor="Hips",
+            body_anchor_source="lr_pairs",
+            body_anchor_candidates=("Hips",),
         )
 
     def test_an_axis_the_user_set(self):
         report = _build_orientation_report(
-            _skeleton(_NAMES, _REST, self._PAIRS), "-z", False, "set"
+            _skeleton(_NAMES, _REST, self._PAIRS), "-z", False, "set", _NO_ANCHOR, _NAMES
         )
         assert (report.world_up, report.world_up_source, report.world_up_inherited) == (
             "-z",
@@ -524,7 +647,9 @@ class TestReport:
         skeleton = _skeleton(
             _NAMELESS_NAMES, _NAMELESS_REST, _NAMELESS_PAIRS, parents=_NAMELESS_PARENTS
         )
-        report = _build_orientation_report(skeleton, "+y", False, "set")
+        report = _build_orientation_report(
+            skeleton, "+y", False, "set", _BodyAnchor(0, "lr_pairs", (0,)), _NAMELESS_NAMES
+        )
         assert (report.rest_up, report.rest_up_source) == ("+y", "leg_pair")
         # Left +x (both pairs' left sides lie along +x) x up +y.
         assert (report.rest_forward, report.rest_forward_source) == ("+z", "lr_geometry")
@@ -535,6 +660,8 @@ class TestReport:
             _WorldUpGuess("+y", "rest_up"),
             True,
             None,
+            _NO_ANCHOR,
+            _NAMES,
         )
         assert report.rest_left is None
         # The house default for rest up +y.
@@ -546,6 +673,8 @@ class TestReport:
             _WorldUpGuess("+y", "default"),
             False,
             None,
+            _NO_ANCHOR,
+            ["Root"],
         )
         assert (report.rest_up, report.rest_up_source, report.rest_left) == (None, None, None)
         # The house default keyed on the house up '+y'.

@@ -29,10 +29,10 @@ Run from the repository root::
 and verifies: one ROOT, balanced braces, motion width equal to the declared
 channel count on every row, exactly five frames, rigid six-channel joints
 carrying their OFFSET verbatim in every frame, the root's position order,
-and that the recorded anatomical pelvis names a joint of the file.
+and that the recorded body anchor names a joint of the file.
 
 Outputs: ``<name>.bvh`` per profile, ``manifest.json`` (provenance,
-conventions, expected pelvis, SHA-256 per file) and ``README.md``.
+conventions, expected body anchor, SHA-256 per file) and ``README.md``.
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ from pathlib import Path
 
 from audit_synthetic_bvh import audit
 
-GENERATOR_VERSION = "2.2.0"
+GENERATOR_VERSION = "2.3.0"
 
 # Corpus files another script writes: the audit's inventory accepts them, and
 # their own generator, not this manifest, pins their bytes.
@@ -292,8 +292,11 @@ class Profile:
     up_axis: str
     describes: str  # the convention the profile illustrates
     shape_after: str  # rig family whose *shape* inspired it
-    expected_pelvis: str  # anatomical answer, by joint name
+    # The body anchor pybvh's rule should find (#205), by joint name, and
+    # the source the report should give it.
+    expected_body_anchor: str
     notes: str = ""
+    expected_body_anchor_source: str = "lr_pairs"
 
 
 def all_six(j: Joint, is_root: bool) -> tuple:
@@ -673,11 +676,11 @@ def serialise(p: Profile) -> str:
 
 README_HEAD = """# bvh_data/synthetic — invented clips for conventions the bundled files lack
 
-Every file here is **synthetic**. `scripts/generate_synthetic_bvh.py` authors twelve of them, five frames each, deterministic, and `scripts/generate_lying_down_bvh.py` authors the thirteenth, `bvh_synthetic_lying_down.bvh` (see below). Skeleton *shapes* follow conventions of publicly documented rigs and exporters (named in the table); every offset and motion value of the twelve is invented in the generator. No numerical table or frame is copied from any third-party dataset. The generators, profiles and output are licensed under [pybvh's MIT licence](../../LICENSE). Regenerate with `python3 scripts/generate_synthetic_bvh.py --check` from the repository root; `manifest.json` records per-file conventions, the expected pelvis, and SHA-256 hashes.
+Every file here is **synthetic**. `scripts/generate_synthetic_bvh.py` authors twelve of them, five frames each, deterministic, and `scripts/generate_lying_down_bvh.py` authors the thirteenth, `bvh_synthetic_lying_down.bvh` (see below). Skeleton *shapes* follow conventions of publicly documented rigs and exporters (named in the table); every offset and motion value of the twelve is invented in the generator. No numerical table or frame is copied from any third-party dataset. The generators, profiles and output are licensed under [pybvh's MIT licence](../../LICENSE). Regenerate with `python3 scripts/generate_synthetic_bvh.py --check` from the repository root; `manifest.json` records per-file conventions, the expected body anchor, and SHA-256 hashes.
 
 What they show, and why pybvh needs them: in several widely used exports a joint other than the root declares **six channels**, three positions and three rotations. The position channels give the joint's complete position relative to its parent, frame by frame, the same quantity its `OFFSET` gives for the rest pose. In most joints that value never changes and equals the `OFFSET`; in a few it moves: the pelvis under a **static reference root** carries the whole body's travel, and an animator can stretch a bone. Some exports also put a non-body node beside or above the body (a reference point, a Footsteps node, a prop), so **node 0 is not always the pelvis**.
 
-Units are centimetres, Y is up, the character faces roughly +Z. Names follow the `LeftUpLeg` style of `standard_skeleton.bvh`. The anatomical pelvis is authored per profile and recorded as `expected_pelvis` in the manifest. Names are stable profile-local IDs (identity mapping, no imported names to normalise).
+Units are centimetres, Y is up, the character faces roughly +Z. Names follow the `LeftUpLeg` style of `standard_skeleton.bvh`. The body anchor that pybvh should find, the joint where the legs meet, is authored per profile and recorded in the manifest as `expected_body_anchor`, with the source the orientation report should give it as `expected_body_anchor_source`. Names are stable profile-local IDs (identity mapping, no imported names to normalise).
 
 Frame 0 is a neutral posture with a known body yaw; later frames add small authored rotations. Default time is `0.03333333333333333`; the Blender-style profile uses `0.033333` and the hands profile `0.016667`. There is no Blender dependency and these are not actual vendor exports. The quadruped's head points chiefly forward: use declared `+y` for animal checks, not a claim that a head-direction heuristic recovers gravity.
 
@@ -689,7 +692,7 @@ The rotation-only control and rigid six-channel control have identical body worl
 
 pybvh reads every file here, the ten that declare position channels on joints other than the root included, and writes each back with the same declarations. `tests/test_synthetic_corpus.py` checks the round trip, and checks that forward kinematics gives the positions the generator intends. The world-up guess reads the root: on both props files it chooses `+z` although the body's head-minus-hips direction is clearly `+y`.
 
-| file | convention illustrated | shape after | six-channel non-root joints | pelvis |
+| file | convention illustrated | shape after | six-channel non-root joints | body anchor |
 |---|---|---|---|---|
 """
 
@@ -737,12 +740,15 @@ def write_outputs(out_dir: Path, do_check: bool) -> int:
             "shape_after": p.shape_after,
             "frame_time": p.frame_time,
             "up_axis": p.up_axis,
-            "expected_pelvis": p.expected_pelvis,
+            "expected_body_anchor": p.expected_body_anchor,
+            "expected_body_anchor_source": p.expected_body_anchor_source,
             "notes": p.notes,
             "sha256": hashlib.sha256(text.encode()).hexdigest(),
         }
         try:
-            entry.update(audit(path.read_text(encoding="utf-8"), p.expected_pelvis, authored=p))
+            entry.update(
+                audit(path.read_text(encoding="utf-8"), p.expected_body_anchor, authored=p)
+            )
             status = "ok"
         except (AssertionError, ValueError, KeyError, IndexError) as e:  # reported, not raised
             failures += 1
@@ -758,7 +764,7 @@ def write_outputs(out_dir: Path, do_check: bool) -> int:
                 else f"{len(six_joints)} non-root joints"
             )
         readme_rows.append(
-            f"| `{path.name}` | {p.describes} | {p.shape_after} | {six} | {p.expected_pelvis} |"
+            f"| `{path.name}` | {p.describes} | {p.shape_after} | {six} | {p.expected_body_anchor} (`{p.expected_body_anchor_source}`) |"
         )
         print(
             f"{status:>8}  {path.name:36s} joints={entry.get('joints', '?'):>3} width={entry.get('width', '?'):>4} "

@@ -1,8 +1,8 @@
 {
   "generator": "scripts/generate_synthetic_bvh.py",
-  "generator_version": "2.2.0",
-  "generator_sha256": "5be2419fc58c48e8b23118d4a5a29ea69f5a24e66103940ac2860bb013c149e5",
-  "audit_sha256": "742317734e8cf2a7065119060d5b82dd7ec70afd0020ef3af895eed9fe2b6ce4",
+  "generator_version": "2.3.0",
+  "generator_sha256": "a8fd110e8046bf213be17b80bbd30681966b038c063b7ee279c874903b24fe7d",
+  "audit_sha256": "90e6a5c23b06425491787d50cd2951c321f324410e0d678340aeb526b9e76199",
   "seed": 40067,
   "frames": 5,
   "units": "centimetres",
@@ -29,7 +29,8 @@
       "shape_after": "MotionBuilder-style reference-node export: static reference root, travelling hips",
       "frame_time": "0.03333333333333333",
       "up_axis": "Y",
-      "expected_pelvis": "Hips",
+      "expected_body_anchor": "Hips",
+      "expected_body_anchor_source": "lr_pairs",
       "notes": "",
       "sha256": "5e8daad98034ee1193596070c6eebdcdc772dac356e1bde9fd0bb7a8a60a6f21",
       "joints": 23,
@@ -740,8 +741,8 @@
         "Yposition",
         "Zposition"
       ],
-      "pelvis_node_index": 1,
-      "pelvis_joint_index": 1,
+      "body_anchor_node_index": 1,
+      "body_anchor_joint_index": 1,
       "node_identities": [
         {
           "id": "Reference",
@@ -1286,7 +1287,8 @@
       "shape_after": "3ds Max Biped export shape",
       "frame_time": "0.03333333333333333",
       "up_axis": "Y",
-      "expected_pelvis": "Hips",
+      "expected_body_anchor": "Hips",
+      "expected_body_anchor_source": "lr_pairs",
       "notes": "",
       "sha256": "eda251166e7e6130a8018391f89b6972551643e421c4bcbbb446c6dd2c104934",
       "joints": 24,
@@ -2027,8 +2029,8 @@
         "Yposition",
         "Zposition"
       ],
-      "pelvis_node_index": 3,
-      "pelvis_joint_index": 2,
+      "body_anchor_node_index": 3,
+      "body_anchor_joint_index": 2,
       "node_identities": [
         {
           "id": "Bip01",
@@ -2606,7 +2608,8 @@
       "shape_after": "3ds Max Biped export shape",
       "frame_time": "0.03333333333333333",
       "up_axis": "Y",
-      "expected_pelvis": "Hips",
+      "expected_body_anchor": "Hips",
+      "expected_body_anchor_source": "lr_pairs",
       "notes": "",
       "sha256": "b80b85f72cdacc05ac4f4cfb8b4073d591517af184dd50e29d875642f009c1ef",
       "joints": 24,
@@ -3347,8 +3350,8 @@
         "Yposition",
         "Zposition"
       ],
-      "pelvis_node_index": 3,
-      "pelvis_joint_index": 2,
+      "body_anchor_node_index": 3,
+      "body_anchor_joint_index": 2,
       "node_identities": [
         {
           "id": "Bip01",
@@ -3926,7 +3929,8 @@
       "shape_after": "re-solved motion-capture skeleton: six channels on every joint, detailed hands",
       "frame_time": "0.016667",
       "up_axis": "Y",
-      "expected_pelvis": "Hips",
+      "expected_body_anchor": "Hips",
+      "expected_body_anchor_source": "lr_pairs",
       "notes": "60 fps",
       "sha256": "bc0e4b98d317bf9eb4ce2f9ca81f5996a8d4bc9f451c4d0659b0559e944045a5",
       "joints": 54,
@@ -5567,8 +5571,8 @@
         "Yposition",
         "Zposition"
       ],
-      "pelvis_node_index": 0,
-      "pelvis_joint_index": 0,
+      "body_anchor_node_index": 0,
+      "body_anchor_joint_index": 0,
       "node_identities": [
         {
           "id": "Hips",
@@ -6863,7 +6867,8 @@
       "shape_after": "Biped-rigged quadruped capture: Footsteps beside a hips with five children",
       "frame_time": "0.03333333333333333",
       "up_axis": "Y",
-      "expected_pelvis": "Hips",
+      "expected_body_anchor": "Hips",
+      "expected_body_anchor_source": "lr_pairs",
       "notes": "",
       "sha256": "5417c1a5ececa8bbc22b45e376fce5f2525b328a97c0db5a0be64527b01f5eea",
       "joints": 35,
@@ -7933,8 +7938,8 @@
         "Yposition",
         "Zposition"
       ],
-      "pelvis_node_index": 3,
-      "pelvis_joint_index": 2,
+      "body_anchor_node_index": 3,
+      "body_anchor_joint_index": 2,
       "node_identities": [
         {
           "id": "Root",
@@ -8758,7 +8763,8 @@
       "shape_after": "Blender BVH exporter output shape",
       "frame_time": "0.033333",
       "up_axis": "Y",
-      "expected_pelvis": "Hips",
+      "expected_body_anchor": "Hips",
+      "expected_body_anchor_source": "lr_pairs",
       "notes": "",
       "sha256": "3e9b644de73774f4ea6f1cf0ff8601ec7b3778e5a93fa4b63f129ef4d1478fb8",
       "joints": 22,
@@ -8975,8 +8981,8 @@
         "Yposition",
         "Zposition"
       ],
-      "pelvis_node_index": 0,
-      "pelvis_joint_index": 0,
+      "body_anchor_node_index": 0,
+      "body_anchor_joint_index": 0,
       "node_identities": [
         {
           "id": "Hips",
@@ -9453,7 +9459,8 @@
       "shape_after": "authored",
       "frame_time": "0.03333333333333333",
       "up_axis": "Y",
-      "expected_pelvis": "Hips",
+      "expected_body_anchor": "Hips",
+      "expected_body_anchor_source": "lr_pairs",
       "notes": "artificial layout",
       "sha256": "a77356b341742275403cf582fc9db42003a303381ff978e798caf530171b922d",
       "joints": 22,
@@ -9670,8 +9677,8 @@
         "Yposition",
         "Zposition"
       ],
-      "pelvis_node_index": 0,
-      "pelvis_joint_index": 0,
+      "body_anchor_node_index": 0,
+      "body_anchor_joint_index": 0,
       "node_identities": [
         {
           "id": "Hips",
@@ -10148,7 +10155,8 @@
       "shape_after": "authored",
       "frame_time": "0.03333333333333333",
       "up_axis": "Y",
-      "expected_pelvis": "Hips",
+      "expected_body_anchor": "Hips",
+      "expected_body_anchor_source": "lr_pairs",
       "notes": "artificial motion: no measured file in hand shows bone stretch; the format allows it",
       "sha256": "d5ce82e9806292f6afa2e4cb3348c4457d8a16e0f3b18f1cc141994bc712c567",
       "joints": 22,
@@ -10299,8 +10307,8 @@
         "Yposition",
         "Zposition"
       ],
-      "pelvis_node_index": 0,
-      "pelvis_joint_index": 0,
+      "body_anchor_node_index": 0,
+      "body_anchor_joint_index": 0,
       "node_identities": [
         {
           "id": "Hips",
@@ -10771,7 +10779,8 @@
       "shape_after": "pybvh's bundled clips",
       "frame_time": "0.03333333333333333",
       "up_axis": "Y",
-      "expected_pelvis": "Hips",
+      "expected_body_anchor": "Hips",
+      "expected_body_anchor_source": "lr_pairs",
       "notes": "",
       "sha256": "15ee311f7e02576df6462fdc909a2bf5d7303cd96b437cdf8b91f39c6a6d17b6",
       "joints": 22,
@@ -10841,8 +10850,8 @@
         "Yposition",
         "Zposition"
       ],
-      "pelvis_node_index": 0,
-      "pelvis_joint_index": 0,
+      "body_anchor_node_index": 0,
+      "body_anchor_joint_index": 0,
       "node_identities": [
         {
           "id": "Hips",
@@ -11304,7 +11313,8 @@
       "shape_after": "pybvh's bundled clips",
       "frame_time": "0.03333333333333333",
       "up_axis": "Y",
-      "expected_pelvis": "Hips",
+      "expected_body_anchor": "Hips",
+      "expected_body_anchor_source": "lr_pairs",
       "notes": "",
       "sha256": "3180c403583863ebc1ee0906454cee465fa3c75ab8d87e805428e8b7d0fcad18",
       "joints": 22,
@@ -11985,8 +11995,8 @@
         "Yposition",
         "Zposition"
       ],
-      "pelvis_node_index": 0,
-      "pelvis_joint_index": 0,
+      "body_anchor_node_index": 0,
+      "body_anchor_joint_index": 0,
       "node_identities": [
         {
           "id": "Hips",
@@ -12511,7 +12521,8 @@
       "shape_after": "reference-node export with tracked props",
       "frame_time": "0.03333333333333333",
       "up_axis": "Y",
-      "expected_pelvis": "Hips",
+      "expected_body_anchor": "Hips",
+      "expected_body_anchor_source": "lr_pairs",
       "notes": "",
       "sha256": "1de8d1a6d0f8add9065e1f789fcd7f7eb8f8e4c91898fc179a678b07e77963a7",
       "joints": 26,
@@ -13311,8 +13322,8 @@
         "Yposition",
         "Zposition"
       ],
-      "pelvis_node_index": 1,
-      "pelvis_joint_index": 1,
+      "body_anchor_node_index": 1,
+      "body_anchor_joint_index": 1,
       "node_identities": [
         {
           "id": "Reference",
@@ -13943,7 +13954,8 @@
       "shape_after": "authored reference-node attachment",
       "frame_time": "0.03333333333333333",
       "up_axis": "Y",
-      "expected_pelvis": "Hips",
+      "expected_body_anchor": "Hips",
+      "expected_body_anchor_source": "lr_pairs",
       "notes": "body and prop positions stay at rest; their rotations animate",
       "sha256": "9bc4013a4d71f324a0d18ee99240aa7af5a0deffca38d06bd87103f1beaed708",
       "joints": 26,
@@ -14012,8 +14024,8 @@
         "Yposition",
         "Zposition"
       ],
-      "pelvis_node_index": 1,
-      "pelvis_joint_index": 1,
+      "body_anchor_node_index": 1,
+      "body_anchor_joint_index": 1,
       "node_identities": [
         {
           "id": "Reference",

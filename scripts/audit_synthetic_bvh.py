@@ -2,8 +2,8 @@
 """Independently audit the authored corpus; Python 3.10+, stdlib only, MIT.
 
 This parser consumes serialized files without using the generator's tree or
-pybvh. The anatomical pelvis is an author-supplied field; the audit checks
-that it names a joint of the file.
+pybvh. The expected body anchor is an author-supplied field; the audit
+checks that it names a joint of the file.
 
 Run: python3 scripts/audit_synthetic_bvh.py bvh_data/synthetic
 """
@@ -122,11 +122,11 @@ def parse_bvh(text):
     return nodes, rows, timing[2]
 
 
-def audit(text, expected_pelvis, authored=None):
+def audit(text, expected_body_anchor, authored=None):
     nodes, rows, frame_time = parse_bvh(text)
     joints = [n for n in nodes if not n.end]
     names = [n.name for n in nodes]
-    require(expected_pelvis in [n.name for n in joints], "missing anatomical pelvis")
+    require(expected_body_anchor in [n.name for n in joints], "missing body anchor")
     six, rigid, moving, changing_position, changing_rotation = [], [], [], [], []
     position_samples = {}
     original = {j.name: j for j in authored.root.walk()} if authored else None
@@ -188,8 +188,8 @@ def audit(text, expected_pelvis, authored=None):
         rotation_varying_joints=changing_rotation,
         position_samples_xyz=position_samples,
         root_position_channels=[c for c in nodes[0].channels if c.endswith("position")],
-        pelvis_node_index=names.index(expected_pelvis),
-        pelvis_joint_index=[n.name for n in joints].index(expected_pelvis),
+        body_anchor_node_index=names.index(expected_body_anchor),
+        body_anchor_joint_index=[n.name for n in joints].index(expected_body_anchor),
         node_identities=[
             {
                 "id": n.name,
@@ -217,7 +217,7 @@ def main():
     for entry in manifest["files"]:
         data = (args.directory / entry["file"]).read_bytes()
         require(hashlib.sha256(data).hexdigest() == entry["sha256"], "SHA-256: " + entry["file"])
-        result = audit(data.decode("utf-8"), entry["expected_pelvis"])
+        result = audit(data.decode("utf-8"), entry["expected_body_anchor"])
         require(
             all(entry[k] == v for k, v in result.items()),
             "manifest annotation mismatch: " + entry["file"],

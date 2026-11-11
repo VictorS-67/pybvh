@@ -2239,8 +2239,9 @@ class Bvh:
     def _in_body(self) -> npt.NDArray[np.bool_]:
         """Which nodes are in the body, in node order: the body anchor and
         every node below it, started higher when a head or a foot name is
-        missing below it (:func:`~pybvh._orientation._find_body`). Every
-        node on a clip with no body: the body read from the root."""
+        missing below it (:func:`~pybvh._orientation._find_body`). Raises
+        ``ValueError`` on a clip with no body, as
+        :meth:`_body_anchor_index` does."""
         return _find_body(self._rest_skeleton(), self._body_anchor_index())
 
     def _size_reference(self, feet: Sequence[int]) -> int:

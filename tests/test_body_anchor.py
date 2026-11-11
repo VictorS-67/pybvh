@@ -50,16 +50,47 @@ def _read(path):
         return read_bvh_file(path)
 
 
-def test_the_manifest_lists_the_fourteen_generated_clips():
-    assert len(EXPECTED) == 14
+def test_the_manifest_lists_the_seventeen_generated_clips():
+    assert len(EXPECTED) == 17
 
 
 @pytest.mark.parametrize("name", sorted(EXPECTED), ids=sorted(EXPECTED))
 def test_a_corpus_clip_gives_the_anchor_its_manifest_expects(name):
+    # The manifest gives no body as an anchor of None.
     clip = _read(CORPUS / name)
     report = clip.orientation_report
-    assert (clip.body_anchor.name, report.body_anchor_source) == EXPECTED[name]
-    assert report.body_anchor_candidates[0] is clip.body_anchor
+    anchor = None if clip.body_anchor is None else clip.body_anchor.name
+    assert (anchor, report.body_anchor_source) == EXPECTED[name]
+    assert report.body_anchor is clip.body_anchor
+    if report.body_anchor_source == "lr_pairs":
+        assert report.body_anchor_candidates[0] is clip.body_anchor
+
+
+def test_two_figures_under_a_root_that_moves_give_no_body():
+    clip = _read(CORPUS / "two_figures_moving_root.bvh")
+    assert clip.body_anchor is None
+    report = clip.orientation_report
+    assert report.body_anchor is None
+    assert report.body_anchor_source == "ambiguous"
+    assert [node.name for node in report.body_anchor_candidates] == ["Hips", "Hips_2"]
+
+
+def test_the_readers_read_the_root_of_a_clip_with_no_body():
+    # Until the body-level readers refuse a clip with no body, they read
+    # its root: the travel is the root's, so centring on it puts the root
+    # at the origin.
+    clip = _read(CORPUS / "two_figures_moving_root.bvh")
+    assert (clip.world_up, clip.rest_up) == ("+y", "+y")
+    np.testing.assert_array_equal(clip.node_positions(centered="skeleton")[:, 0], 0.0)
+    trajectory = clip.root_trajectory()
+    assert trajectory.shape[0] == clip.frame_count
+
+
+def test_a_helper_pair_beside_the_body_is_the_second_candidate():
+    clip = _read(CORPUS / "helper_pair_moving_root.bvh")
+    assert clip.body_anchor.name == "Hips"
+    candidates = clip.orientation_report.body_anchor_candidates
+    assert [node.name for node in candidates] == ["Hips", "Helper"]
 
 
 @pytest.mark.parametrize("name", NO_PAIRS)

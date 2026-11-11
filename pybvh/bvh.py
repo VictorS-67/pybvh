@@ -1897,7 +1897,9 @@ class Bvh:
     def _guess_world_up(self) -> _WorldUpGuess:
         """Guess world up from this clip's own first frame and rest pose."""
         frame0 = self.node_positions(frame=0) if self.frame_count > 0 else None
-        return _infer_world_up(self._rest_skeleton(), self._found_body_anchor().node, frame0)
+        return _infer_world_up(
+            self._rest_skeleton(), self._found_body_anchor().node_or_root, frame0
+        )
 
     def _rest_skeleton(self) -> _RestSkeleton:
         """The skeleton in its rest pose, as the orientation module reads it."""
@@ -2103,8 +2105,9 @@ class Bvh:
         return "names" if setting == "names" and self._lr_mapping is not None else None
 
     @property
-    def body_anchor(self) -> BvhNode:
-        """The joint the body's measures start from, a node of the clip.
+    def body_anchor(self) -> BvhNode | None:
+        """The joint the body's measures start from, a node of the clip,
+        or ``None`` when the clip has no body.
 
         The joint you set (see *Setting it* below), else the one a rule
         finds from the hierarchy and the L/R pairs of
@@ -2114,9 +2117,12 @@ class Bvh:
         the arms lower, at the chest, so on most rigs the anchor is the
         hips, also when the root is a reference node above them or has a
         helper beside them. Of several meeting joints at the same depth,
-        the one with the most joints below it, end sites not counted.
-        Without a pair, the root. The rest positions and the motion are
-        not read. :attr:`orientation_report` says how it was found, in
+        the one with the most joints below it, end sites not counted,
+        when each other one has fewer than half as many. Otherwise the
+        clip has no body, for instance two figures under one root, and
+        the anchor is ``None``; reading it does not raise. Without a
+        pair, the root. The rest positions and the motion are not read.
+        :attr:`orientation_report` says how it was found, in
         ``body_anchor_source``, and which joints were compared, in
         ``body_anchor_candidates``.
 
@@ -2171,7 +2177,8 @@ class Bvh:
         >>> bvh.body_anchor.name, bvh.orientation_report.body_anchor_source
         ('Hips', 'lr_pairs')
         """
-        return self._nodes[self._found_body_anchor().node]
+        node = self._found_body_anchor().node
+        return None if node is None else self._nodes[node]
 
     @body_anchor.setter
     def body_anchor(self, value: NodeSelector | None) -> None:
@@ -2201,8 +2208,9 @@ class Bvh:
     def _in_body(self) -> npt.NDArray[np.bool_]:
         """Which nodes are in the body, in node order: the body anchor and
         every node below it, started higher when a head or a foot name is
-        missing below it (:func:`~pybvh._orientation._find_body`)."""
-        return _find_body(self._rest_skeleton(), self._found_body_anchor().node)
+        missing below it (:func:`~pybvh._orientation._find_body`). Every
+        node on a clip with no body: the body read from the root."""
+        return _find_body(self._rest_skeleton(), self._found_body_anchor().node_or_root)
 
     def _size_reference(self, feet: Sequence[int]) -> int:
         """The node index the sizes of *feet* (node indices) are read from.
@@ -2313,7 +2321,7 @@ class Bvh:
             lr_pairs=np.asarray(pairs, dtype=np.intp).reshape(-1, 2)
         )
         anchor = _find_body_anchor(skeleton)
-        _rest_up, rest_left = _infer_rest_up_and_left(skeleton, anchor.node)
+        _rest_up, rest_left = _infer_rest_up_and_left(skeleton, anchor.node_or_root)
         return rest_left
 
     @property
@@ -2700,9 +2708,10 @@ class Bvh:
 
         The one way the body-level readers reach the anchor: the travel
         (:meth:`_body_anchor_positions`), the heading
-        (:meth:`_body_anchor_rotmats`) and the ``centered`` modes.
+        (:meth:`_body_anchor_rotmats`) and the ``centered`` modes. The
+        root on a clip with no body.
         """
-        return self._found_body_anchor().node
+        return self._found_body_anchor().node_or_root
 
     def _body_anchor_positions(self) -> npt.NDArray[np.float64]:
         """The body anchor's world position per frame, shape ``(F, 3)``, read-only.

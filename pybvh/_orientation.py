@@ -180,7 +180,7 @@ class _RestSkeleton(NamedTuple):
 # ---------------------------------------------------------------------------
 
 # How the body anchor was found, as OrientationReport names it.
-_BodyAnchorSource = Literal["set", "lr_pairs", "default"]
+_BodyAnchorSource = Literal["set", "lr_pairs", "default", "ambiguous"]
 
 
 class _BodyAnchor(NamedTuple):
@@ -188,20 +188,30 @@ class _BodyAnchor(NamedTuple):
 
     Attributes
     ----------
-    node : int
-        The anchor's index in node order.
-    source : {"set", "lr_pairs", "default"}
+    node : int or None
+        The anchor's index in node order; ``None`` when the clip has no
+        body.
+    source : {"set", "lr_pairs", "default", "ambiguous"}
         ``"set"``: the joint the user set (``Bvh.body_anchor``).
         ``"lr_pairs"``: found where the L/R pairs meet
         (:func:`_find_body_anchor`). ``"default"``: no pair, so the root.
+        ``"ambiguous"``: no body, as no candidate is more than twice as
+        large as each other one.
     candidates : tuple of int
         The meeting joints the rule compared, the most joints below them
         first; empty for ``"set"`` and ``"default"``.
     """
 
-    node: int
+    node: int | None
     source: _BodyAnchorSource
     candidates: tuple[int, ...]
+
+    @property
+    def node_or_root(self) -> int:
+        """The node the body-level readers read: the anchor, or the root
+        (0) on a clip with no body, until those readers refuse such a
+        clip."""
+        return 0 if self.node is None else self.node
 
 
 def _find_body_anchor(skeleton: _RestSkeleton) -> _BodyAnchor:
@@ -213,9 +223,13 @@ def _find_body_anchor(skeleton: _RestSkeleton) -> _BodyAnchor:
     which meet at the hips, win over the arms, which meet lower, at the
     chest, and a root above the hips or a helper beside them is passed
     over. Of several candidates, the anchor is the one with the most
-    joints below it, itself included and end sites excluded; on equal
-    counts, the first in node order. Without a pair, the anchor is the
-    root. Neither the rest positions nor the motion are read.
+    joints below it, itself included and end sites excluded, when each
+    other candidate has fewer than half as many; otherwise the clip has
+    no body (two figures under one root): the anchor is ``None`` and the
+    source ``"ambiguous"``. At least half is the tie: 10 joints against
+    20 give no body, 9 against 20 the larger one. Without a pair, the
+    anchor is the root. Neither the rest positions nor the motion are
+    read.
 
     Parameters
     ----------
@@ -244,6 +258,9 @@ def _find_body_anchor(skeleton: _RestSkeleton) -> _BodyAnchor:
         (joint for joint in meeting if depth[joint] == shallowest),
         key=lambda joint: (-joints_below[joint], joint),
     )
+    largest = joints_below[candidates[0]]
+    if any(2 * joints_below[other] >= largest for other in candidates[1:]):
+        return _BodyAnchor(None, "ambiguous", tuple(candidates))
     return _BodyAnchor(candidates[0], "lr_pairs", tuple(candidates))
 
 
@@ -1327,10 +1344,11 @@ class OrientationReport:
         ``lr_mapping=`` at load), ``"names"`` detected from the joint
         names, ``None`` when there is none (the names give no pairs, or
         the user cleared the mapping).
-    body_anchor : BvhNode
+    body_anchor : BvhNode or None
         The joint the body's measures start from, a node of the clip:
         what :attr:`Bvh.body_anchor <pybvh.bvh.Bvh.body_anchor>` returns.
-    body_anchor_source : {"set", "lr_pairs", "default"}
+        ``None`` when the clip has no body.
+    body_anchor_source : {"set", "lr_pairs", "default", "ambiguous"}
         ``"set"``: the joint the user set, assigned to
         :attr:`Bvh.body_anchor <pybvh.bvh.Bvh.body_anchor>` or passed as
         ``body_anchor=`` at load; the rule is not run.
@@ -1340,7 +1358,10 @@ class OrientationReport:
         closest to the root, so the legs, which meet at the hips, win
         over the arms, which meet at the chest. Of several at the same
         depth, the one with the most joints below it, end sites not
-        counted. ``"default"``: no pair, so the root.
+        counted, when each other one has fewer than half as many.
+        ``"ambiguous"``: no body, as two of those meeting joints are
+        that close in size, for instance two figures under one root;
+        the anchor is then ``None``. ``"default"``: no pair, so the root.
     body_anchor_candidates : tuple of BvhNode
         The meeting joints the rule compared, the most joints below them
         first: the anchor alone when the pairs meet at one joint closest
@@ -1356,7 +1377,7 @@ class OrientationReport:
     world_up_source: _WorldUpSource
     world_up_inherited: bool
     lr_mapping_source: _LrMappingSource | None
-    body_anchor: BvhNode
+    body_anchor: BvhNode | None
     body_anchor_source: _BodyAnchorSource
     body_anchor_candidates: tuple[BvhNode, ...]
 
@@ -1400,7 +1421,7 @@ def _build_orientation_report(
         world_up_axis, world_up_source = world_up
     else:
         world_up_axis, world_up_source = world_up, "set"
-    rest_up, rest_left = _infer_rest_up_and_left(skeleton, body_anchor.node)
+    rest_up, rest_left = _infer_rest_up_and_left(skeleton, body_anchor.node_or_root)
     rest_up_axis = None if rest_up is None else rest_up.axis
     return OrientationReport(
         rest_up=rest_up_axis,
@@ -1412,7 +1433,7 @@ def _build_orientation_report(
         world_up_source=world_up_source,
         world_up_inherited=world_up_inherited,
         lr_mapping_source=lr_mapping_source,
-        body_anchor=nodes[body_anchor.node],
+        body_anchor=None if body_anchor.node is None else nodes[body_anchor.node],
         body_anchor_source=body_anchor.source,
         body_anchor_candidates=tuple(nodes[index] for index in body_anchor.candidates),
     )

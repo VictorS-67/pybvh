@@ -13,7 +13,7 @@ One entry of a skeleton's hierarchy: the root, a joint or an end site. `Bvh.node
 The first node. Its position channels place it in the world frame: its translation per frame is the root position. A root that declares no channels is a static root. A joint below it that declares position channels is a translating joint, placed in its parent's frame.
 
 **Static root**:
-A root whose `CHANNELS` line declares no channel (`CHANNELS 0`), as Blender's exporter writes above an armature with several root bones. It stays at its offset with no rotation: its root position is its offset in every frame and its row of joint angles is zero. `BvhRoot.is_static()` names the state. An operation that would move it away from its offset, or turn it, raises an error that names it. Its Euler order is `''`: the rotation conversions and forward kinematics read it as the identity and refuse any other rotation for it. `change_euler_order` with no joint and `harmonize` leave it as it is, and `change_euler_order` refuses it when it is named. The root-based descriptors (`root_trajectory`, the `centered` modes, the gait descriptors) then describe this node, not the body below it.
+A root whose `CHANNELS` line declares no channel (`CHANNELS 0`), as Blender's exporter writes above an armature with several root bones. It stays at its offset with no rotation: its root position is its offset in every frame and its row of joint angles is zero. `BvhRoot.is_static()` names the state. An operation that would move it away from its offset, or turn it, raises an error that names it. Its Euler order is `''`: the rotation conversions and forward kinematics read it as the identity and refuse any other rotation for it. `change_euler_order` with no joint and `harmonize` leave it as it is, and `change_euler_order` refuses it when it is named. The travel descriptors (`root_trajectory`, the `centered` modes, the gait descriptors) read the body anchor, so they describe the body below a static root, not that node.
 
 **Joint**:
 The root and every interior node: a node with rotation channels, or a static root. `J` counts them.
@@ -45,7 +45,15 @@ The tree of nodes with their names and offsets, as the HIERARCHY section declare
 A hierarchy together with its channel layout: whether the root is static, which joints translate and each joint's Euler order. Two clips with the same topology share the same joint-angle and joint-translation columns; `matches_topology` compares it, and `a + b`, `a += b` and `a[i:j] = b` require it.
 
 **Skeleton**:
-The everyday word for the hierarchy a clip carries beside its motion; use hierarchy and topology where the exact comparison matters.
+The everyday word for the hierarchy a clip carries beside its motion; use hierarchy and topology where the exact comparison matters. A skeleton is not a body: see Body.
+
+**Body**:
+The one articulated figure of a clip that the body-level operations describe: the body anchor and every node below it; when the head or the feet are not below the anchor, it starts at the closest joint above the anchor that has them below it. A skeleton can hold nodes outside the body: a root above it, a prop, a helper, a second figure. A clip that holds several candidates of comparable size has no body until the user names one.
+_Avoid_: character, actor
+
+**Body anchor**:
+The joint that the body-level measures start from: the shallowest joint where a left/right pair of the body meets, or the joint the user set. World up, rest up and the travel descriptors read it, not the root. A clip with no L/R pairs takes the root. A clip that holds several candidates of comparable size has none until the user names one.
+_Avoid_: pelvis, hips
 
 **Node table**:
 The skeleton as plain data: one `dict` per node in `nodes` order, with `name`, `parent` (the parent's index, `None` on the root), `offset`, `rot_channels`, and `pos_channels` on the root and on a translating joint (a static root has both, empty). The named twin of `FkTopology`.
@@ -91,7 +99,7 @@ The `(F, P, 3)` array of the translating joints' position channels, in node orde
 The motion as distinct from the rest pose: what world up, the facing and the heading are read from.
 
 **Centered**:
-How the root position is treated when posing: `"world"` keeps the file's coordinates, `"skeleton"` pins the root at the origin, `"first"` subtracts the first frame's root position in the two ground axes only.
+How the positions are placed when posing: `"world"` keeps the file's coordinates, `"skeleton"` pins the body anchor at the origin, `"first"` subtracts the first frame's body anchor position in the two ground axes only.
 
 **Round trip**:
 Reading a clip, writing it (to a file, a DataFrame or a rotation representation) and reading it back to the same clip within float precision. The fidelity standard.
@@ -115,7 +123,7 @@ Left and right counterparts detected from names (`lr_mapping`), as index pairs i
 
 ### Orientation
 
-Orientation facts belong to one of two frames, and no fact combines an axis of one with an axis of the other (ADR 0004). The `rest_*` facts are the skeleton's own frame, read from the rest pose alone; world up, the facing and the heading are the world's, read from the motion. The root rotation is what maps a skeleton fact into the world, on each frame.
+Orientation facts belong to one of two frames, and no fact combines an axis of one with an axis of the other (ADR 0004). The `rest_*` facts are the skeleton's own frame, read from the rest pose alone; world up, the facing and the heading are the world's, read from the motion. The body anchor's world rotation is what maps a skeleton fact into the world, on each frame.
 
 Names follow one rule: a name ending in `_axis` holds an `Axis`, and a signed axis string naming world up is called `world_up`.
 
@@ -136,10 +144,10 @@ The skeleton's own left, read from the rest pose's L/R geometry against rest up:
 The direction the rest pose faces in the skeleton's own frame: rest left × rest up. Not a direction in the world; the heading is where it meets the world.
 
 **Facing**:
-The horizontal direction the whole body points at a frame, in the world: the frame's own leftward against world up, else the root's heading at that frame when rest forward is measured (a heading built on a defaulted rest forward would offer a guessed direction as a measured one), else the house default, with forward = left × up. `facing_frame()` gives the continuous `(forward, left, up)` basis, its `valid` false on the fallback rows; `forward_at` and `left_at` snap it to axis labels.
+The horizontal direction the whole body points at a frame, in the world: the frame's own leftward against world up, else the heading at that frame when rest forward is measured (a heading built on a defaulted rest forward would offer a guessed direction as a measured one), else the house default, with forward = left × up. `facing_frame()` gives the continuous `(forward, left, up)` basis, its `valid` false on the fallback rows; `forward_at` and `left_at` snap it to axis labels.
 
 **Heading**:
-The root's own orientation projected on the ground: the root rotation applied to rest forward, as `root_trajectory` reports it, `NaN` on a frame where that projection is too short to read. Not the direction of travel, and not the facing: a side-stepping character keeps its heading. Built on rest forward even when rest forward is the house default, with its warning; the heading and its rate of turn then both depend on that guessed reference whenever the root pitches or rolls, so they are reliable only for a root that turns about world up alone. The facing takes no heading from a defaulted rest forward.
+The body anchor's own orientation projected on the ground: the anchor's world rotation applied to rest forward, as `root_trajectory` reports it, `NaN` on a frame where that projection is too short to read. Not the direction of travel, and not the facing: a side-stepping character keeps its heading. Built on rest forward even when rest forward is the house default, with its warning; the heading and its rate of turn then both depend on that guessed reference whenever the body anchor pitches or rolls, so they are reliable only for a body anchor that turns about world up alone. The facing takes no heading from a defaulted rest forward.
 
 **Orientation report**:
 How each orientation fact of a clip was obtained, set, measured or defaulted, beside its value (`bvh.orientation_report`, an `OrientationReport`). Per-frame facts are not in it: a facing basis marks its fallback rows itself.
@@ -166,6 +174,9 @@ The hub every conversion routes through; the chordal mean of a batch of them is 
 
 ### Analysis
 
+**Body-level operation**:
+An operation that reads the body anchor, the head joint, the feet or the L/R geometry, and so needs the clip's body. Every other operation is hierarchy-level: it treats all nodes alike and needs no body.
+
 **Descriptor**:
 A quantity computed from a clip's motion or geometry: velocities, jerk, path length, a bounding box, gait parameters. Relational and trajectory descriptors resolve in node space, `range_of_motion` in joint space.
 
@@ -184,7 +195,7 @@ _Avoid_: floor (alone), ground level
 The ground level a contact detector estimates per call over the nodes it tests (`floor="auto"`, reported as the contact report's `contact_reference`). Never the scene ground; the two differ by about a toe length (ADR 0002).
 
 **Feet**:
-The nodes a clip stands on, which `feet=` selects, by name or by node, on `foot_contacts`, `skeleton_size`, `cadence`, `stride_length`, `gait_parameters` and `to_feature_array`: any node, end sites included. By default the nodes `auto_detect_feet` returns: joints whose names contain "foot" or "toe" and that carry an end site or a toe-named child (every such match, with a warning, when none carries one), the most distal of each chain.
+The nodes a clip stands on, which `feet=` selects, by name or by node, on `foot_contacts`, `skeleton_size`, `cadence`, `stride_length`, `gait_parameters` and `to_feature_array`: any node, end sites included. By default the nodes `auto_detect_feet` returns: joints of the body whose names contain "foot" or "toe" and that carry an end site or a toe-named child (every such match, with a warning, when none carries one), the most distal of each chain.
 _Avoid_: foot joints
 
 **Contact**:
@@ -197,7 +208,7 @@ What one contact detection applied and compared, returned with the contacts by `
 Where one tested node's contact threshold came from, in the contact report (`vel_threshold_source`, `height_threshold_source`): given by the caller, the default scaled by the skeleton scale (`"scale"`, `"margin"`), the stance calibration (`"stance"`), Otsu's split (`"otsu"`), or a bound standing in for a split outside it (`"otsu_clamped"`). A fallback reads as what stands in, never as the method that failed. Beside it, `skeleton_scale_measured` says whether the skeleton scale was measured or `1.0` stood in.
 
 **Gait parameters**:
-The eight fields of `GaitParameters`, from contacts and the root's ground path: `cadence`, `walking_pace`, `stride_length`, `stride_cv`, `step_length`, `stance_fraction`, `double_support_fraction` and `asymmetry`. `gait_parameters` computes them in one pass; `cadence` and `stride_length` are its projections, and `walking_pace` is also computed alone from the root path.
+The eight fields of `GaitParameters`, from contacts and the body anchor's ground path: `cadence`, `walking_pace`, `stride_length`, `stride_cv`, `step_length`, `stance_fraction`, `double_support_fraction` and `asymmetry`. `gait_parameters` computes them in one pass; `cadence` and `stride_length` are its projections, and `walking_pace` is also computed alone from the body anchor's path.
 
 **Smoothness**:
 A metric on a speed profile: SPARC, dimensionless jerk and the others `smoothness(metric=)` dispatches to.

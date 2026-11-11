@@ -210,13 +210,6 @@ class _BodyAnchor(NamedTuple):
     source: _BodyAnchorSource
     candidates: tuple[int, ...]
 
-    @property
-    def node_or_root(self) -> int:
-        """The node the body-level readers read: the anchor, or the root
-        (0) on a clip with no body, until those readers refuse such a
-        clip."""
-        return 0 if self.node is None else self.node
-
 
 def _find_body_anchor(skeleton: _RestSkeleton) -> _BodyAnchor:
     """The body anchor the rule finds, from the hierarchy and the L/R pairs.
@@ -1329,8 +1322,15 @@ class OrientationReport:
     members of the same names return; each ``*_source`` says whether the
     value was set, measured or defaulted, and how, so a default never
     passes for a measurement (``rest_forward`` and ``world_up`` always
-    answer, whatever the clip carries). Frozen: a clip's report is
-    replaced, never edited, when what it was read from changes.
+    answer, whatever the clip carries, on a clip with a body). Frozen: a
+    clip's report is replaced, never edited, when what it was read from
+    changes.
+
+    On a clip with no body (``body_anchor`` ``None``) the facts read from
+    the body are ``None``, with their sources: ``rest_up``, ``rest_left``,
+    ``rest_forward`` and a guessed ``world_up``. The members of the same
+    names raise there; the report does not. A ``world_up`` set or
+    inherited is reported as on any clip.
 
     The facts belong to two frames (ADR 0004). The *skeleton's own
     frame* is read from the rest pose alone, the skeleton with every
@@ -1366,17 +1366,19 @@ class OrientationReport:
         the L/R pairs, averaged, with the ``rest_up`` component removed,
         snapped to an axis. ``None`` without pairs, without ``rest_up``,
         or when the pairs lie along ``rest_up``.
-    rest_forward : str
-        The direction the rest pose faces in the skeleton's own frame.
-    rest_forward_source : {"lr_geometry", "default"}
+    rest_forward : str or None
+        The direction the rest pose faces in the skeleton's own frame;
+        ``None`` on a clip with no body.
+    rest_forward_source : {"lr_geometry", "default"} or None
         ``"lr_geometry"``: ``rest_left × rest_up``, measured.
         ``"default"``: no ``rest_left``, so the house default for
         ``rest_up`` (``'+y'`` gives ``'+z'``, ``'+z'`` gives ``'+x'``,
         ``'+x'`` gives ``'+y'``; ``'+z'`` without a ``rest_up``),
-        arbitrary but stable.
-    world_up : str
-        The world's vertical, a signed axis string.
-    world_up_source : {"set", "first_frame", "rest_up", "default"}
+        arbitrary but stable. ``None`` with ``rest_forward``.
+    world_up : str or None
+        The world's vertical, a signed axis string; ``None`` on a clip
+        with no body, where it is neither set nor inherited.
+    world_up_source : {"set", "first_frame", "rest_up", "default"} or None
         ``"set"``: assigned by the user, passed as ``world_up=`` at load,
         or the target of ``reorient_world_up``. ``"first_frame"``:
         guessed from the direction of the ``rest_up`` node above the
@@ -1385,6 +1387,7 @@ class OrientationReport:
         pose), so the skeleton's own up stands in, a guess that assumes
         the rest pose is authored upright in the world.
         ``"default"``: neither said anything, so the house up ``'+y'``.
+        ``None`` with ``world_up``.
     world_up_inherited : bool
         True when the guess was made on the clip this one was derived
         from (a slice, a copy, a transformed clip, a pickle) and taken
@@ -1424,10 +1427,10 @@ class OrientationReport:
     rest_up: str | None
     rest_up_source: _RestUpSource | None
     rest_left: str | None
-    rest_forward: str
-    rest_forward_source: _RestForwardSource
-    world_up: str
-    world_up_source: _WorldUpSource
+    rest_forward: str | None
+    rest_forward_source: _RestForwardSource | None
+    world_up: str | None
+    world_up_source: _WorldUpSource | None
     world_up_inherited: bool
     lr_mapping_source: _LrMappingSource | None
     body_anchor: BvhNode | None
@@ -1437,7 +1440,7 @@ class OrientationReport:
 
 def _build_orientation_report(
     skeleton: _RestSkeleton,
-    world_up: str | _WorldUpGuess,
+    world_up: str | _WorldUpGuess | None,
     world_up_inherited: bool,
     lr_mapping_source: _LrMappingSource | None,
     body_anchor: _BodyAnchor,
@@ -1450,10 +1453,11 @@ def _build_orientation_report(
     skeleton : _RestSkeleton
         The skeleton in its rest pose, with the pairs of the L/R mapping
         in effect.
-    world_up : str or _WorldUpGuess
+    world_up : str or _WorldUpGuess or None
         World up as the caller settled it: a signed axis string the user
         set (reported as ``"set"``), or the guess it stands on
-        (:func:`_infer_world_up`), whose source is reported.
+        (:func:`_infer_world_up`), whose source is reported; ``None``
+        when there is neither, on a clip with no body.
     world_up_inherited : bool
         Whether that guess was made on the clip this one was derived
         from; False for an axis the user set.
@@ -1462,6 +1466,8 @@ def _build_orientation_report(
         caller's setting.
     body_anchor : _BodyAnchor
         The body anchor as the caller found it, in node index space.
+        With no body (``node`` ``None``), the facts read from the body
+        are ``None``.
     nodes : sequence of BvhNode
         The clip's nodes, which the anchor's indices are read into.
 
@@ -1469,19 +1475,27 @@ def _build_orientation_report(
     -------
     OrientationReport
     """
-    world_up_source: _WorldUpSource
-    if isinstance(world_up, _WorldUpGuess):
+    world_up_axis: str | None
+    world_up_source: _WorldUpSource | None
+    if world_up is None:
+        world_up_axis = world_up_source = None
+    elif isinstance(world_up, _WorldUpGuess):
         world_up_axis, world_up_source = world_up
     else:
         world_up_axis, world_up_source = world_up, "set"
-    rest_up, rest_left = _infer_rest_up_and_left(skeleton, body_anchor.node_or_root)
-    rest_up_axis = None if rest_up is None else rest_up.axis
+    rest_forward: str | None = None
+    rest_forward_source: _RestForwardSource | None = None
+    rest_up = rest_left = None
+    if body_anchor.node is not None:
+        rest_up, rest_left = _infer_rest_up_and_left(skeleton, body_anchor.node)
+        rest_forward = _infer_rest_forward(rest_left, None if rest_up is None else rest_up.axis)
+        rest_forward_source = "lr_geometry" if rest_left is not None else "default"
     return OrientationReport(
-        rest_up=rest_up_axis,
+        rest_up=None if rest_up is None else rest_up.axis,
         rest_up_source=None if rest_up is None else rest_up.source,
         rest_left=rest_left,
-        rest_forward=_infer_rest_forward(rest_left, rest_up_axis),
-        rest_forward_source="lr_geometry" if rest_left is not None else "default",
+        rest_forward=rest_forward,
+        rest_forward_source=rest_forward_source,
         world_up=world_up_axis,
         world_up_source=world_up_source,
         world_up_inherited=world_up_inherited,

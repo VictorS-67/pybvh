@@ -54,10 +54,12 @@ CLEARED_BY = {
     "world_up_changed": {"floor_height"} | REPORT,
     "lr_mapping_changed": GUESSED_HERE | REPORT | BODY_ANCHOR,
     # The user set the body anchor or returned it to the rule: what is
-    # computed from the anchor goes. The anchor the rule finds stays: it
-    # reads the hierarchy and the L/R mapping only, and the setting is
-    # read ahead of it.
-    "body_anchor_changed": REPORT,
+    # computed from the anchor goes, the clip's own world-up guess (read
+    # from the anchor) and the floor measured along it included, as for a
+    # mapping change. The anchor the rule finds stays: it reads the
+    # hierarchy and the L/R mapping only, and the setting is read ahead of
+    # it.
+    "body_anchor_changed": GUESSED_HERE | REPORT,
 }
 
 

@@ -46,7 +46,8 @@ _CLEARED_BY: Final[dict[str, frozenset[_Change]]] = {
     "rest_pose_positions": frozenset({_Change.SKELETON}),
     "node_positions": _SKELETON_OR_MOTION,
     # Measured along world up, so cleared when the axis set or guessed may change.
-    "floor_height": _SKELETON_OR_MOTION | {_Change.WORLD_UP_OVERRIDE, _Change.LR_MAPPING_SETTING},
+    "floor_height": _SKELETON_OR_MOTION
+    | {_Change.WORLD_UP_OVERRIDE, _Change.LR_MAPPING_SETTING, _Change.BODY_ANCHOR_SETTING},
     # The guessed world up, inferred here or inherited from the clip this
     # one was derived from, outlives pybvh's own edits: none of them
     # changes which way is up but reorient_world_up, which sets the axis
@@ -59,7 +60,11 @@ _CLEARED_BY: Final[dict[str, frozenset[_Change]]] = {
     # again the same. The inherited guess stays, as it does
     # through a skeleton change: copy(nodes=), extract_joints and
     # unpickling set the mapping on a clip that has just inherited it.
-    "inferred_world_up": frozenset({_Change.USER_REPLACED_MOTION, _Change.LR_MAPPING_SETTING}),
+    # Setting the body anchor starts it again for the same reason: the
+    # guess is read from the anchor.
+    "inferred_world_up": frozenset(
+        {_Change.USER_REPLACED_MOTION, _Change.LR_MAPPING_SETTING, _Change.BODY_ANCHOR_SETTING}
+    ),
     "inherited_world_up": frozenset({_Change.USER_REPLACED_MOTION}),
     # The guess inferred here that Bvh.world_up has warned about (it warns
     # once per guess), so it goes with a guess the motion replaced. A

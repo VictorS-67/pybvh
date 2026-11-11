@@ -360,3 +360,20 @@ class TestSetLifecycle:
         assert edited.body_anchor.name == anchor
         expected = "set" if kept == anchor else "default"
         assert edited.orientation_report.body_anchor_source == expected
+
+
+def test_setting_the_anchor_guesses_world_up_again_as_at_load():
+    # The guess reads the anchor: on this clip the hips give +y and the
+    # reference root, with its props, +z. Set after load, the anchor gives
+    # what it gives at load.
+    path = CORPUS / "reference_props_humanoid_6ch.bvh"
+    clip = _read(path)
+    assert clip.world_up == "+y"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        clip.body_anchor = "Reference"
+        at_load = read_bvh_file(path, body_anchor="Reference")
+        assert clip.world_up == at_load.world_up == "+z"
+        assert clip.floor_height == at_load.floor_height
+        clip.body_anchor = None
+        assert clip.world_up == "+y"

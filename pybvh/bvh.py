@@ -1790,6 +1790,9 @@ class Bvh:
           :attr:`rest_up`, which is read from the legs of the mapping, so
           the clip gets the axis that mapping passed at load gives. A guess
           from the first frame comes out the same, and does not warn again.
+          Setting :attr:`body_anchor` guesses it again as well, since the
+          guess measures from the anchor: the clip gets the axis that
+          ``body_anchor=`` passed at load gives.
         - **Inherited**: a clip pybvh derives from this one reports the
           axis guessed here, without guessing from its own frames:
           ``copy()``, slicing, ``a + b`` and ``a += b`` (from ``a``),
@@ -1799,7 +1802,7 @@ class Bvh:
           slice whose first frame is a crouch or a fall would be guessed
           differently on its own. Assigning motion to the derived clip
           guesses again, as for an inferred axis; setting
-          :attr:`lr_mapping` on it does not.
+          :attr:`lr_mapping` or :attr:`body_anchor` on it does not.
 
         :attr:`world_up_inferred` always guesses from this clip's own
         motion: where it differs from ``world_up`` and you set no axis,
@@ -2129,7 +2132,9 @@ class Bvh:
         candidate. Assign ``None`` to return to the rule, as
         ``world_up = None`` returns to the guess. Setting it, or returning
         to the rule, clears the values computed from the anchor (the
-        report), which are computed again on first read.
+        report, the world up this clip guessed and the floor height),
+        which are computed again on first read; a world up set or
+        inherited stays (see :attr:`world_up`).
 
         A set anchor is one of your settings, as a set :attr:`lr_mapping`
         is (ADR 0003). Assigning the motion or :attr:`lr_mapping`, and

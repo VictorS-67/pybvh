@@ -1910,6 +1910,7 @@ class Bvh:
             topology.parent_idx,
             topology.joint_idx < 0,
             self._facing_lr_pairs(),
+            self.root.is_static(),
         )
 
     def _warn_about_world_up_guess(self, guess: _WorldUpGuess, rest_up: str | None) -> None:

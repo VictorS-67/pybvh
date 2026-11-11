@@ -51,10 +51,10 @@ _REST = np.array(
 )
 
 
-def _skeleton(names, rest, lr_pairs=(), end_sites=(), parents=None):
+def _skeleton(names, rest, lr_pairs=(), end_sites=(), parents=None, static_root=False):
     """The rest skeleton the module reads, from names, positions, pairs, the
-    indices of the end sites and each node's parent (by default, every node
-    a child of the root)."""
+    indices of the end sites, each node's parent (by default, every node
+    a child of the root) and whether the root is static."""
     is_end_site = np.zeros(len(names), dtype=bool)
     is_end_site[list(end_sites)] = True
     if parents is None:
@@ -65,6 +65,7 @@ def _skeleton(names, rest, lr_pairs=(), end_sites=(), parents=None):
         np.asarray(parents, dtype=np.intp),
         is_end_site,
         np.asarray(lr_pairs, dtype=np.intp).reshape(-1, 2),
+        static_root,
     )
 
 
@@ -555,7 +556,7 @@ class TestFacingLabels:
         np.testing.assert_array_equal(np.cross(vectors[forward], vectors[left]), up)
 
 
-def _tree(nodes, lr_pairs=(), end_sites=()):
+def _tree(nodes, lr_pairs=(), end_sites=(), static_root=False):
     """The rest skeleton of a tree given as ``(name, parent name)`` rows in
     node order, the root's parent ``None``; ``lr_pairs`` and ``end_sites``
     by name. The rest pose is all zeros: the body anchor reads none of it."""
@@ -567,6 +568,7 @@ def _tree(nodes, lr_pairs=(), end_sites=()):
         [[names.index(left), names.index(right)] for left, right in lr_pairs],
         [names.index(name) for name in end_sites],
         parents,
+        static_root,
     )
 
 
@@ -594,10 +596,11 @@ _FEET = ("LeftFoot", "RightFoot")
 _ARMS = ("LeftArm", "RightArm")
 
 
-def _anchor_of(nodes, lr_pairs):
+def _anchor_of(nodes, lr_pairs, static_root=False):
     """The body anchor the rule finds, as names: the anchor, its source and
     the candidates."""
-    skeleton = _tree(nodes, lr_pairs, [n for n, _ in nodes if n.endswith("_End")])
+    end_sites = [n for n, _ in nodes if n.endswith("_End")]
+    skeleton = _tree(nodes, lr_pairs, end_sites, static_root)
     found = _find_body_anchor(skeleton)
     names = skeleton.node_names
     return (
@@ -696,6 +699,107 @@ class TestBodyAnchor:
         nodes = [("Root", None), ("Hips", "Root"), *_BODY, ("Hips2", "Root"), *second]
         pairs = [_LEGS, ("LeftUpLeg2", "RightUpLeg2")]
         assert _anchor_of(nodes, pairs) == (None, "ambiguous", ["Hips", "Hips2"])
+
+
+class TestBodyAnchorUnderAStaticRoot:
+    """Under a static root (``CHANNELS 0``), each child of the root heads a
+    tree: the largest tree is kept, with the pairs inside it, unless a
+    second tree has at least half its joints."""
+
+    def test_ik_targets_beside_the_body_give_the_body_s_anchor(self):
+        # Blender's __0 above two IK targets and the hips. The targets'
+        # pair meets at the static root, at depth 0, but it lies across
+        # two trees and is not counted.
+        nodes = [
+            ("__0", None),
+            ("LeftFootIK", "__0"),
+            ("LeftFootIK_End", "LeftFootIK"),
+            ("RightFootIK", "__0"),
+            ("RightFootIK_End", "RightFootIK"),
+            ("Hips", "__0"),
+            *_BODY,
+        ]
+        pairs = [("LeftFootIK", "RightFootIK"), _LEGS, _ARMS]
+        assert _anchor_of(nodes, pairs, static_root=True) == ("Hips", "lr_pairs", ["Hips"])
+
+    @pytest.mark.parametrize(
+        ("sizes", "expected"),
+        [
+            # A second tree of fewer than half the joints: the largest tree.
+            ((20, 9), ("A", "lr_pairs", ["A"])),
+            # At least half is the tie: no body, the candidate of each tree
+            # compared listed, the largest tree first.
+            ((20, 10), (None, "ambiguous", ["A", "B"])),
+            ((10, 20), (None, "ambiguous", ["B", "A"])),
+            # A third tree under half is not one of the figures compared.
+            ((20, 12, 3), (None, "ambiguous", ["A", "B"])),
+        ],
+        ids=["20-9", "20-10", "10-20", "20-12-3"],
+    )
+    def test_a_comparable_second_tree_gives_no_body(self, sizes, expected):
+        # Trees A, B, C under a static root, each of the given size, each
+        # with a pair that meets at its head.
+        nodes, pairs = [("Root", None)], []
+        for name, size in zip("ABC"[: len(sizes)], sizes, strict=True):
+            candidate_nodes, pair = _candidate(name, size)
+            nodes += candidate_nodes
+            pairs.append(pair)
+        assert _anchor_of(nodes, pairs, static_root=True) == expected
+
+    def test_the_candidate_of_a_tree_is_where_its_pairs_meet(self):
+        # Two figures, each under a bone above its hips: the candidates are
+        # the hips, not the trees' heads.
+        second = [(_numbered(name), _numbered(parent)) for name, parent in _BODY]
+        nodes = [
+            ("__0", None),
+            ("Armature", "__0"),
+            ("Hips", "Armature"),
+            *_BODY,
+            ("Armature2", "__0"),
+            ("Hips2", "Armature2"),
+            *second,
+        ]
+        pairs = [_LEGS, ("LeftUpLeg2", "RightUpLeg2")]
+        assert _anchor_of(nodes, pairs, static_root=True) == (None, "ambiguous", ["Hips", "Hips2"])
+
+    def test_a_pair_across_two_trees_is_not_counted(self):
+        # The only pair has a joint in each tree: the kept tree holds no
+        # pair, so the anchor is the root, by default.
+        nodes = [
+            ("__0", None),
+            ("LeftFootIK", "__0"),
+            ("LeftFootIK_End", "LeftFootIK"),
+            ("RightFootIK", "__0"),
+            ("RightFootIK_End", "RightFootIK"),
+            ("Hips", "__0"),
+            *_BODY,
+        ]
+        pairs = [("LeftFootIK", "RightFootIK")]
+        assert _anchor_of(nodes, pairs, static_root=True) == ("__0", "default", [])
+
+    def test_the_same_children_under_a_root_with_channels_go_through_step_6(self):
+        # Tree A holds 20 joints, its pair meeting below its head, at depth
+        # 2; tree B holds 8, its pair meeting at its head, at depth 1.
+        # Under a static root A is kept; under a root with channels the
+        # shallowest meeting joint is B's.
+        a_rows, _ = _candidate("A", 20)
+        a_rows += [("ALimbs", "A"), ("LeftLimb", "ALimbs"), ("LeftLimb_End", "LeftLimb")]
+        a_rows += [("RightLimb", "ALimbs"), ("RightLimb_End", "RightLimb")]
+        b_rows, b_pair = _candidate("B", 8)
+        nodes = [("Root", None), *a_rows, *b_rows]
+        pairs = [("LeftLimb", "RightLimb"), b_pair]
+        assert _anchor_of(nodes, pairs, static_root=True) == ("ALimbs", "lr_pairs", ["ALimbs"])
+        assert _anchor_of(nodes, pairs) == ("B", "lr_pairs", ["B"])
+
+    def test_two_comparable_trees_under_a_root_with_channels_go_through_step_6(self):
+        # The two figures' pairs meet at their hips, at one depth: no body
+        # by step 6, as under a static root by step 3.
+        nodes, pairs = [("Root", None)], []
+        for name in "AB":
+            candidate_nodes, pair = _candidate(name, 20)
+            nodes += candidate_nodes
+            pairs.append(pair)
+        assert _anchor_of(nodes, pairs) == (None, "ambiguous", ["A", "B"])
 
 
 def _numbered(name):

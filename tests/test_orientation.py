@@ -598,6 +598,7 @@ class TestBodyAnchor:
         )
 
 
+# The body anchor of a skeleton without pairs: its root.
 _NO_ANCHOR = _BodyAnchor(0, "default", ())
 
 
@@ -608,11 +609,14 @@ class TestReport:
     _PAIRS = np.array([[3, 4]])  # LeftHand, RightHand
 
     def test_a_measured_skeleton(self):
+        # The hands meet at the root. Names stand for the clip's nodes.
         report = _build_orientation_report(
             _skeleton(_NAMES, _REST, self._PAIRS),
             _WorldUpGuess("+z", "first_frame"),
             False,
             "names",
+            _BodyAnchor(0, "lr_pairs", (0,)),
+            _NAMES,
         )
         assert report == OrientationReport(
             rest_up="+y",
@@ -624,11 +628,14 @@ class TestReport:
             world_up_source="first_frame",
             world_up_inherited=False,
             lr_mapping_source="names",
+            body_anchor="Hips",
+            body_anchor_source="lr_pairs",
+            body_anchor_candidates=("Hips",),
         )
 
     def test_an_axis_the_user_set(self):
         report = _build_orientation_report(
-            _skeleton(_NAMES, _REST, self._PAIRS), "-z", False, "set"
+            _skeleton(_NAMES, _REST, self._PAIRS), "-z", False, "set", _NO_ANCHOR, _NAMES
         )
         assert (report.world_up, report.world_up_source, report.world_up_inherited) == (
             "-z",
@@ -640,7 +647,9 @@ class TestReport:
         skeleton = _skeleton(
             _NAMELESS_NAMES, _NAMELESS_REST, _NAMELESS_PAIRS, parents=_NAMELESS_PARENTS
         )
-        report = _build_orientation_report(skeleton, "+y", False, "set")
+        report = _build_orientation_report(
+            skeleton, "+y", False, "set", _BodyAnchor(0, "lr_pairs", (0,)), _NAMELESS_NAMES
+        )
         assert (report.rest_up, report.rest_up_source) == ("+y", "leg_pair")
         # Left +x (both pairs' left sides lie along +x) x up +y.
         assert (report.rest_forward, report.rest_forward_source) == ("+z", "lr_geometry")
@@ -651,6 +660,8 @@ class TestReport:
             _WorldUpGuess("+y", "rest_up"),
             True,
             None,
+            _NO_ANCHOR,
+            _NAMES,
         )
         assert report.rest_left is None
         # The house default for rest up +y.
@@ -662,6 +673,8 @@ class TestReport:
             _WorldUpGuess("+y", "default"),
             False,
             None,
+            _NO_ANCHOR,
+            ["Root"],
         )
         assert (report.rest_up, report.rest_up_source, report.rest_left) == (None, None, None)
         # The house default keyed on the house up '+y'.

@@ -9125,8 +9125,9 @@ class TestOrientationReport:
 
     def test_a_rest_pose_authored_in_another_convention(self):
         # bvh_test3: the rest pose stands along +y with its left along +x,
-        # while its first frame stands along +z.
-        report = _read_quietly(_TEST3).orientation_report
+        # while its first frame stands along +z. Its legs meet at its root.
+        clip = _read_quietly(_TEST3)
+        report = clip.orientation_report
         assert report == OrientationReport(
             rest_up="+y",
             rest_up_source="named_joint",
@@ -9137,6 +9138,9 @@ class TestOrientationReport:
             world_up_source="first_frame",
             world_up_inherited=False,
             lr_mapping_source="names",
+            body_anchor=clip.root,
+            body_anchor_source="lr_pairs",
+            body_anchor_candidates=(clip.root,),
         )
 
     def test_is_frozen(self, bvh_example):
@@ -9349,7 +9353,12 @@ class TestSettingTheMappingGuessesWorldUpAgain:
 
         given_at_load = _read_quietly(path, lr_mapping=pairs)
         assert given_at_load.world_up == "+y"
-        assert clip.orientation_report == given_at_load.orientation_report
+        # The same facts, the body anchor a node of each clip.
+        assert clip.orientation_report == dataclasses.replace(
+            given_at_load.orientation_report,
+            body_anchor=clip.root,
+            body_anchor_candidates=(clip.root,),
+        )
         assert clip.world_up == "+y"
         assert clip.floor_height == given_at_load.floor_height
 

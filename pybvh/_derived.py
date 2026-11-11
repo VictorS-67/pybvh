@@ -19,7 +19,7 @@ import numpy as np
 import numpy.typing as npt
 
 if TYPE_CHECKING:
-    from ._orientation import OrientationReport, _WorldUpGuess
+    from ._orientation import OrientationReport, _BodyAnchor, _WorldUpGuess
 
 
 class _Change(Enum):
@@ -74,6 +74,9 @@ _CLEARED_BY: Final[dict[str, frozenset[_Change]]] = {
             _Change.LR_MAPPING_SETTING,
         }
     ),
+    # Found by the rule from the hierarchy and the pairs of the L/R mapping
+    # in effect; never from the motion or world up.
+    "body_anchor": frozenset({_Change.SKELETON, _Change.LR_MAPPING_SETTING}),
 }
 
 
@@ -110,6 +113,9 @@ class DerivedState:
     orientation_report : OrientationReport or None
         Each orientation fact of the clip with its source
         (``Bvh.orientation_report``).
+    body_anchor : _BodyAnchor or None
+        The body anchor found by the rule, in ``nodes`` index space, with
+        its source and candidates (``Bvh.body_anchor``).
     """
 
     # Slots make a name in _CLEARED_BY that is not a field raise on the
@@ -125,6 +131,7 @@ class DerivedState:
         "joint_index",
         "names_lr_mapping",
         "orientation_report",
+        "body_anchor",
     )
 
     def __init__(self) -> None:
@@ -138,6 +145,7 @@ class DerivedState:
         self.joint_index: dict[str, int] | None = None
         self.names_lr_mapping: dict[str, str] | None = None
         self.orientation_report: OrientationReport | None = None
+        self.body_anchor: _BodyAnchor | None = None
 
     @property
     def node_positions(self) -> npt.NDArray[np.float64] | None:

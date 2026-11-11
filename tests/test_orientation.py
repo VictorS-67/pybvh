@@ -88,17 +88,17 @@ class TestUpMarker:
     """The one body-part lookup for "up", shared by rest up and world up."""
 
     def test_head_comes_before_the_spine(self):
-        assert _up_marker_index(_skeleton(_NAMES, _REST)) == 2
+        assert _up_marker_index(_skeleton(_NAMES, _REST), 0) == 2
 
     def test_the_first_node_of_a_repeated_name(self):
         names = ["Hips", "Head", "Head"]
         rest = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 4.0], [0.0, 9.0, 0.0]])
-        assert _up_marker_index(_skeleton(names, rest)) == 1
+        assert _up_marker_index(_skeleton(names, rest), 0) == 1
 
     def test_a_node_at_the_root_is_skipped(self):
         names = ["Hips", "Head", "Neck"]
         rest = np.array([[1.0, 2.0, 3.0], [1.0, 2.0, 3.0], [1.0, 9.0, 3.0]])
-        assert _up_marker_index(_skeleton(names, rest)) == 2
+        assert _up_marker_index(_skeleton(names, rest), 0) == 2
 
     @pytest.mark.parametrize(
         "head",
@@ -107,42 +107,42 @@ class TestUpMarker:
     def test_a_head_named_in_a_rig_convention_comes_before_the_spine(self, head):
         names = ["Hips", "Spine", head]
         rest = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, -3.0], [0.0, 9.0, 0.0]])
-        assert _up_marker_index(_skeleton(names, rest)) == 2
+        assert _up_marker_index(_skeleton(names, rest), 0) == 2
 
     def test_a_part_matches_as_a_whole_word_of_the_name(self):
         # "Forehead" holds "head" but is another word; "SPINE" is the
         # spine in capitals.
         names = ["Hips", "Forehead", "SPINE"]
         rest = np.array([[0.0, 0.0, 0.0], [0.0, 9.0, 0.0], [0.0, 0.0, -3.0]])
-        assert _up_marker_index(_skeleton(names, rest)) == 2
+        assert _up_marker_index(_skeleton(names, rest), 0) == 2
 
     def test_a_joint_above_the_head_is_a_head(self):
         # Mixamo's HeadTop_End is a joint at the top of the head.
         names = ["Hips", "Spine", "HeadTop_End"]
         rest = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, -3.0], [0.0, 9.0, 0.0]])
-        assert _up_marker_index(_skeleton(names, rest)) == 2
+        assert _up_marker_index(_skeleton(names, rest), 0) == 2
 
     def test_an_end_site_is_never_the_marker(self):
         # An end site's name is generated from its parent's ('EndSite' +
         # the parent's name), so it names no body part of its own.
         names = ["Hips", "Spine", "EndSiteHead"]
         rest = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, -3.0], [0.0, 9.0, 0.0]])
-        assert _up_marker_index(_skeleton(names, rest, end_sites=[2])) == 1
+        assert _up_marker_index(_skeleton(names, rest, end_sites=[2]), 0) == 1
 
     def test_none_without_a_named_part(self):
-        assert _up_marker_index(_skeleton(["Root", "A", "B"], _REST[:3])) is None
+        assert _up_marker_index(_skeleton(["Root", "A", "B"], _REST[:3]), 0) is None
 
 
 class TestRestUp:
     """Rest up read from the rest pose alone, with what it was read from."""
 
     def test_read_from_the_named_part(self):
-        assert _infer_rest_up(_skeleton(_NAMES, _REST)) == _RestUp("+y", "named_joint")
+        assert _infer_rest_up(_skeleton(_NAMES, _REST), 0) == _RestUp("+y", "named_joint")
 
     def test_read_from_the_first_of_two_heads(self):
         names = ["Hips", "Head", "Head"]
         rest = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, -4.0], [0.0, 9.0, 0.0]])
-        assert _infer_rest_up(_skeleton(names, rest)) == _RestUp("-z", "named_joint")
+        assert _infer_rest_up(_skeleton(names, rest), 0) == _RestUp("-z", "named_joint")
 
     def test_opposite_the_legs_without_a_named_part(self):
         # The largest spread would say x, the arm span; the legs hang from
@@ -151,13 +151,13 @@ class TestRestUp:
         skeleton = _skeleton(
             _NAMELESS_NAMES, _NAMELESS_REST, _NAMELESS_PAIRS, parents=_NAMELESS_PARENTS
         )
-        assert _infer_rest_up(skeleton) == _RestUp("+y", "leg_pair")
+        assert _infer_rest_up(skeleton, 0) == _RestUp("+y", "leg_pair")
 
     def test_the_legs_below_a_root_on_the_floor(self):
         # Root -> Hips -> legs, the root on the floor under the hips: the
-        # legs are the pair nearest the root, read from the hips they hang
-        # from, since the feet lie level with the root (a little forward,
-        # along +z).
+        # legs meet at the hips, the body anchor, and are read from them,
+        # since the feet lie level with the root (a little forward, along
+        # +z).
         names = ["Root", "Hips", "Waist", "LeftLeg", "LeftFoot", "RightLeg", "RightFoot"]
         rest = [
             [0.0, 0.0, 0.0],
@@ -169,14 +169,14 @@ class TestRestUp:
             [-2.0, 0.0, 1.0],
         ]
         skeleton = _skeleton(names, rest, [[3, 5]], parents=[-1, 0, 1, 1, 3, 1, 5])
-        assert _infer_rest_up(skeleton) == _RestUp("+y", "leg_pair")
+        assert _infer_rest_up(skeleton, 1) == _RestUp("+y", "leg_pair")
 
     def test_a_mapping_of_the_arms_alone_names_no_legs(self):
         # Both arms hang from the waist, one branch of the hips: no pair
         # splits across the hips' branches, so the largest spread answers
         # (the arm span, x), labelled as such.
         skeleton = _skeleton(_NAMELESS_NAMES, _NAMELESS_REST, [[3, 4]], parents=_NAMELESS_PARENTS)
-        assert _infer_rest_up(skeleton) == _RestUp("+x", "largest_spread")
+        assert _infer_rest_up(skeleton, 0) == _RestUp("+x", "largest_spread")
 
     def test_the_legs_whichever_pair_comes_first(self):
         # The arms first, then the feet, both pairs two bones from the root:
@@ -184,17 +184,17 @@ class TestRestUp:
         skeleton = _skeleton(
             _NAMELESS_NAMES, _NAMELESS_REST, [[3, 4], [6, 8]], parents=_NAMELESS_PARENTS
         )
-        assert _infer_rest_up(skeleton) == _RestUp("+y", "leg_pair")
+        assert _infer_rest_up(skeleton, 0) == _RestUp("+y", "leg_pair")
 
     def test_largest_spread_without_a_named_part_or_pairs(self):
         rest = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 7.0]])
-        assert _infer_rest_up(_skeleton(["Root", "A", "B"], rest)) == _RestUp(
+        assert _infer_rest_up(_skeleton(["Root", "A", "B"], rest), 0) == _RestUp(
             "+z", "largest_spread"
         )
 
     def test_none_on_a_degenerate_rest_pose(self):
-        assert _infer_rest_up(_skeleton(["Root"], np.zeros((1, 3)))) is None
-        assert _infer_rest_up(_skeleton(["Root", "Head"], np.ones((2, 3)))) is None
+        assert _infer_rest_up(_skeleton(["Root"], np.zeros((1, 3))), 0) is None
+        assert _infer_rest_up(_skeleton(["Root", "Head"], np.ones((2, 3))), 0) is None
 
 
 class TestWorldUpGuess:
@@ -211,39 +211,104 @@ class TestWorldUpGuess:
     def test_read_from_the_first_frame(self):
         # The T-pose lying on its back: the head along +z from the root.
         frame0 = _REST[:, [0, 2, 1]]
-        assert _infer_world_up(_skeleton(_NAMES, _REST), frame0) == ("+z", "first_frame")
+        assert _infer_world_up(_skeleton(_NAMES, _REST), 0, frame0) == ("+z", "first_frame")
 
     def test_a_first_frame_in_any_convention_wins_over_rest_up(self):
         frame0 = _REST.copy()
         frame0[:, 1] *= -1  # upside down
-        assert _infer_world_up(_skeleton(_NAMES, _REST), frame0) == ("-y", "first_frame")
+        assert _infer_world_up(_skeleton(_NAMES, _REST), 0, frame0) == ("-y", "first_frame")
 
     def test_an_ambiguous_first_frame_defers_to_rest_up(self):
         # The head 45 degrees off the vertical: no axis dominates twice over.
         frame0 = _REST.copy()
         frame0[2] = [5.0, 5.0, 0.0]
-        assert _infer_world_up(_skeleton(_NAMES, _REST), frame0) == ("+y", "rest_up")
+        assert _infer_world_up(_skeleton(_NAMES, _REST), 0, frame0) == ("+y", "rest_up")
 
     def test_without_frames_rest_up(self):
-        assert _infer_world_up(_skeleton(_NAMES, _REST), None) == ("+y", "rest_up")
+        assert _infer_world_up(_skeleton(_NAMES, _REST), 0, None) == ("+y", "rest_up")
 
     def test_without_a_named_part_rest_up_from_the_leg_pair(self):
         skeleton = _skeleton(
             _NAMELESS_NAMES, _NAMELESS_REST, _NAMELESS_PAIRS, parents=_NAMELESS_PARENTS
         )
         frame0 = np.asarray(_NAMELESS_REST)[:, [0, 2, 1]]
-        assert _infer_world_up(skeleton, frame0) == ("+y", "rest_up")
+        assert _infer_world_up(skeleton, 0, frame0) == ("+y", "rest_up")
 
     def test_without_a_named_part_or_pairs_rest_up_from_the_largest_spread(self):
         rest = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 7.0]])
         frame0 = rest[:, [2, 1, 0]]
-        assert _infer_world_up(_skeleton(["Root", "A", "B"], rest), frame0) == ("+z", "rest_up")
+        assert _infer_world_up(_skeleton(["Root", "A", "B"], rest), 0, frame0) == ("+z", "rest_up")
 
     def test_the_house_default_when_nothing_says_which_way_is_up(self):
-        assert _infer_world_up(_skeleton(["Root", "Tail"], np.zeros((2, 3))), np.zeros((2, 3))) == (
+        assert _infer_world_up(
+            _skeleton(["Root", "Tail"], np.zeros((2, 3))), 0, np.zeros((2, 3))
+        ) == (
             "+y",
             "default",
         )
+
+
+# A body under a reference root that lies far from it, along -z, and carries
+# a prop that lies farther still, along +x: the body stands along +y from
+# its hips (node 1), its legs hang from them, and a head joint lies on them.
+_REFERENCE_NAMES = ["Reference", "Hips", "Head", "Neck", "Waist", "Prop"]
+_REFERENCE_NAMES += ["LeftLeg", "LeftFoot", "RightLeg", "RightFoot"]
+_REFERENCE_REST = np.array(
+    [
+        [0.0, 0.0, -100.0],
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0],
+        [0.0, 8.0, 0.0],
+        [0.0, 5.0, 0.0],
+        [300.0, 0.0, -100.0],
+        [2.0, -1.0, 0.0],
+        [2.0, -9.0, 1.0],
+        [-2.0, -1.0, 0.0],
+        [-2.0, -9.0, 1.0],
+    ]
+)
+_REFERENCE_PARENTS = [-1, 0, 1, 2, 1, 0, 1, 6, 1, 8]
+_REFERENCE_LEGS = [[6, 8]]
+_HIPS = 1
+
+
+class TestUpFromTheBodyAnchor:
+    """Up read from the body anchor, not from the root: the head joint's
+    direction, the skip of a head joint lying on it, the legs that meet at
+    it, and frame 0's guess."""
+
+    def test_a_head_joint_lying_on_the_anchor_is_skipped(self):
+        # The head lies on the hips, the neck above them; from the root,
+        # far below along -z, the head would have a direction.
+        skeleton = _skeleton(_REFERENCE_NAMES, _REFERENCE_REST, parents=_REFERENCE_PARENTS)
+        assert _up_marker_index(skeleton, _HIPS) == 3
+
+    def test_rest_up_from_the_head_joint_measured_from_the_anchor(self):
+        # From the root the neck lies along +z (100 against 8).
+        skeleton = _skeleton(_REFERENCE_NAMES, _REFERENCE_REST, parents=_REFERENCE_PARENTS)
+        assert _infer_rest_up(skeleton, _HIPS) == _RestUp("+y", "named_joint")
+
+    def test_rest_up_from_the_legs_that_meet_at_the_anchor(self):
+        # No head name; the root carries a prop as well as the hips, so a
+        # walk down from the root would stop at the root, where the legs
+        # do not split, and the prop's spread along x would answer.
+        names = ["Reference", "Hips", "Crown", "Waist", "Prop"]
+        names += ["LeftLeg", "LeftFoot", "RightLeg", "RightFoot"]
+        skeleton = _skeleton(names, _REFERENCE_REST, _REFERENCE_LEGS, parents=_REFERENCE_PARENTS)
+        assert _infer_rest_up(skeleton, _HIPS) == _RestUp("+y", "leg_pair")
+
+    def test_a_pair_that_does_not_meet_at_the_anchor_is_not_read_as_the_legs(self):
+        # Both feet below one leg of the hips: the pair meets below the hips.
+        names = ["Reference", "Hips", "Crown", "Waist", "Prop"]
+        names += ["LeftLeg", "LeftFoot", "RightLeg", "RightFoot"]
+        parents = [-1, 0, 1, 2, 1, 0, 1, 6, 6, 8]
+        skeleton = _skeleton(names, _REFERENCE_REST, [[7, 9]], parents=parents)
+        assert _infer_rest_up(skeleton, _HIPS).source == "largest_spread"
+
+    def test_world_up_at_the_first_frame_from_the_anchor(self):
+        # Frame 0 is the rest pose: from the root, the neck lies along +z.
+        skeleton = _skeleton(_REFERENCE_NAMES, _REFERENCE_REST, parents=_REFERENCE_PARENTS)
+        assert _infer_world_up(skeleton, _HIPS, _REFERENCE_REST) == ("+y", "first_frame")
 
 
 class TestLrMappingFromNames:

@@ -1701,7 +1701,8 @@ class Bvh:
 
         Returned as a signed axis string (``'+y'``, ``'-z'``, etc.).
         Constant per file. Guessed from the first animation frame's
-        head-above-hips direction, with rest-pose topology as fallback.
+        direction from :attr:`body_anchor` to the head, with rest-pose
+        topology as fallback.
         Issues a ``UserWarning`` if the first frame and rest pose disagree,
         unless the clip (or the clip it derives from) was loaded with
         ``warn_on_world_up_disagreement=False``, and one if nothing says
@@ -1831,7 +1832,7 @@ class Bvh:
     def _guess_world_up(self) -> _WorldUpGuess:
         """Guess world up from this clip's own first frame and rest pose."""
         frame0 = self.node_positions(frame=0) if self.frame_count > 0 else None
-        return _infer_world_up(self._rest_skeleton(), frame0)
+        return _infer_world_up(self._rest_skeleton(), self._found_body_anchor().node, frame0)
 
     def _rest_skeleton(self) -> _RestSkeleton:
         """The skeleton in its rest pose, as the orientation module reads it."""
@@ -2075,25 +2076,24 @@ class Bvh:
     def rest_up(self) -> str | None:
         """The skeleton's own up axis, read from the rest pose alone.
 
-        Read-only. The main axis from the root to the first joint, in
-        node order, whose name holds ``head`` as a word, else ``neck``,
-        ``chest`` or ``spine``, in any case and after a ``foo:``
-        namespace or a ``.001`` suffix: ``Head``, ``mixamorig:Head``,
-        ``Bip01 Head`` and ``CC_Base_Head`` are heads, ``Forehead`` is
-        not. A joint that sits at the root is skipped, and end sites,
-        whose names are generated, are not read. Without such a joint,
-        the axis opposite the legs: the first pair of :attr:`lr_pairs`
-        split across two branches of the pelvis (the first node down
-        from the root with more than one child), read from the pelvis
-        to the far ends of those branches. Without such a pair either,
-        the axis along which the rest pose spreads most, a weak reading:
-        a T-pose wider than tall spreads most along its arms.
-        :attr:`orientation_report` says
+        Read-only. The main axis from :attr:`body_anchor` to the first
+        joint, in node order, whose name holds ``head`` as a word, else
+        ``neck``, ``chest`` or ``spine``, in any case and after a
+        ``foo:`` namespace or a ``.001`` suffix: ``Head``,
+        ``mixamorig:Head``, ``Bip01 Head`` and ``CC_Base_Head`` are
+        heads, ``Forehead`` is not. A joint that sits on the anchor is
+        skipped, and end sites, whose names are generated, are not read.
+        Without such a joint, the axis opposite the legs: the first pair
+        of :attr:`lr_pairs` that meets at the anchor, split across two of
+        its branches, read from the anchor to the far ends of those
+        branches. Without such a pair either, the axis along which the
+        rest pose spreads most, a weak reading: a T-pose wider than tall
+        spreads most along its arms. :attr:`orientation_report` says
         which, in ``rest_up_source``. The animation is never read.
         :attr:`world_up`'s guess reads the same joint.
 
         Contrast with :attr:`world_up`, which is *animation*-derived
-        (inferred from the first frame's head-above-hips direction). On
+        (inferred from the first frame's anchor-to-head direction). On
         clean files the two agree; when they disagree, the BVH was
         authored with the rest pose in one convention and animated in
         another, and :meth:`reorient_rest_up` can fix it in place.
@@ -2155,13 +2155,15 @@ class Bvh:
         than the clip's own; :attr:`orientation_report` holds the rest
         left of the clip's own mapping. Rest up is read with the same
         pairs, as it would be with *mapping* set: on a rig without a
-        named up joint it comes from them.
+        named up joint it comes from them, and from the body anchor those
+        pairs meet at.
         """
         pairs = _resolve_lr_pairs(mapping, self.node_index)
         skeleton = self._rest_skeleton()._replace(
             lr_pairs=np.asarray(pairs, dtype=np.intp).reshape(-1, 2)
         )
-        _rest_up, rest_left = _infer_rest_up_and_left(skeleton)
+        anchor = _find_body_anchor(skeleton)
+        _rest_up, rest_left = _infer_rest_up_and_left(skeleton, anchor.node)
         return rest_left
 
     @property

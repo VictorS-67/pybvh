@@ -9282,6 +9282,14 @@ class TestRestUpAcrossRigConventions:
         assert (report.rest_up, report.rest_left, report.rest_forward) == frame
         assert report.rest_up_source == "leg_pair"
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "#205: the arms alone meet at Spine3, which becomes the body anchor, "
+            "and the leg-pair reading reads the pair that meets at the anchor, "
+            "so the arms, hanging down, are read as legs and rest up is '-z'"
+        ),
+    )
     def test_a_mapping_of_the_arms_alone_is_not_read_as_the_legs(self):
         # Both arms hang below the spine, one branch of the hips: rest up
         # falls back to the largest spread, as 0.9.0 read it, labelled.

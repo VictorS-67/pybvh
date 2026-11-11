@@ -39,6 +39,12 @@ from pybvh.transforms import mirror
 CORPUS = Path(__file__).resolve().parent.parent / "bvh_data" / "synthetic"
 TWO_FIGURES = ["two_figures_moving_root.bvh", "two_figures_static_root.bvh"]
 TOES = ["LeftToeBase", "RightToeBase"]
+# The L/R pairs of the first figure alone: with them, the rule would find
+# a body, where the clip's own pairs find none.
+FIRST_FIGURE_PAIRS = {
+    f"Left{part}": f"Right{part}"
+    for part in ("Shoulder", "Arm", "ForeArm", "Hand", "UpLeg", "Leg", "Foot", "ToeBase")
+}
 
 
 def _read(name, **kwargs):
@@ -84,6 +90,8 @@ BODY_LEVEL = {
     "stride_length": lambda b: stride_length(b, TOES),
     "gait_parameters": lambda b: gait_parameters(b, TOES),
     "mirror": lambda b: mirror(b),
+    "mirror(lateral='x')": lambda b: mirror(b, lateral="x"),
+    "mirror, the pairs of one figure given": lambda b: mirror(b, lr_mapping=FIRST_FIGURE_PAIRS),
 }
 
 

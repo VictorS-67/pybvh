@@ -95,6 +95,23 @@ def test_the_mapping_in_effect_is_read():
     assert clip.orientation_report.body_anchor_source == "default"
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "reference_props_humanoid_6ch.bvh",
+        "reference_props_rotation_only.bvh",
+        "footsteps_humanoid_offset_6ch.bvh",
+    ],
+)
+def test_up_is_read_from_the_anchor_on_a_root_beside_the_body(name):
+    # The body stands along +y, as authored; the root carries props or
+    # lies at an offset, and read from it the head is along +z.
+    clip = _read(CORPUS / name)
+    report = clip.orientation_report
+    assert (clip.world_up, report.world_up_source) == ("+y", "first_frame")
+    assert clip.rest_up == "+y"
+
+
 class TestLifecycle:
     """Derived state (ADR 0003): found from the skeleton and the L/R mapping
     in effect, kept until one of them changes, never inherited."""

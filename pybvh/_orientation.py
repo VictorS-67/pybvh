@@ -90,7 +90,7 @@ if TYPE_CHECKING:
 _FALLBACK_FORWARD = {"y": "+z", "z": "+x", "x": "+y"}
 
 
-# The body parts whose direction from the root says which way is up, most
+# The body parts whose direction from the body anchor says which way is up, most
 # telling first.
 _UP_BODY_PARTS = ("head", "neck", "chest", "spine")
 
@@ -255,8 +255,8 @@ def _meeting_joint(
     return a
 
 
-def _up_marker_index(skeleton: _RestSkeleton) -> int | None:
-    """The node whose direction from the root says which way is up.
+def _up_marker_index(skeleton: _RestSkeleton, anchor: int) -> int | None:
+    """The node whose direction from the body anchor says which way is up.
 
     The one body-part lookup for "up", shared by the rest up and the
     world-up guess so the two read the same node: the first joint, in node
@@ -269,20 +269,23 @@ def _up_marker_index(skeleton: _RestSkeleton) -> int | None:
     prefixes its joints; a substring match would take ``Forehead``. End
     sites are not looked up: an end site's name is generated from its
     parent's and names no body part of its own. A joint whose rest
-    position coincides with the root's carries no direction and is
-    skipped, the root itself included.
+    position coincides with the anchor's carries no direction and is
+    skipped, the anchor itself included.
 
     Parameters
     ----------
     skeleton : _RestSkeleton
         The node names and the rest pose.
+    anchor : int
+        The body anchor's index (:func:`_find_body_anchor`), which the
+        directions are measured from.
 
     Returns
     -------
     int or None
         The node's index, or ``None`` when no node qualifies.
     """
-    local = skeleton.rest_positions - skeleton.rest_positions[0]
+    local = skeleton.rest_positions - skeleton.rest_positions[anchor]
     words = [
         set() if end_site else _name_words(name)
         for name, end_site in zip(skeleton.node_names, skeleton.is_end_site, strict=True)
@@ -313,64 +316,43 @@ class _RestUp(NamedTuple):
     source: _RestUpSource
 
 
-def _pelvis_branches(skeleton: _RestSkeleton) -> tuple[int, npt.NDArray[np.intp]] | None:
-    """The node the legs hang from, and which of its branches each node is in.
-
-    The pelvis is the first node, walking down from the root while a node
-    has a single joint child, with two or more joint children: the root
-    itself on a usual rig (``Hips`` -> legs and spine), ``Hips`` on a
-    ``Root`` -> ``Hips`` -> legs rig. End sites are not counted as children:
-    no joint of a pair lies below one.
-
-    Returns
-    -------
-    tuple of (int, ndarray of shape (N,)) or None
-        The pelvis's index, and for each node the index of the pelvis's
-        child whose subtree holds it (``-1`` for the pelvis and the nodes
-        above it); ``None`` when the walk ends without a branch.
-    """
-    parent_idx = skeleton.parent_idx
-    joint_children: list[list[int]] = [[] for _ in parent_idx]
-    for node in range(1, len(parent_idx)):
-        if not skeleton.is_end_site[node]:
-            joint_children[parent_idx[node]].append(node)
-    pelvis = 0
-    while len(joint_children[pelvis]) == 1:
-        pelvis = joint_children[pelvis][0]
-    if len(joint_children[pelvis]) < 2:
-        return None
-    branch = np.full(len(parent_idx), -1, dtype=np.intp)
-    # Parents precede children, so one pass in node order hands each node
-    # its parent's branch; a child of the pelvis starts its own.
-    for node in range(pelvis + 1, len(parent_idx)):
-        parent = parent_idx[node]
-        branch[node] = node if parent == pelvis else branch[parent]
-    return pelvis, branch
-
-
-def _up_from_leg_pair(skeleton: _RestSkeleton) -> str | None:
-    """Rest up opposite the legs: the L/R pair split across the pelvis.
+def _up_from_leg_pair(skeleton: _RestSkeleton, anchor: int) -> str | None:
+    """Rest up opposite the legs: the L/R pair that meets at the body anchor.
 
     The legs are the first L/R pair, in the mapping's order, whose two
-    joints lie in two different branches of the pelvis
-    (:func:`_pelvis_branches`), so a pair of arms, both below the spine,
-    is never read as the legs, and the legs are found whichever of their
-    joints the mapping names. Each leg's far end is the node of its
-    branch, end sites included, farthest from the pelvis, and up is the
-    main axis from the middle of the two far ends to the pelvis. Read from
-    the pelvis, not from the root: a root on the floor under the hips sits
-    level with the feet.
+    joints lie below two different children of the anchor, so a pair of
+    arms, both below the spine, is never read as the legs, and the legs
+    are found whichever of their joints the mapping names. Each leg's
+    branch is the anchor's child it lies below, with every node under
+    that child; its far end is the node of the branch, end sites
+    included, farthest from the anchor, and up is the main axis from the
+    middle of the two far ends to the anchor. Read from the anchor, not
+    from the root: a root on the floor under the hips sits level with
+    the feet, and a reference root may carry props beside the hips.
+
+    Parameters
+    ----------
+    skeleton : _RestSkeleton
+        The hierarchy, the rest pose and the pairs of the L/R mapping in
+        effect.
+    anchor : int
+        The body anchor's index (:func:`_find_body_anchor`).
 
     Returns
     -------
     str or None
-        The signed axis string, or ``None`` without a pair split across
-        the pelvis, or when the far ends coincide with the pelvis.
+        The signed axis string, or ``None`` without a pair that meets at
+        the anchor, or when the far ends coincide with the anchor.
     """
-    found = _pelvis_branches(skeleton)
-    if found is None:
-        return None
-    pelvis, branch = found
+    parent_idx = skeleton.parent_idx
+    # For each node, the anchor's child whose subtree holds it, -1 outside
+    # the anchor's subtree. Parents precede children, so one pass in node
+    # order hands each node its parent's branch; a child of the anchor
+    # starts its own.
+    branch = np.full(len(parent_idx), -1, dtype=np.intp)
+    for node in range(anchor + 1, len(parent_idx)):
+        parent = parent_idx[node]
+        branch[node] = node if parent == anchor else branch[parent]
     for left, right in skeleton.lr_pairs:
         left_branch, right_branch = int(branch[left]), int(branch[right])
         if left_branch >= 0 and right_branch >= 0 and left_branch != right_branch:
@@ -379,7 +361,7 @@ def _up_from_leg_pair(skeleton: _RestSkeleton) -> str | None:
         return None
 
     positions = skeleton.rest_positions
-    hip = positions[pelvis]
+    hip = positions[anchor]
     far_ends = []
     for leg in (left_branch, right_branch):
         below = np.flatnonzero(branch == leg)
@@ -388,22 +370,25 @@ def _up_from_leg_pair(skeleton: _RestSkeleton) -> str | None:
     return get_main_direction(hip - np.mean(far_ends, axis=0))
 
 
-def _infer_rest_up(skeleton: _RestSkeleton) -> _RestUp | None:
+def _infer_rest_up(skeleton: _RestSkeleton, anchor: int) -> _RestUp | None:
     """The skeleton's own up, read from the rest pose alone, with its source.
 
-    The main axis from the root to the node :func:`_up_marker_index`
-    finds; without one, the axis opposite the legs, the L/R pair split
-    across the pelvis (:func:`_up_from_leg_pair`); without such a pair, the
-    axis along which the rest pose spreads most, signed by the side its
-    nodes lie on. The largest spread is the weakest reading: a T-pose
-    wider than tall spreads most along its arms, and hips mid-body put
-    as much of it below the root as above.
+    The main axis from the body anchor to the node
+    :func:`_up_marker_index` finds; without one, the axis opposite the
+    legs, the L/R pair that meets at the anchor
+    (:func:`_up_from_leg_pair`); without such a pair, the axis along
+    which the rest pose spreads most, signed by the side of the anchor
+    its nodes lie on. The largest spread is the weakest reading: a
+    T-pose wider than tall spreads most along its arms, and hips
+    mid-body put as much of it below the anchor as above.
 
     Parameters
     ----------
     skeleton : _RestSkeleton
         The skeleton in its rest pose, with the pairs of the L/R mapping
         in effect.
+    anchor : int
+        The body anchor's index (:func:`_find_body_anchor`).
 
     Returns
     -------
@@ -412,15 +397,15 @@ def _infer_rest_up(skeleton: _RestSkeleton) -> _RestUp | None:
         when the rest pose carries no direction (a single node, or every
         node at one point).
     """
-    local = skeleton.rest_positions - skeleton.rest_positions[0]
-    marker = _up_marker_index(skeleton)
+    local = skeleton.rest_positions - skeleton.rest_positions[anchor]
+    marker = _up_marker_index(skeleton, anchor)
     if marker is not None:
         axis = get_main_direction(local[marker])
-        # The marker is chosen for having a direction from the root.
+        # The marker is chosen for having a direction from the anchor.
         assert axis is not None
         return _RestUp(axis, "named_joint")
 
-    leg_pair_up = _up_from_leg_pair(skeleton)
+    leg_pair_up = _up_from_leg_pair(skeleton, anchor)
     if leg_pair_up is not None:
         return _RestUp(leg_pair_up, "leg_pair")
 
@@ -428,7 +413,7 @@ def _infer_rest_up(skeleton: _RestSkeleton) -> _RestUp | None:
     if float(np.max(spread)) < _MIN_REST_SPREAD:
         return None  # degenerate rest pose: all joints coincide
     up_idx = int(np.argmax(spread))
-    # The sign of the mean: the side of the root most of the body lies on.
+    # The sign of the mean: the side of the anchor most of the body lies on.
     sign = "+" if np.mean(local[:, up_idx]) >= 0 else "-"
     return _RestUp(sign + "xyz"[up_idx], "largest_spread")
 
@@ -886,7 +871,9 @@ def _infer_rest_left(
     return get_main_direction(avg_leftward)
 
 
-def _infer_rest_up_and_left(skeleton: _RestSkeleton) -> tuple[_RestUp | None, str | None]:
+def _infer_rest_up_and_left(
+    skeleton: _RestSkeleton, anchor: int
+) -> tuple[_RestUp | None, str | None]:
     """Rest up and rest left, both read with the skeleton's own L/R pairs.
 
     Without a named up joint, rest up is read from the pairs (the leg
@@ -894,7 +881,8 @@ def _infer_rest_up_and_left(skeleton: _RestSkeleton) -> tuple[_RestUp | None, st
     rest up of another's mixes two skeletons' frames. Every reader of
     rest left goes through here: the orientation report with the pairs of
     the mapping in effect, :func:`~pybvh.transforms.mirror` with those
-    of the mapping it mirrors with.
+    of the mapping it mirrors with. *anchor* is the body anchor's index
+    (:func:`_find_body_anchor`), which rest up is read from.
 
     Returns
     -------
@@ -902,7 +890,7 @@ def _infer_rest_up_and_left(skeleton: _RestSkeleton) -> tuple[_RestUp | None, st
         :func:`_infer_rest_up`'s reading and :func:`_infer_rest_left`'s
         against its axis.
     """
-    rest_up = _infer_rest_up(skeleton)
+    rest_up = _infer_rest_up(skeleton, anchor)
     rest_up_axis = None if rest_up is None else rest_up.axis
     return rest_up, _infer_rest_left(skeleton.rest_positions, skeleton.lr_pairs, rest_up_axis)
 
@@ -958,8 +946,8 @@ def _warn_rest_forward_defaulted(rest_forward: str, rest_up: str | None) -> None
 class _WorldUpGuess(NamedTuple):
     """A guessed world up and what it was read from.
 
-    ``source`` is ``"first_frame"`` (the up marker above the root at
-    frame 0), ``"rest_up"`` (the first frame could not decide, so the
+    ``source`` is ``"first_frame"`` (the up marker above the body anchor
+    at frame 0), ``"rest_up"`` (the first frame could not decide, so the
     skeleton's own up stands in) or ``"default"`` (neither said
     anything: the house up).
     """
@@ -969,7 +957,7 @@ class _WorldUpGuess(NamedTuple):
 
 
 # Frame 0 decides world up when the largest component of its
-# marker-above-root direction is at least this many times the second; below
+# marker-above-anchor direction is at least this many times the second; below
 # it the direction has no clear main axis (a torso bent or leaning far from
 # every axis), and the frame is ambiguous. A straight horizontal pose with
 # its head near a horizontal axis decides, on that axis.
@@ -991,11 +979,12 @@ def _dominant_axis(direction: npt.NDArray[np.float64]) -> str | None:
 
 def _infer_world_up(
     skeleton: _RestSkeleton,
+    anchor: int,
     frame0_positions: npt.NDArray[np.float64] | None,
 ) -> _WorldUpGuess:
     """Guess world up from a clip's first frame, with its source.
 
-    The direction from the root to the up marker (:func:`_up_marker_index`,
+    The direction from the body anchor to the up marker (:func:`_up_marker_index`,
     the node rest up reads) at frame 0, snapped to its main axis, when
     its largest component is at least twice the second. Otherwise (no
     frame, no marker, an ambiguous frame-0 pose) the skeleton's own up
@@ -1008,6 +997,8 @@ def _infer_world_up(
     ----------
     skeleton : _RestSkeleton
         The skeleton the clip animates, in its rest pose.
+    anchor : int
+        The body anchor's index (:func:`_find_body_anchor`).
     frame0_positions : ndarray of shape (N, 3) or None
         The node positions at frame 0, ``None`` for a clip without frames.
 
@@ -1015,13 +1006,13 @@ def _infer_world_up(
     -------
     _WorldUpGuess
     """
-    marker = _up_marker_index(skeleton)
+    marker = _up_marker_index(skeleton, anchor)
     if frame0_positions is not None and marker is not None:
-        frame_up = _dominant_axis(frame0_positions[marker] - frame0_positions[0])
+        frame_up = _dominant_axis(frame0_positions[marker] - frame0_positions[anchor])
         if frame_up is not None:
             return _WorldUpGuess(frame_up, "first_frame")
 
-    rest_up = _infer_rest_up(skeleton)
+    rest_up = _infer_rest_up(skeleton, anchor)
     if rest_up is not None:
         return _WorldUpGuess(rest_up.axis, "rest_up")
     return _WorldUpGuess(_HOUSE_UP, "default")
@@ -1058,7 +1049,7 @@ def _warn_world_up_disagreement(rest_up: str, frame_up: str) -> None:
     # them apart, so the warning names both.
     warnings.warn(
         f"Rest pose suggests world up is {rest_up!r} but at the first "
-        f"animation frame the direction from the root to the head joint "
+        f"animation frame the direction from the body anchor to the head joint "
         f"(else the neck, chest or spine) is closer to {frame_up!r}. "
         f"Using {frame_up!r} from the animation data. Either the rest pose "
         f"is authored in another convention than the motion, and "
@@ -1126,7 +1117,7 @@ def _warn_rest_up_contradicted_by_root(rest_up: str, carried: str) -> None:
     # than the motion it is wrong.
     warnings.warn(
         f"World up fell back on the rest pose's up {rest_up!r}: at the "
-        f"first animation frame the direction from the root to the head "
+        f"first animation frame the direction from the body anchor to the head "
         f"joint (else the neck, chest or spine) does not decide it. But "
         f"the root's rotation at that frame carries the rest pose's up "
         f"onto {carried!r}, so the rest pose may be authored in another "
@@ -1174,16 +1165,14 @@ class OrientationReport:
         rest pose carries no direction (a single node, or every node at
         one point).
     rest_up_source : {"named_joint", "leg_pair", "largest_spread"} or None
-        ``"named_joint"``: the main axis from the root to the first
-        joint whose name holds ``head`` as a word, else ``neck``,
+        ``"named_joint"``: the main axis from the body anchor to the
+        first joint whose name holds ``head`` as a word, else ``neck``,
         ``chest`` or ``spine`` (``Head``, ``mixamorig:Head``, ``Bip01
         Head``; not ``Forehead``).
         ``"leg_pair"``: no such joint, so the axis opposite the legs:
-        from the far ends of the two branches of the pelvis (the first
-        node down from the root with more than one child) that an L/R
-        pair is split across, to the pelvis. ``"largest_spread"``: no
-        such pair either,
-        so the axis along which the rest pose spreads most, signed by
+        from the far ends of the two branches of the body anchor that
+        an L/R pair is split across, to the anchor.
+        ``"largest_spread"``: no such pair either, so the axis along which the rest pose spreads most, signed by
         the side most of the body lies on, a weak reading (wrong in axis
         on a T-pose wider than tall, in sign when the hips sit
         mid-body). ``None`` with ``rest_up``.
@@ -1293,7 +1282,7 @@ def _build_orientation_report(
         world_up_axis, world_up_source = world_up
     else:
         world_up_axis, world_up_source = world_up, "set"
-    rest_up, rest_left = _infer_rest_up_and_left(skeleton)
+    rest_up, rest_left = _infer_rest_up_and_left(skeleton, body_anchor.node)
     rest_up_axis = None if rest_up is None else rest_up.axis
     return OrientationReport(
         rest_up=rest_up_axis,

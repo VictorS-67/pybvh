@@ -50,10 +50,11 @@ _CLEARED_BY: Final[dict[str, frozenset[_Change]]] = {
     # changes which way is up but reorient_world_up, which sets the axis
     # as an override and turns the guess with the frames (ADR 0003,
     # decision 3). The user setting the L/R mapping starts the clip's own
-    # guess again: on a rig with no up marker it is read from rest up,
-    # which is read from the legs of the mapping. A guess from the first
-    # frame or the house default does not read the mapping, so the guess
-    # made again is the same one. The inherited guess stays, as it does
+    # guess again: it is read from the body anchor, which is found from
+    # the pairs of the mapping, and on a rig with no up marker from rest
+    # up, which is read from the legs of the mapping. Where the anchor
+    # stays, a guess from the first frame or the house default is made
+    # again the same. The inherited guess stays, as it does
     # through a skeleton change: copy(nodes=), extract_joints and
     # unpickling set the mapping on a clip that has just inherited it.
     "inferred_world_up": frozenset({_Change.USER_REPLACED_MOTION, _Change.LR_MAPPING_SETTING}),

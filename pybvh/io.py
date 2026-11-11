@@ -9,7 +9,7 @@ Public functions:
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from fractions import Fraction
 from itertools import chain
 from pathlib import Path
@@ -363,6 +363,22 @@ def _rate_with_fewest_decimals(low: Fraction, high: Fraction) -> Fraction | None
     return None
 
 
+def _count_roots_left(lines: Iterable[str]) -> int:
+    """The ``ROOT`` lines left in *lines*, up to ``MOTION`` or their end.
+
+    Reads *lines* on, so the caller stops reading the file after it.
+    """
+    roots = 0
+    for raw_line in lines:
+        words = raw_line.split()
+        if not words:
+            continue
+        if words[0] == "MOTION":
+            break
+        roots += words[0] == "ROOT"
+    return roots
+
+
 def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
     """Extract node hierarchy, frame data, and frame time from a BVH file.
 
@@ -407,9 +423,11 @@ def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
                         f"{token} without a name at line {line_number} in file {filepath}"
                     )
                 if token == "ROOT" and table:
+                    hierarchies = 2 + _count_roots_left(f)
                     raise ValueError(
                         f"Second ROOT '{name}' at line {line_number} in file "
-                        f"{filepath}: pybvh models single-root skeletons only"
+                        f"{filepath}: the file holds {hierarchies} hierarchies "
+                        f"(ROOT blocks), and a Bvh holds one"
                     )
                 if token == "JOINT" and not open_rows:
                     raise ValueError(

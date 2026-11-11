@@ -425,25 +425,34 @@ class TestReaderSyntaxErrors:
         bvh = read_bvh_file(self._write(tmp_path, self._hips_block()))
         assert [n.name for n in bvh.nodes] == ["Hips", "Spine", "EndSiteSpine"]
 
+    @staticmethod
+    def _other_root(name):
+        return [
+            f"ROOT {name}",
+            "{",
+            "  OFFSET 0 0 0",
+            "  CHANNELS 6 Xposition Yposition Zposition Zrotation Yrotation Xrotation",
+            "}",
+        ]
+
     def test_second_root(self, tmp_path):
-        path = self._write(
-            tmp_path,
-            [
-                *self._hips_block(),
-                "ROOT Other",
-                "{",
-                "  OFFSET 0 0 0",
-                "  CHANNELS 6 Xposition Yposition Zposition Zrotation Yrotation Xrotation",
-                "}",
-            ],
-        )
+        path = self._write(tmp_path, [*self._hips_block(), *self._other_root("Other")])
         with pytest.raises(
             ValueError,
             match=re.escape(
-                f"Second ROOT 'Other' at line 16 in file {path}: "
-                f"pybvh models single-root skeletons only"
+                f"Second ROOT 'Other' at line 16 in file {path}: the file holds 2 "
+                f"hierarchies (ROOT blocks), and a Bvh holds one"
             ),
         ):
+            read_bvh_file(path)
+
+    def test_second_root_counts_every_hierarchy_of_the_file(self, tmp_path):
+        """The count covers the ROOT blocks after the second one too."""
+        path = self._write(
+            tmp_path,
+            [*self._hips_block(), *self._other_root("Other"), *self._other_root("Third")],
+        )
+        with pytest.raises(ValueError, match=re.escape("the file holds 3 hierarchies")):
             read_bvh_file(path)
 
     def test_joint_outside_root(self, tmp_path):

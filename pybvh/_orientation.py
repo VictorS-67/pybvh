@@ -1181,7 +1181,7 @@ def _infer_world_up(
     (:func:`_infer_rest_up`) stands in, and without one the house up
     ``'+y'``. Returns the guess silently: the reader of world up warns
     (:func:`_warn_world_up_defaulted`, :func:`_warn_world_up_disagreement`,
-    :func:`_warn_rest_up_contradicted_by_root`).
+    :func:`_warn_rest_up_contradicted_by_anchor`).
 
     Parameters
     ----------
@@ -1261,7 +1261,7 @@ def _world_up_disagrees(guess: _WorldUpGuess, rest_up: str | None) -> bool:
     return guess.source == "first_frame" and rest_up is not None and rest_up[1] != guess.axis[1]
 
 
-def _root_contradicts_rest_up(
+def _anchor_contradicts_rest_up(
     guess: _WorldUpGuess, anchor_rotation: npt.NDArray[np.float64] | None
 ) -> str | None:
     """The axis the body anchor's world rotation at frame 0 carries rest up
@@ -1300,7 +1300,7 @@ def _root_contradicts_rest_up(
     return carried
 
 
-def _warn_rest_up_contradicted_by_root(rest_up: str, carried: str) -> None:
+def _warn_rest_up_contradicted_by_anchor(rest_up: str, carried: str) -> None:
     """Warn that world up fell back on rest up while the body anchor's world
     rotation at frame 0 carries rest up onto another axis."""
     # The fallback is otherwise silent: the report's "rest_up" source is

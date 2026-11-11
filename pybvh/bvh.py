@@ -30,6 +30,7 @@ from . import rotations
 from ._derived import DerivedState as _DerivedState
 from ._orientation import (
     OrientationReport,
+    _anchor_contradicts_rest_up,
     _BodyAnchor,
     _build_orientation_report,
     _detect_lr_mapping_by_names,
@@ -45,13 +46,12 @@ from ._orientation import (
     _resolve_lr_pairs,
     _resolve_node_lr_pairs,
     _RestSkeleton,
-    _root_contradicts_rest_up,
     _size_reference,
     _warn_facing_defaulted_at_frames,
     _warn_facing_defaulted_no_pairs,
     _warn_facing_defaulted_on_pose,
     _warn_rest_forward_defaulted,
-    _warn_rest_up_contradicted_by_root,
+    _warn_rest_up_contradicted_by_anchor,
     _warn_world_up_defaulted,
     _warn_world_up_disagreement,
     _world_up_disagrees,
@@ -1933,9 +1933,9 @@ class Bvh:
             _warn_world_up_disagreement(rest_up, guess.axis)
         else:
             anchor_rotation = self._body_anchor_rotmats([0])[0] if self.frame_count > 0 else None
-            carried = _root_contradicts_rest_up(guess, anchor_rotation)
+            carried = _anchor_contradicts_rest_up(guess, anchor_rotation)
             if carried is not None:
-                _warn_rest_up_contradicted_by_root(guess.axis, carried)
+                _warn_rest_up_contradicted_by_anchor(guess.axis, carried)
 
     @property
     def world_up_axis(self) -> Axis:

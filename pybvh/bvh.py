@@ -1657,7 +1657,7 @@ class Bvh:
         root is left to guess on first read: it has no frame to guess
         from, and a lone root warns that it falls back to ``'+y'``.
         """
-        if self.frame_count > 0 and len(self.nodes) > 1:
+        if self.frame_count > 0 and len(self.nodes) > 1 and self._has_body():
             _ = self.world_up
 
     def _rotate_world_up_guess(self, rotation: npt.NDArray[np.float64]) -> None:
@@ -1764,7 +1764,9 @@ class Bvh:
         Returned as a signed axis string (``'+y'``, ``'-z'``, etc.).
         Constant per file. Guessed from the first animation frame's
         direction from :attr:`body_anchor` to the head, with rest-pose
-        topology as fallback.
+        topology as fallback. On a clip with no body
+        (:attr:`body_anchor` ``None``) the guess raises ``ValueError``
+        until you set the axis or name the anchor.
         Issues a ``UserWarning`` if the first frame and rest pose disagree,
         unless the clip (or the clip it derives from) was loaded with
         ``warn_on_world_up_disagreement=False``, and one if nothing says
@@ -1847,6 +1849,9 @@ class Bvh:
         are lost on write→read round trips and must be re-applied.
         """
         report = self.orientation_report
+        if report.world_up is None:
+            # No body, and nothing set or inherited: the guess refuses.
+            return self._guess_world_up().axis
         derived = self._derived
         # A guess of this clip's own warns on the first read of the axis it
         # gave, once; an inherited guess warned on the clip it was made on.
@@ -1896,10 +1901,9 @@ class Bvh:
 
     def _guess_world_up(self) -> _WorldUpGuess:
         """Guess world up from this clip's own first frame and rest pose."""
+        anchor = self._body_anchor_index()
         frame0 = self.node_positions(frame=0) if self.frame_count > 0 else None
-        return _infer_world_up(
-            self._rest_skeleton(), self._found_body_anchor().node_or_root, frame0
-        )
+        return _infer_world_up(self._rest_skeleton(), anchor, frame0)
 
     def _rest_skeleton(self) -> _RestSkeleton:
         """The skeleton in its rest pose, as the orientation module reads it."""
@@ -2077,12 +2081,16 @@ class Bvh:
         """Gather the report's inputs and build it."""
         derived = self._derived
         world_up_inherited = False
-        world_up: str | _WorldUpGuess
+        world_up: str | _WorldUpGuess | None
         if self._world_up_override is not None:
             world_up = self._world_up_override
         elif derived.inherited_world_up is not None:
             world_up = derived.inherited_world_up
             world_up_inherited = True
+        elif not self._has_body():
+            # The guess is body-level: it refuses a clip with no body, and
+            # the report does not.
+            world_up = None
         else:
             # Guessed silently: the guess's warnings are world_up's to give
             # when the axis is read, not this report's.
@@ -2155,6 +2163,24 @@ class Bvh:
         carries it when the joint is kept. A derived clip that no longer
         holds the joint drops the setting and uses the rule.
 
+        **A clip with no body.** When the anchor is ``None``, every
+        body-level operation raises ``ValueError``, naming the candidates
+        and the way out, ``bvh.body_anchor = ...``: the world-up guess,
+        :attr:`rest_up`, :attr:`rest_forward` and
+        :attr:`has_lr_geometry`, the facing (:meth:`forward_at`,
+        :meth:`left_at`, :meth:`facing_frame`), :meth:`root_trajectory`,
+        the ``centered="skeleton"`` and ``"first"`` modes,
+        :meth:`auto_detect_feet`, :meth:`foot_contacts`,
+        :meth:`skeleton_size`, the gait descriptors and :meth:`mirror`.
+        The operations that treat all nodes alike work as on any clip:
+        reading, writing, forward kinematics, the derivatives, slicing,
+        concatenation, :meth:`resample`, the Euler orders,
+        :meth:`scale`, :meth:`extract_joints` and the bounding volumes.
+        The scene ground (:attr:`floor_height`) and drawing read world
+        up, whose guess is body-level: they work once :attr:`world_up`
+        is set or the anchor named. Reading the anchor,
+        :attr:`orientation_report` and :attr:`lr_mapping` never raises.
+
         Raises
         ------
         TypeError
@@ -2211,7 +2237,7 @@ class Bvh:
         every node below it, started higher when a head or a foot name is
         missing below it (:func:`~pybvh._orientation._find_body`). Every
         node on a clip with no body: the body read from the root."""
-        return _find_body(self._rest_skeleton(), self._found_body_anchor().node_or_root)
+        return _find_body(self._rest_skeleton(), self._body_anchor_index())
 
     def _size_reference(self, feet: Sequence[int]) -> int:
         """The node index the sizes of *feet* (node indices) are read from.
@@ -2262,7 +2288,7 @@ class Bvh:
             when the rest pose is degenerate (single-node skeletons or
             all-zero offsets) and carries no directional information.
         """
-        return self.orientation_report.rest_up
+        return self._body_orientation().rest_up
 
     @property
     def rest_forward(self) -> str:
@@ -2301,7 +2327,8 @@ class Bvh:
             Signed axis string (e.g. ``'+z'``, ``'-x'``), perpendicular to
             :attr:`rest_up`.
         """
-        report = self.orientation_report
+        report = self._body_orientation()
+        assert report.rest_forward is not None  # a clip with a body has one
         if report.rest_forward_source == "default":
             _warn_rest_forward_defaulted(report.rest_forward, report.rest_up)
         return report.rest_forward
@@ -2321,8 +2348,10 @@ class Bvh:
         skeleton = self._rest_skeleton()._replace(
             lr_pairs=np.asarray(pairs, dtype=np.intp).reshape(-1, 2)
         )
-        anchor = _find_body_anchor(skeleton)
-        _rest_up, rest_left = _infer_rest_up_and_left(skeleton, anchor.node_or_root)
+        anchor = self._body_anchor_index(
+            None if self._body_anchor_setting is not None else _find_body_anchor(skeleton)
+        )
+        _rest_up, rest_left = _infer_rest_up_and_left(skeleton, anchor)
         return rest_left
 
     @property
@@ -2472,7 +2501,7 @@ class Bvh:
         rest_forward : The axis whose fallback this reports.
         lr_mapping : The pairs the measurement is derived from.
         """
-        return self.orientation_report.rest_forward_source == "lr_geometry"
+        return self._body_orientation().rest_forward_source == "lr_geometry"
 
     @property
     def lr_pairs(self) -> list[tuple[int, int]] | None:
@@ -2674,7 +2703,7 @@ class Bvh:
         heading stage is skipped. Returns ``(forward, left, up, valid)``.
         """
         world_up = self.world_up
-        report = self.orientation_report
+        report = self._body_orientation()
         lr_pairs = self._facing_lr_pairs()
         anchor_rotmats = rest_forward = None
         if frames is not None and lr_pairs.shape[0] > 0:
@@ -2704,15 +2733,52 @@ class Bvh:
         # The per-joint form, which reads a static root's order '' as the identity.
         return rotations.euler_to_rotmat(joint_angles[frames, :1], [_euler_order(self.root)])[:, 0]
 
-    def _body_anchor_index(self) -> int:
+    def _body_anchor_index(self, anchor: _BodyAnchor | None = None) -> int:
         """The node index of :attr:`body_anchor`, for the readers that describe the body.
 
-        The one way the body-level readers reach the anchor: the travel
-        (:meth:`_body_anchor_positions`), the heading
-        (:meth:`_body_anchor_rotmats`) and the ``centered`` modes. The
-        root on a clip with no body.
+        The one way the body-level readers reach the anchor and the body:
+        the world-up guess, rest up, rest left and rest forward (through
+        :meth:`_body_orientation`), the body (:meth:`_in_body`) and so the
+        feet, the sizes (:meth:`_size_reference`), the travel
+        (:meth:`_body_anchor_positions`), the heading and the facing
+        (:meth:`_body_anchor_rotmats`) and the ``centered`` modes. Raises
+        ``ValueError`` on a clip with no body, naming the candidates and
+        ``bvh.body_anchor = ...``, so no reader has a check of its own.
+
+        *anchor* is the one to read in place of the clip's
+        (:meth:`_found_body_anchor`): ``mirror`` reads rest left for a
+        mapping that may not be the clip's.
         """
-        return self._found_body_anchor().node_or_root
+        if anchor is None:
+            anchor = self._found_body_anchor()
+        if anchor.node is None:
+            names = [self._nodes[i].name for i in anchor.candidates]
+            listed = ", ".join(repr(name) for name in names[:-1]) + f" and {names[-1]!r}"
+            raise ValueError(
+                f"This clip has no body: its hierarchy holds several figures of "
+                f"comparable size, whose body anchors would be {listed}. Name the "
+                f"one to describe, for example `bvh.body_anchor = {names[0]!r}`, "
+                f"or pass `body_anchor=` to read_bvh_file."
+            )
+        return anchor.node
+
+    def _has_body(self) -> bool:
+        """Whether the clip has a body: :attr:`body_anchor` is not ``None``.
+
+        For the operations that leave a body-level part out on a clip with
+        no body, where the readers raise: the world-up guess at load.
+        """
+        return self._found_body_anchor().node is not None
+
+    def _body_orientation(self) -> OrientationReport:
+        """:attr:`orientation_report`, for a reader of the body's facts.
+
+        Rest up, rest left and rest forward are read from the body; the
+        report holds ``None`` for them on a clip with no body, where this
+        raises through :meth:`_body_anchor_index`.
+        """
+        self._body_anchor_index()
+        return self.orientation_report
 
     def _body_anchor_positions(self) -> npt.NDArray[np.float64]:
         """The body anchor's world position per frame, shape ``(F, 3)``, read-only.
@@ -2920,8 +2986,8 @@ class Bvh:
             )
         actual = frame if frame >= 0 else frame + self.frame_count
         motion = self._motion()
-        anchor = self._body_anchor_index()
-        if anchor != 0 and centered != "world":
+        anchor = 0 if centered == "world" else self._body_anchor_index()
+        if anchor != 0:
             # Centred on the anchor's row of the frame's world positions.
             if self._derived.node_positions is not None:
                 world_frame = self._derived.node_positions[actual]

@@ -59,7 +59,7 @@ CLEARED_BY = {
     # mapping change. The anchor the rule finds stays: it reads the
     # hierarchy and the L/R mapping only, and the setting is read ahead of
     # it.
-    "body_anchor_changed": GUESSED_HERE | REPORT,
+    "body_anchor_changed": {"inferred_world_up", "floor_height", "orientation_report"},
 }
 
 

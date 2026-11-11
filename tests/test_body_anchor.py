@@ -96,17 +96,6 @@ def test_two_figures_under_a_static_root_give_no_body():
     assert [node.name for node in report.body_anchor_candidates] == ["Hips", "Hips_2"]
 
 
-def test_the_readers_read_the_root_of_a_clip_with_no_body():
-    # Until the body-level readers refuse a clip with no body, they read
-    # its root: the travel is the root's, so centring on it puts the root
-    # at the origin.
-    clip = _read(CORPUS / "two_figures_moving_root.bvh")
-    assert (clip.world_up, clip.rest_up) == ("+y", "+y")
-    np.testing.assert_array_equal(clip.node_positions(centered="skeleton")[:, 0], 0.0)
-    trajectory = clip.root_trajectory()
-    assert trajectory.shape[0] == clip.frame_count
-
-
 def test_a_helper_pair_beside_the_body_is_the_second_candidate():
     clip = _read(CORPUS / "helper_pair_moving_root.bvh")
     assert clip.body_anchor.name == "Hips"

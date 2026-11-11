@@ -505,8 +505,22 @@ def _detect_lr_mapping_by_names(joint_names: Sequence[str]) -> dict[str, str]:
     3. Prefix ``L*`` / ``R*`` followed by an uppercase letter — handles
        ``LArm`` / ``RArm``.
 
-    Mutual-match requirement: both halves must exist as joint names.
-    Singletons are not paired.
+    The rules of ``_LR_NAME_RULES`` follow, each in its own pass over
+    the names the earlier rules left unpaired, so they cannot change a
+    pair the three above give:
+
+    4. A side word of its own, ``l``, ``r``, ``left`` or ``right`` in
+       any case, between ``.``, ``_`` or spaces — ``b_l_upleg``,
+       ``L_legUpper0001_bind_JNT``, ``Bip01 L Thigh``; the partner swaps
+       that word in the same case.
+    5. ``左`` / ``右`` as the first character — ``左足`` / ``右足``.
+    6. A lowercase ``l`` / ``r`` before an uppercase letter — ``lThigh``.
+    7. A lowercase ``l`` / ``r`` with no delimiter — ``lfemur``. Counted
+       only when it gives ``_MIN_BARE_PREFIX_PAIRS`` pairs or more.
+
+    A name is paired by the first rule that pairs it. Mutual-match
+    requirement: both halves must exist as joint names. Singletons are
+    not paired.
 
     Returns ``{}`` if no pairs detected. See ``bvh.lr_mapping`` for the
     public API that wraps this function.

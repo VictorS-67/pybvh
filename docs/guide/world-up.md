@@ -167,7 +167,7 @@ The direction is derived from actual joint positions. pybvh averages the L/R joi
 
 bvhplot's camera auto-orientation and follow mode use it internally.
 
-`forward_at()` reads the L/R pair list from `bvh.lr_mapping`. If your skeleton's joint names don't follow the expected conventions (`Left*`/`Right*`, `.L`/`.R`, `_l`/`_r`, `mixamorig:` namespace, `.001` numbered duplicates), `bvh.lr_mapping` will be `None`, and `orientation_report.lr_mapping_source` is `None`. Then `forward_at()` falls back to a house default, with a warning. The house default is an arbitrary-but-stable horizontal axis for `world_up`. To get a meaningful forward, set the mapping explicitly. The [Augmentation guide](augmentation.md#lr-pair-detection) gives the override patterns.
+`forward_at()` reads the L/R pair list from `bvh.lr_mapping`. If your skeleton's joint names don't follow one of the conventions the [Augmentation guide](augmentation.md#lr-pair-detection) lists (`LeftArm`, `arm.L`, `LArm`, `b_l_upleg`, `左足`, `lThigh`, `lfemur`, and others), `bvh.lr_mapping` will be `None`, and `orientation_report.lr_mapping_source` is `None`. Then `forward_at()` falls back to a house default, with a warning. The house default is an arbitrary-but-stable horizontal axis for `world_up`. To get a meaningful forward, set the mapping explicitly. The [Augmentation guide](augmentation.md#lr-pair-detection) gives the override patterns.
 
 ## left_at(frame)
 

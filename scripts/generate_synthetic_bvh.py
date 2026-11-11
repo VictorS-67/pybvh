@@ -6,7 +6,8 @@ publicly documented rigs and exporters (a static reference root above the
 body, a Biped-style root with a Footsteps node, an all-six-channel humanoid
 with detailed hands, a quadruped with tail chains, Blender's 3/6-channel
 split, a helper pair beside the body, two figures under one root, limbs
-with no left/right names), but every offset and motion value is authored
+with no left/right names, Blender's ``CHANNELS 0`` root above several
+parentless bones), but every offset and motion value is authored
 in this file.
 No number is copied from a third-party dataset. The corpus exists so that
 pybvh has small, redistributable examples of BVH conventions its bundled
@@ -30,7 +31,8 @@ Run from the repository root::
 ``--check`` re-parses every written file with an independent minimal parser
 and verifies: one ROOT, balanced braces, motion width equal to the declared
 channel count on every row, exactly five frames, rigid six-channel joints
-carrying their OFFSET verbatim in every frame, the root's position order,
+carrying their OFFSET verbatim in every frame, the root's position order
+(or no channel at all, a static root),
 and that the recorded body anchor names a joint of the file, or is None
 for a clip with no body.
 
@@ -51,7 +53,7 @@ from pathlib import Path
 
 from audit_synthetic_bvh import audit
 
-GENERATOR_VERSION = "2.5.0"
+GENERATOR_VERSION = "2.6.0"
 
 # Corpus files another script writes: the audit's inventory accepts them, and
 # their own generator, not this manifest, pins their bytes.
@@ -326,6 +328,14 @@ def all_six(j: Joint, is_root: bool) -> tuple:
 
 def root_only(j: Joint, is_root: bool) -> tuple:
     return POS + ROT_ZXY if is_root else ROT_ZXY
+
+
+def static_root(j: Joint, is_root: bool) -> tuple:
+    """Blender's exporter: ``CHANNELS 0`` on the root, six channels on each
+    of its children, three below."""
+    if is_root:
+        return ()
+    return POS + ROT_ZXY if j.name.startswith("Hips") else ROT_ZXY
 
 
 def profiles() -> list[Profile]:
@@ -771,6 +781,56 @@ def profiles() -> list[Profile]:
         )
     )
 
+    # 16. IK targets as extra trees: Blender's static root __0 above three
+    # parentless bones, a left and a right foot IK target and the hips. The
+    # targets' pair meets at the static root, but each target is a tree of
+    # its own: the hips' tree is the largest and is kept.
+    root = Joint("__0", (0.0, 0.0, 0.0))
+    for side, sx in (("Left", 1.0), ("Right", -1.0)):
+        target = root.add(Joint(f"{side}FootIK", (sx * 9.0, 6.0, 13.0)))
+        target.end_site = (0.0, 0.0, 7.0)
+    humanoid_body(root.add(Joint("Hips", (0.0, 95.0, 0.0))))
+    set_layout(root, static_root)
+    m = Motion(SEED + 13)
+    m.pos_override["Hips"] = travel((0.0, 95.0, 0.0))
+    out.append(
+        Profile(
+            "ik_targets_static_root",
+            root,
+            m,
+            DEFAULT_FRAME_TIME,
+            "Y",
+            "static root (CHANNELS 0) above three parentless bones: a left and a right foot IK target and the travelling hips; the targets' pair meets at the static root, each target a tree of its own",
+            "Blender export of an armature with IK targets as root bones",
+            "Hips",
+            "the body anchor is the hips: the largest tree is kept, and the IK pair, across two trees, is not counted",
+        )
+    )
+
+    # 17. Two figures under a static root: the same body twice, the second
+    # with numbered names, both travelling as one.
+    root = Joint("__0", (0.0, 0.0, 0.0))
+    for suffix, x in (("", 60.0), ("_2", -60.0)):
+        humanoid_body(root.add(Joint(f"Hips{suffix}", (x, 95.0, 0.0))), suffix=suffix)
+    set_layout(root, static_root)
+    m = Motion(SEED + 14)
+    m.alias = {j.name: j.name[: -len("_2")] for j in root.walk() if j.name.endswith("_2")}
+    m.pos_override["Hips"] = travel((60.0, 95.0, 0.0))
+    m.pos_override["Hips_2"] = travel((-60.0, 95.0, 0.0))
+    out.append(
+        Profile(
+            "two_figures_static_root",
+            root,
+            m,
+            DEFAULT_FRAME_TIME,
+            "Y",
+            "two figures of the same size as two parentless bones under a static root (CHANNELS 0), side by side; the hierarchy holds no single body",
+            "Blender export of two characters in one armature",
+            None,
+            expected_body_anchor_source="ambiguous",
+        )
+    )
+
     return out
 
 
@@ -806,7 +866,7 @@ def serialise(p: Profile) -> str:
         lines.append(f"{ind}{'ROOT' if is_root else 'JOINT'} {j.name}")
         lines.append(f"{ind}{{")
         lines.append(f"{ind}\tOFFSET {fmt(j.offset[0])} {fmt(j.offset[1])} {fmt(j.offset[2])}")
-        lines.append(f"{ind}\tCHANNELS {len(j.channels)} {' '.join(j.channels)}")
+        lines.append(f"{ind}\t" + " ".join(("CHANNELS", str(len(j.channels)), *j.channels)))
         for c in j.children:
             node(c, depth + 1, False)
         if j.end_site is not None:
@@ -835,7 +895,7 @@ def serialise(p: Profile) -> str:
 
 README_HEAD = """# bvh_data/synthetic — invented clips for conventions the bundled files lack
 
-Every file here is **synthetic**. `scripts/generate_synthetic_bvh.py` authors seventeen of them, five frames each, deterministic, and `scripts/generate_lying_down_bvh.py` authors the eighteenth, `bvh_synthetic_lying_down.bvh` (see below). Skeleton *shapes* follow conventions of publicly documented rigs and exporters (named in the table); every offset and motion value of the seventeen is invented in the generator. No numerical table or frame is copied from any third-party dataset. The generators, profiles and output are licensed under [pybvh's MIT licence](../../LICENSE). Regenerate with `python3 scripts/generate_synthetic_bvh.py --check` from the repository root; `manifest.json` records per-file conventions, the expected body anchor, and SHA-256 hashes.
+Every file here is **synthetic**. `scripts/generate_synthetic_bvh.py` authors nineteen of them, five frames each, deterministic, and `scripts/generate_lying_down_bvh.py` authors the twentieth, `bvh_synthetic_lying_down.bvh` (see below). Skeleton *shapes* follow conventions of publicly documented rigs and exporters (named in the table); every offset and motion value of the nineteen is invented in the generator. No numerical table or frame is copied from any third-party dataset. The generators, profiles and output are licensed under [pybvh's MIT licence](../../LICENSE). Regenerate with `python3 scripts/generate_synthetic_bvh.py --check` from the repository root; `manifest.json` records per-file conventions, the expected body anchor, and SHA-256 hashes.
 
 What they show, and why pybvh needs them: in several widely used exports a joint other than the root declares **six channels**, three positions and three rotations. The position channels give the joint's complete position relative to its parent, frame by frame, the same quantity its `OFFSET` gives for the rest pose. In most joints that value never changes and equals the `OFFSET`; in a few it moves: the pelvis under a **static reference root** carries the whole body's travel, and an animator can stretch a bone. Some exports also put a non-body node beside or above the body (a reference point, a Footsteps node, a prop), so **node 0 is not always the pelvis**. A hierarchy can also hold two figures, and then it holds no single body.
 
@@ -849,7 +909,7 @@ The rotation-only control and rigid six-channel control have identical body worl
 
 `bvh_synthetic_lying_down.bvh` is a character lying on its back for the whole take, knees bent and feet in the air, 120 frames at 30 fps. Its skeleton is the hierarchy of `../bvh_test1.bvh`, a recording by pybvh's author under the same MIT licence; its motion is analytic and written in `scripts/generate_lying_down_bvh.py`. The manifest lists it under `other_files`, without a hash; `tests/test_synthetic_corpus.py` checks that both scripts reproduce the corpus byte for byte.
 
-pybvh reads every file here, the ten that declare position channels on joints other than the root included, and writes each back with the same declarations. `tests/test_synthetic_corpus.py` checks the round trip, and checks that forward kinematics gives the positions the generator intends. The world-up guess reads the root: on both props files it chooses `+z` although the body's head-minus-hips direction is clearly `+y`.
+pybvh reads every file here, the twelve that declare position channels on joints other than the root and the two whose root declares no channel (`CHANNELS 0`, a static root) included, and writes each back with the same declarations. `tests/test_synthetic_corpus.py` checks the round trip, and checks that forward kinematics gives the positions the generator intends. The world-up guess reads the root: on both props files it chooses `+z` although the body's head-minus-hips direction is clearly `+y`.
 
 | file | convention illustrated | shape after | six-channel non-root joints | body anchor |
 |---|---|---|---|---|

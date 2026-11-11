@@ -47,6 +47,7 @@ sys.path.insert(0, str(Path(__file__).parent))  # for synthetic_bvh
 from synthetic_bvh import (
     make_bare_substring_lr_bvh,
     make_dot_lr_bvh,
+    make_named_joints_bvh,
     make_nameless_lr_bvh,
     make_namespace_lr_bvh,
     make_neg_y_up_bvh,
@@ -8657,6 +8658,44 @@ class TestStrategyAMixedConventions:
         assert bvh.lr_mapping.get("leg.L") == "leg.R"
         assert bvh.lr_mapping.get("leg.R") == "leg.L"
         assert len(bvh.lr_mapping) == 4
+
+
+# =============================================================================
+# Item 4b — the conventions read beyond the suffix, the words and ``LArm``
+# =============================================================================
+
+
+def _named_lr_pairs(bvh):
+    """The detected pairs as ``(left name, right name)``, or ``None``."""
+    if bvh.lr_pairs is None:
+        return None
+    return {(bvh.joint_names[left], bvh.joint_names[right]) for left, right in bvh.lr_pairs}
+
+
+class TestLRMappingMoreConventions:
+    """Each convention gives its pairs, left first, with no setting from the user."""
+
+    @pytest.mark.parametrize(
+        "pairs",
+        [
+            pytest.param([("b_l_upleg", "b_r_upleg"), ("b_l_leg", "b_r_leg")], id="side-token"),
+            pytest.param(
+                [
+                    ("L_legUpper0001_bind_JNT", "R_legUpper0001_bind_JNT"),
+                    ("L_legLower0001_bind_JNT", "R_legLower0001_bind_JNT"),
+                ],
+                id="side-prefix-delimited",
+            ),
+            pytest.param(
+                [("Bip01 L Thigh", "Bip01 R Thigh"), ("Bip01 L Calf", "Bip01 R Calf")],
+                id="side-token-spaced",
+            ),
+        ],
+    )
+    def test_the_convention_gives_its_pairs(self, pairs):
+        bvh = make_named_joints_bvh([name for pair in pairs for name in pair])
+        assert _named_lr_pairs(bvh) == set(pairs)
+        assert bvh.orientation_report.lr_mapping_source == "names"
 
 
 # =============================================================================

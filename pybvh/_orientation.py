@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import re
 import warnings
-from collections.abc import Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Literal, NamedTuple
 
@@ -382,6 +382,67 @@ def _try_suffix_partner(
     return None
 
 
+# A side given as a word of its own between delimiters: the suffix
+# rule's delimiters, ``.`` and ``_``, and a space (``Bip01 L Thigh``).
+# The capture group keeps the delimiters in the split, so the name is
+# rebuilt as it was.
+_SIDE_TOKEN_DELIMITER_RE = re.compile(r"([._ ])")
+
+# Each side word, lowercased, with its partner and whether it is the left.
+_SIDE_TOKENS = {
+    "l": ("r", True),
+    "r": ("l", False),
+    "left": ("right", True),
+    "right": ("left", False),
+}
+
+# A rule of the L/R name detection: from a name's base, each candidate for
+# its partner's base, with whether the name is the left half.
+_LrNameRule = Callable[[str], Iterator[tuple[str, bool]]]
+
+
+def _side_token_partners(base: str) -> Iterator[tuple[str, bool]]:
+    """``b_l_upleg`` to ``b_r_upleg``: a delimited side word, swapped in its own case."""
+    parts = _SIDE_TOKEN_DELIMITER_RE.split(base)
+    # Words sit at the even indices, delimiters at the odd ones.
+    for i in range(0, len(parts), 2):
+        token = parts[i]
+        side = _SIDE_TOKENS.get(token.lower())
+        if side is None:
+            continue
+        partner_token, is_left = side
+        if token.isupper():
+            partner_token = partner_token.upper()
+        elif token[0].isupper():
+            partner_token = partner_token.capitalize()
+        yield "".join(parts[:i] + [partner_token] + parts[i + 1 :]), is_left
+
+
+# The rules tried after the three of ``_detect_lr_mapping_by_names``'s
+# first pass, in order.
+_LR_NAME_RULES: tuple[_LrNameRule, ...] = (_side_token_partners,)
+
+
+def _pairs_by_rule(
+    rule: _LrNameRule, joint_names: Sequence[str], paired: set[str]
+) -> list[tuple[str, str]]:
+    """The ``(left, right)`` pairs *rule* finds among the names not yet *paired*."""
+    names = set(joint_names)
+    pairs: list[tuple[str, str]] = []
+    taken = set(paired)
+    for name in joint_names:
+        if name in taken:
+            continue
+        ns_prefix, base, number_suffix = _split_name(name)
+        for partner_base, is_left in rule(base):
+            partner = ns_prefix + partner_base + number_suffix
+            if partner != name and partner in names and partner not in taken:
+                pairs.append((name, partner) if is_left else (partner, name))
+                taken.update((name, partner))
+                break
+    return pairs
+
+
 def _detect_lr_mapping_by_names(joint_names: Sequence[str]) -> dict[str, str]:
     """Internal: detect L/R joint pairs by extended name heuristics.
 
@@ -467,6 +528,13 @@ def _detect_lr_mapping_by_names(joint_names: Sequence[str]) -> dict[str, str]:
             mapping[left] = right
             seen.add(left)
             seen.add(right)
+
+    # The later rules pair only the names the three above left unpaired,
+    # so that no pair they give can change.
+    for rule in _LR_NAME_RULES:
+        for left, right in _pairs_by_rule(rule, joint_names, seen):
+            mapping[left] = right
+            seen.update((left, right))
 
     return mapping
 

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import re
 import warnings
-from collections.abc import Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Literal, NamedTuple
 
@@ -382,6 +382,109 @@ def _try_suffix_partner(
     return None
 
 
+# A side given as a word of its own between delimiters: the suffix
+# rule's delimiters, ``.`` and ``_``, and a space (``Bip01 L Thigh``).
+# The capture group keeps the delimiters in the split, so the name is
+# rebuilt as it was.
+_SIDE_TOKEN_DELIMITER_RE = re.compile(r"([._ ])")
+
+# Each side word, lowercased, with its partner and whether it is the left.
+_SIDE_TOKENS = {
+    "l": ("r", True),
+    "r": ("l", False),
+    "left": ("right", True),
+    "right": ("left", False),
+}
+
+# A rule of the L/R name detection: from a name's base, each candidate for
+# its partner's base, with whether the name is the left half.
+_LrNameRule = Callable[[str], Iterator[tuple[str, bool]]]
+
+
+def _side_token_partners(base: str) -> Iterator[tuple[str, bool]]:
+    """``b_l_upleg`` to ``b_r_upleg``: a delimited side word, swapped in its own case."""
+    parts = _SIDE_TOKEN_DELIMITER_RE.split(base)
+    # Words sit at the even indices, delimiters at the odd ones.
+    for i in range(0, len(parts), 2):
+        token = parts[i]
+        side = _SIDE_TOKENS.get(token.lower())
+        if side is None:
+            continue
+        partner_token, is_left = side
+        if token.isupper():
+            partner_token = partner_token.upper()
+        elif token[0].isupper():
+            partner_token = partner_token.capitalize()
+        yield "".join(parts[:i] + [partner_token] + parts[i + 1 :]), is_left
+
+
+# The Japanese side characters, read as the name's first character only.
+_JAPANESE_SIDES = {"左": ("右", True), "右": ("左", False)}
+
+
+def _japanese_prefix_partners(base: str) -> Iterator[tuple[str, bool]]:
+    """``左足`` to ``右足``: the side character first, swapped."""
+    side = _JAPANESE_SIDES.get(base[:1])
+    if side is not None:
+        partner_char, is_left = side
+        yield partner_char + base[1:], is_left
+
+
+# A lowercase side letter, with its partner and whether it is the left.
+_SIDE_LETTERS = {"l": ("r", True), "r": ("l", False)}
+
+
+def _lowercase_prefix_partners(base: str) -> Iterator[tuple[str, bool]]:
+    """``lThigh`` to ``rThigh``: a lowercase side letter before an uppercase letter."""
+    side = _SIDE_LETTERS.get(base[:1])
+    if side is not None and base[1:2].isupper():
+        partner_letter, is_left = side
+        yield partner_letter + base[1:], is_left
+
+
+def _bare_prefix_partners(base: str) -> Iterator[tuple[str, bool]]:
+    """``lfemur`` to ``rfemur``: a lowercase side letter with no delimiter."""
+    side = _SIDE_LETTERS.get(base[:1])
+    if side is not None and len(base) > 1:
+        partner_letter, is_left = side
+        yield partner_letter + base[1:], is_left
+
+
+# How many pairs the bare prefix must give on a skeleton to count: one
+# pair alone can be two names that differ by a first l / r by chance
+# (``light`` / ``right``), and a convention names a whole skeleton.
+_MIN_BARE_PREFIX_PAIRS = 2
+
+# The rules tried after the three of ``_detect_lr_mapping_by_names``'s
+# first pass, in order, each with the fewest pairs it must give to count.
+_LR_NAME_RULES: tuple[tuple[_LrNameRule, int], ...] = (
+    (_side_token_partners, 1),
+    (_japanese_prefix_partners, 1),
+    (_lowercase_prefix_partners, 1),
+    (_bare_prefix_partners, _MIN_BARE_PREFIX_PAIRS),
+)
+
+
+def _pairs_by_rule(
+    rule: _LrNameRule, joint_names: Sequence[str], paired: set[str]
+) -> list[tuple[str, str]]:
+    """The ``(left, right)`` pairs *rule* finds among the names not yet *paired*."""
+    names = set(joint_names)
+    pairs: list[tuple[str, str]] = []
+    taken = set(paired)
+    for name in joint_names:
+        if name in taken:
+            continue
+        ns_prefix, base, number_suffix = _split_name(name)
+        for partner_base, is_left in rule(base):
+            partner = ns_prefix + partner_base + number_suffix
+            if partner in names and partner not in taken:
+                pairs.append((name, partner) if is_left else (partner, name))
+                taken.update((name, partner))
+                break
+    return pairs
+
+
 def _detect_lr_mapping_by_names(joint_names: Sequence[str]) -> dict[str, str]:
     """Internal: detect L/R joint pairs by extended name heuristics.
 
@@ -402,8 +505,22 @@ def _detect_lr_mapping_by_names(joint_names: Sequence[str]) -> dict[str, str]:
     3. Prefix ``L*`` / ``R*`` followed by an uppercase letter — handles
        ``LArm`` / ``RArm``.
 
-    Mutual-match requirement: both halves must exist as joint names.
-    Singletons are not paired.
+    The rules of ``_LR_NAME_RULES`` follow, each in its own pass over
+    the names the earlier rules left unpaired, so they cannot change a
+    pair the three above give:
+
+    4. A side word of its own, ``l``, ``r``, ``left`` or ``right`` in
+       any case, between ``.``, ``_`` or spaces — ``b_l_upleg``,
+       ``L_legUpper0001_bind_JNT``, ``Bip01 L Thigh``; the partner swaps
+       that word in the same case.
+    5. ``左`` / ``右`` as the first character — ``左足`` / ``右足``.
+    6. A lowercase ``l`` / ``r`` before an uppercase letter — ``lThigh``.
+    7. A lowercase ``l`` / ``r`` with no delimiter — ``lfemur``. Counted
+       only when it gives ``_MIN_BARE_PREFIX_PAIRS`` pairs or more.
+
+    A name is paired by the first rule that pairs it. Mutual-match
+    requirement: both halves must exist as joint names. Singletons are
+    not paired.
 
     Returns ``{}`` if no pairs detected. See ``bvh.lr_mapping`` for the
     public API that wraps this function.
@@ -467,6 +584,16 @@ def _detect_lr_mapping_by_names(joint_names: Sequence[str]) -> dict[str, str]:
             mapping[left] = right
             seen.add(left)
             seen.add(right)
+
+    # The later rules pair only the names the three above left unpaired,
+    # so that no pair they give can change.
+    for rule, min_pairs in _LR_NAME_RULES:
+        pairs = _pairs_by_rule(rule, joint_names, seen)
+        if len(pairs) < min_pairs:
+            continue
+        for left, right in pairs:
+            mapping[left] = right
+            seen.update((left, right))
 
     return mapping
 

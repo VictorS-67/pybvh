@@ -47,6 +47,7 @@ sys.path.insert(0, str(Path(__file__).parent))  # for synthetic_bvh
 from synthetic_bvh import (
     make_bare_substring_lr_bvh,
     make_dot_lr_bvh,
+    make_named_joints_bvh,
     make_nameless_lr_bvh,
     make_namespace_lr_bvh,
     make_neg_y_up_bvh,
@@ -8657,6 +8658,77 @@ class TestStrategyAMixedConventions:
         assert bvh.lr_mapping.get("leg.L") == "leg.R"
         assert bvh.lr_mapping.get("leg.R") == "leg.L"
         assert len(bvh.lr_mapping) == 4
+
+
+# =============================================================================
+# Item 4b — the conventions read beyond the suffix, the words and ``LArm``
+# =============================================================================
+
+
+def _named_lr_pairs(bvh):
+    """The detected pairs as ``(left name, right name)``, or ``None``."""
+    if bvh.lr_pairs is None:
+        return None
+    return {(bvh.joint_names[left], bvh.joint_names[right]) for left, right in bvh.lr_pairs}
+
+
+class TestLRMappingMoreConventions:
+    """Each convention gives its pairs, left first, with no setting from the user."""
+
+    @pytest.mark.parametrize(
+        "pairs",
+        [
+            pytest.param([("b_l_upleg", "b_r_upleg"), ("b_l_leg", "b_r_leg")], id="side-token"),
+            pytest.param(
+                [
+                    ("L_legUpper0001_bind_JNT", "R_legUpper0001_bind_JNT"),
+                    ("L_legLower0001_bind_JNT", "R_legLower0001_bind_JNT"),
+                ],
+                id="side-prefix-delimited",
+            ),
+            pytest.param(
+                [("Bip01 L Thigh", "Bip01 R Thigh"), ("Bip01 L Calf", "Bip01 R Calf")],
+                id="side-token-spaced",
+            ),
+            pytest.param([("左足", "右足"), ("左手", "右手")], id="japanese"),
+            pytest.param([("lThigh", "rThigh"), ("lShin", "rShin")], id="lowercase-prefix"),
+            pytest.param([("lfemur", "rfemur"), ("ltibia", "rtibia")], id="bare-prefix"),
+            pytest.param(
+                [
+                    ("rig:b_l_upleg.001", "rig:b_r_upleg.001"),
+                    ("rig:左足", "rig:右足"),
+                    ("rig:lThigh.002", "rig:rThigh.002"),
+                ],
+                id="namespace-and-number-suffix-set-aside",
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("right_first", [False, True], ids=["left-first", "right-first"])
+    def test_the_convention_gives_its_pairs(self, pairs, right_first):
+        # The side comes from the name, not from which joint comes first.
+        order = [pair[::-1] if right_first else pair for pair in pairs]
+        bvh = make_named_joints_bvh([name for pair in order for name in pair])
+        assert _named_lr_pairs(bvh) == set(pairs)
+        assert bvh.lr_mapping == {**dict(pairs), **{right: left for left, right in pairs}}
+        assert bvh.orientation_report.lr_mapping_source == "names"
+
+    def test_one_bare_prefix_pair_alone_gives_no_pair(self):
+        # light / right differ by a first l / r by chance; a convention
+        # names a skeleton, and one pair is not one.
+        bvh = make_named_joints_bvh(["light", "right"])
+        assert bvh.lr_mapping is None
+
+    def test_a_bare_prefix_pair_beside_another_pair_is_not_counted(self):
+        bvh = make_named_joints_bvh(["LeftArm", "RightArm", "lfemur", "rfemur"])
+        assert _named_lr_pairs(bvh) == {("LeftArm", "RightArm")}
+
+    def test_a_mixed_skeleton_gives_its_leg_pair_and_its_eye_pair(self):
+        bvh = make_named_joints_bvh(["hip", "lThigh", "rThigh", "head", "leftEye", "rightEye"])
+        assert _named_lr_pairs(bvh) == {("lThigh", "rThigh"), ("leftEye", "rightEye")}
+
+    def test_a_japanese_side_after_the_first_character_gives_no_pair(self):
+        bvh = make_named_joints_bvh(["足左", "足右"])
+        assert bvh.lr_mapping is None
 
 
 # =============================================================================

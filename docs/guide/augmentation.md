@@ -23,14 +23,20 @@ pairs = bvh.lr_pairs      # index pairs (or None)
 
 #### L/R pair detection
 
-pybvh auto-detects left/right joint pairs at load time by scanning joint names. The heuristic recognizes:
+pybvh auto-detects left/right joint pairs at load time by scanning joint names. The heuristic tries these conventions in this order, and a name is paired by the first one that pairs it:
 
-- `Left*` / `Right*` (any case), substring anywhere in the name — `LeftArm`, `leftArm`, `LeftEye`
-- `L*` / `R*` prefix followed by an uppercase letter — `LArm`, `RArm`
-- `*.L` / `*.R`, `*_L` / `*_R`, and their lowercase variants — `Arm.L`, `leg_r`
-- `*.Left` / `*_Left` and lowercase variants — `Arm.Left`, `leg_right`
-- Mixamo namespace prefix stripped automatically — `mixamorig:LeftArm`
-- Blender numbered duplicates stripped automatically — `Arm.L.001`
+1. `*.L` / `*.R`, `*_L` / `*_R`, `*.Left` / `*_Left`, and their lowercase variants — `Arm.L`, `leg_r`, `Arm.Left`, `leg_right`
+2. `Left*` / `Right*` (any case), substring anywhere in the name — `LeftArm`, `leftArm`, `LeftEye`
+3. `L*` / `R*` prefix followed by an uppercase letter — `LArm`, `RArm`
+4. `l`, `r`, `left` or `right` (any case) as a word of its own between `.`, `_` or spaces — `b_l_upleg`, `L_legUpper0001_bind_JNT`, `Bip01 L Thigh`
+5. `左` / `右` as the first character — `左足`, `右足`
+6. `l*` / `r*` prefix followed by an uppercase letter — `lThigh`, `rThigh`
+7. `l*` / `r*` prefix with no delimiter — `lfemur`, `rfemur`. This one counts only when it gives two pairs or more on the skeleton: one pair such as `light` / `right` can differ by its first letter by chance.
+
+Both halves of a pair must be joints of the skeleton: a joint with no partner stays unpaired. Before the match, the heuristic sets aside:
+
+- a Mixamo namespace prefix — `mixamorig:LeftArm`
+- a Blender numbered duplicate suffix — `Arm.L.001`
 
 The detected mapping is on `bvh.lr_mapping` (a `dict[str, str]` or `None`). You can inspect, override, or provide it explicitly:
 

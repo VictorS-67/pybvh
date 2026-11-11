@@ -362,6 +362,34 @@ def make_singleton_lr_bvh() -> Bvh:
     return bvh
 
 
+def make_named_joints_bvh(joint_names: list[str]) -> Bvh:
+    """+Y up skeleton whose joints carry *joint_names*, for the L/R name detection.
+
+    Not the module's shared topology: a root ``Hips`` with one child joint
+    per name, each ending in an end site, the children one unit apart
+    along z. The names are what is under test, not the geometry.
+    """
+    children: list[BvhNode] = []
+    nodes: list[BvhNode] = []
+    for i, name in enumerate(joint_names):
+        end = BvhEndSite(f"{name}_End", offset=[0.0, -5.0, 0.0])
+        joint = BvhJoint(
+            name, offset=[0.0, -5.0, float(i)], rot_channels=list("ZYX"), children=[end]
+        )
+        end.parent = joint
+        children.append(joint)
+        nodes += [joint, end]
+    root = BvhRoot("Hips", offset=[0.0, 0.0, 0.0], rot_channels=list("ZYX"), children=children)
+    for child in children:
+        child.parent = root
+    nodes.insert(0, root)
+    n_joints = len(joint_names) + 1
+    root_pos, joint_angles = _build_motion(N_FRAMES, 1, 1, 2, n_joints)
+    bvh = Bvh(nodes=nodes, root_pos=root_pos, joint_angles=joint_angles, frame_time=FRAME_TIME)
+    bvh.world_up = "+y"
+    return bvh
+
+
 def make_pos_y_up_rotating_bvh() -> Bvh:
     """+Y up skeleton with root rotation (90 deg over clip) and leg cycling.
 

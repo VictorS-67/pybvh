@@ -2136,11 +2136,33 @@ class Bvh:
         ``mapping['RightArm'] == 'LeftArm'``. Useful for mirroring-based
         data augmentation, where a lookup can come from either side.
 
-        Detection, run on first use, applies the extended name heuristic
-        (`Left`/`Right` substring, `L`/`R` prefix, `.L`/`.R` suffix,
-        `_l`/`_r` suffix, Mixamo `mixamorig:` namespace, numbered `.001`
-        duplicates). Skeletons with conventions the heuristic can't parse
-        have ``lr_mapping = None`` — in that case, set it explicitly:
+        Detection, run on first use, pairs two joints whose names differ
+        only by their side, in one of these conventions, tried in this
+        order:
+
+        1. a delimited suffix: ``arm.L``, ``arm_r``, ``arm.Left``,
+           ``arm_right``;
+        2. the word ``Left`` / ``Right`` anywhere, in any case:
+           ``LeftArm``, ``leftArm``, ``LeftEye``;
+        3. ``L`` / ``R`` before an uppercase letter: ``LArm``;
+        4. ``l``, ``r``, ``left`` or ``right`` in any case, as a word of
+           its own between ``.``, ``_`` or spaces: ``b_l_upleg``,
+           ``L_legUpper0001_bind_JNT``, ``Bip01 L Thigh``;
+        5. ``左`` / ``右`` as the first character: ``左足``;
+        6. ``l`` / ``r`` before an uppercase letter: ``lThigh``;
+        7. ``l`` / ``r`` with no delimiter: ``lfemur``.
+
+        A name is paired by the first convention that pairs it, and only
+        when its partner is also a joint: a joint with no partner stays
+        unpaired. A Mixamo ``mixamorig:`` namespace and a numbered
+        ``.001`` duplicate suffix are set aside before the match. Two
+        conventions are read narrowly, so that a name that only looks like
+        a side is not paired: ``左`` / ``右`` count as the first character
+        only, and the last convention counts only when it gives two pairs
+        or more on the skeleton, since one pair such as ``light`` /
+        ``right`` can differ by its first letter by chance. Skeletons with
+        conventions the heuristic can't parse have ``lr_mapping = None`` —
+        in that case, set it explicitly:
 
             >>> bvh = Bvh.from_file('bvh_data/bvh_test1.bvh')
             >>> bvh.lr_mapping = {'LeftArm': 'RightArm', 'LeftUpLeg': 'RightUpLeg'}

@@ -2894,8 +2894,8 @@ class TestEndSiteForms:
 # =============================================================================
 
 
-def _biped_text(root="ROOT Bip01 Pelvis", left="JOINT Bip01 L Thigh", right="JOINT Bip01 R Thigh"):
-    """The text of the issue's clip, whose joint names hold spaces as 3ds Max Biped names do."""
+def _biped_text(root="ROOT Bip01 Pelvis", left="JOINT Bip01 L Thigh"):
+    """The text of a two-legged clip whose joint names hold spaces, as 3ds Max Biped names do."""
     return (
         "\n".join(
             [
@@ -2913,7 +2913,7 @@ def _biped_text(root="ROOT Bip01 Pelvis", left="JOINT Bip01 L Thigh", right="JOI
                 "      OFFSET 0 -1 0",
                 "    }",
                 "  }",
-                f"  {right}",
+                "  JOINT Bip01 R Thigh",
                 "  {",
                 "    OFFSET -1 0 0",
                 "    CHANNELS 3 Zrotation Xrotation Yrotation",
@@ -2985,6 +2985,22 @@ class TestNamesWithSpaces:
         assert bvh.index("Bip01 R Thigh", space="joint") == 2
         # The left thigh moves 1 unit along X between the two frames.
         assert bvh.path_length("Bip01 L Thigh") == pytest.approx(1.0)
+
+    def test_a_brace_after_a_one_word_name_opens_the_block_as_before(self, tmp_path):
+        """``ROOT Hips {`` read as ``Hips`` before names could hold spaces, and still does."""
+        path = tmp_path / "brace.bvh"
+        path.write_text(_biped_text(root="ROOT Hips {", left="JOINT Bip01 L Thigh\t{ "))
+        names = [n.name for n in read_bvh_file(path).nodes]
+        assert names[:2] == ["Hips", "Bip01 L Thigh"]
+
+    @pytest.mark.parametrize("root", ["ROOT", "ROOT \t", "ROOT {"], ids=["bare", "blank", "brace"])
+    def test_a_missing_name_raises_naming_the_line_and_file(self, root, tmp_path):
+        path = tmp_path / "nameless.bvh"
+        path.write_text(_biped_text(root=root))
+        with pytest.raises(
+            ValueError, match=re.escape(f"ROOT without a name at line 2 in file {path}")
+        ):
+            read_bvh_file(path)
 
 
 # =============================================================================

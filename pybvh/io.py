@@ -102,9 +102,13 @@ def read_bvh_file(
     the whitespace at both ends removed. Inner whitespace is kept as
     written: ``JOINT Bip01 L Thigh`` (a 3ds Max Biped name) reads as
     ``"Bip01 L Thigh"``, and :func:`write_bvh_file` writes it back the
-    same. The BVH format has no quoting. Some other readers keep the
-    first word of such a name only, so a file with these names can
-    read differently elsewhere. pybvh does not warn about it.
+    same. A ``{`` as the line's last word opens the block and is not
+    part of the name: ``ROOT Hips {`` reads as ``"Hips"``. The BVH
+    format has no quoting, and other readers differ on such a name:
+    bvh-python keeps the first word only, and Blender's importer joins
+    the words with underscores (``Bip01_L_Thigh``). So a file with
+    these names can read differently elsewhere. pybvh does not warn
+    about it.
 
     The reader normalizes three things, rather than preserving them
     verbatim. So a round-trip is lossless in *motion*, but not
@@ -377,10 +381,17 @@ def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
             token = line[0]
 
             if token in ("ROOT", "JOINT"):
-                # The name is the rest of the line, inner whitespace as
-                # written: the format has no quoting, and a 3ds Max Biped
-                # name such as 'Bip01 L Thigh' holds spaces.
+                # The name is the rest of the line (read_bvh_file's Notes).
+                # A '{' as the line's last word opens the block, as it did
+                # when the name was the first word: _read_node_block then
+                # finds no '{' line, which it allows.
                 name = raw_line.strip()[len(token) :].strip()
+                if line[-1] == "{":
+                    name = name[:-1].rstrip()
+                if not name:
+                    raise ValueError(
+                        f"{token} without a name at line {line_number} in file {filepath}"
+                    )
                 if token == "ROOT" and table:
                     raise ValueError(
                         f"Second ROOT '{name}' at line {line_number} in file "

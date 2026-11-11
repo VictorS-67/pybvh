@@ -5,19 +5,22 @@ here it is read through a clip: on every clip of the synthetic corpus,
 against the anchor and source its manifest expects, on the fixture clips
 whose names give no L/R pair, and through its lifecycle (ADR 0003): found
 once, found again after a change of the skeleton or of the L/R mapping, and
-never inherited by a derived clip.
+never inherited by a derived clip. The anchor the user sets, on the clip or
+at load, is tested here too: the resolver's refusals, and its lifecycle as
+one of the user's settings, which every derived clip carries.
 """
 
 from __future__ import annotations
 
 import json
+import pickle
 import warnings
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from pybvh import Bvh, read_bvh_directory, read_bvh_file
+from pybvh import Bvh, nodes_from_table, read_bvh_directory, read_bvh_file
 
 REPO = Path(__file__).resolve().parent.parent
 CORPUS = REPO / "bvh_data" / "synthetic"
@@ -271,3 +274,89 @@ class TestAtLoad:
         with pytest.raises(ValueError) as raised:
             self._load(read_bvh_file, body_anchor="Pelvis")
         assert str(raised.value) == str(expected.value)
+
+
+class TestSetLifecycle:
+    """A set anchor is one of the user's settings (ADR 0003): kept by the
+    changes of the clip, carried by every derived clip and a pickle, and
+    dropped by a derived clip that no longer holds the joint."""
+
+    @staticmethod
+    def _set_on_chest():
+        clip = _read(CORPUS / "rotation_only_control.bvh")
+        clip.body_anchor = "Chest"
+        return clip
+
+    @staticmethod
+    def _assert_set(clip, name):
+        report = clip.orientation_report
+        assert clip.body_anchor.name == name
+        assert clip.body_anchor is report.body_anchor
+        assert (report.body_anchor_source, report.body_anchor_candidates) == ("set", ())
+
+    @pytest.mark.parametrize(
+        "change",
+        [
+            lambda b: setattr(b, "joint_angles", b.joint_angles),
+            lambda b: setattr(b, "root_pos", b.root_pos),
+            lambda b: b.reorient_rest_up("+z", inplace=True),
+            lambda b: setattr(b, "lr_mapping", {"LeftUpLeg": "RightUpLeg"}),
+            lambda b: setattr(b, "lr_mapping", None),
+            lambda b: setattr(b, "world_up", "+x"),
+        ],
+        ids=["joint_angles", "root_pos", "skeleton", "mapping set", "mapping cleared", "world up"],
+    )
+    def test_kept_by_a_change_of_the_clip(self, change):
+        clip = self._set_on_chest()
+        change(clip)
+        self._assert_set(clip, "Chest")
+
+    def test_follows_its_joint_renamed_through_copy_nodes(self):
+        clip = self._set_on_chest()
+        table = clip.to_node_table()
+        table[clip.node_index["Chest"]]["name"] = "UpperChest"
+        self._assert_set(clip.copy(nodes=table), "UpperChest")
+
+    @pytest.mark.parametrize(
+        "derive",
+        [
+            lambda b: b[0:10],
+            lambda b: b.copy(),
+            lambda b: b.resample(60),
+            lambda b: b + b,
+            lambda b: b.scale(2.0),
+            lambda b: pickle.loads(pickle.dumps(b)),
+        ],
+        ids=["slice", "copy", "resample", "concatenation", "scale", "pickle"],
+    )
+    def test_carried_by_a_derived_clip(self, derive):
+        self._assert_set(derive(self._set_on_chest()), "Chest")
+
+    def test_carried_by_extract_joints_when_the_joint_is_kept(self):
+        clip = self._set_on_chest()
+        kept = clip.extract_joints(["Hips", "Spine", "Spine1", "Chest", "Neck", "Head"])
+        self._assert_set(kept, "Chest")
+
+    def test_dropped_by_extract_joints_when_the_joint_is_not_kept(self):
+        clip = self._set_on_chest()
+        kept = clip.extract_joints(["Hips", "Spine", "LeftUpLeg", "RightUpLeg"])
+        report = kept.orientation_report
+        assert (kept.body_anchor.name, report.body_anchor_source) == ("Hips", "lr_pairs")
+
+    @pytest.mark.parametrize(("kept", "anchor"), [("Chest", "Chest"), ("Spine", "Hips")])
+    def test_copy_nodes_of_another_joint_count_goes_by_name(self, kept, anchor):
+        # A clip without motion binds no joint, so copy(nodes=) may change
+        # the joint count, and the anchor, like a user L/R mapping, is
+        # found by name; the rule is used when no joint carries it.
+        rows = [
+            {"name": "Hips", "parent": None, "offset": [0, 0, 0], "rot_channels": "ZYX"},
+            {"name": "Chest", "parent": 0, "offset": [0, 1, 0], "rot_channels": "ZYX"},
+            {"name": "Head", "parent": 1, "offset": [0, 1, 0], "rot_channels": "ZYX"},
+            {"name": "HeadEnd", "parent": 2, "offset": [0, 1, 0]},
+        ]
+        clip = Bvh(nodes_from_table(rows))
+        clip.body_anchor = "Chest"
+        edited = clip.copy(nodes=[rows[0], {**rows[1], "name": kept}, {**rows[3], "parent": 1}])
+        assert edited.body_anchor.name == anchor
+        expected = "set" if kept == anchor else "default"
+        assert edited.orientation_report.body_anchor_source == expected

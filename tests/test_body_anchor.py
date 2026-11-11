@@ -170,3 +170,69 @@ class TestLifecycle:
         self._read_anchor(derived)
         assert computations.body_anchor == found + 1
         assert derived.body_anchor is derived.root
+
+
+class TestSetting:
+    """``bvh.body_anchor = ...``: a joint the user names, by name or node,
+    through the resolver of every selection (ADR 0009)."""
+
+    @pytest.mark.parametrize("by", ["name", "node"])
+    def test_a_set_joint_is_the_anchor_with_source_set(self, by):
+        clip = _read(CORPUS / "rotation_only_control.bvh")
+        chest = clip.nodes[clip.node_index["Chest"]]
+        clip.body_anchor = "Chest" if by == "name" else chest
+        report = clip.orientation_report
+        assert clip.body_anchor is chest
+        assert report.body_anchor is chest
+        assert (report.body_anchor_source, report.body_anchor_candidates) == ("set", ())
+
+    @staticmethod
+    def _with_a_repeated_name():
+        clip = _read(CORPUS / "rotation_only_control.bvh")
+        table = clip.to_node_table()
+        table[clip.node_index["Spine1"]]["name"] = "Spine"
+        return clip.copy(nodes=table)
+
+    @pytest.mark.parametrize(
+        ("selector", "error", "match"),
+        [
+            (lambda c: 3, TypeError, "bvh.nodes"),
+            (lambda c: True, TypeError, "bvh.nodes"),
+            (lambda c: next(n for n in c.nodes if n.is_end_site()), ValueError, "end site"),
+            (lambda c: next(n for n in c.nodes if n.is_end_site()).name, ValueError, "end site"),
+            (lambda c: "Pelvis", ValueError, "Pelvis"),
+            (lambda c: "Spine", ValueError, "Spine"),
+            (
+                lambda c: _read(CORPUS / "rotation_only_control.bvh").nodes[1],
+                ValueError,
+                "not one of this clip's nodes",
+            ),
+        ],
+        ids=[
+            "integer",
+            "bool",
+            "end site",
+            "end site name",
+            "missing name",
+            "repeated name",
+            "node of another clip",
+        ],
+    )
+    def test_the_resolver_refuses(self, selector, error, match):
+        clip = self._with_a_repeated_name()
+        before = clip.orientation_report
+        with pytest.raises(error, match=match):
+            clip.body_anchor = selector(clip)
+        assert clip.orientation_report is before
+        assert clip.orientation_report.body_anchor_source == "lr_pairs"
+
+    def test_none_returns_to_the_rule(self):
+        clip = _read(CORPUS / "reference_humanoid_6ch.bvh")
+        clip.body_anchor = "Chest"
+        clip.body_anchor = None
+        report = clip.orientation_report
+        assert clip.body_anchor.name == "Hips"
+        assert (report.body_anchor_source, report.body_anchor_candidates) == (
+            "lr_pairs",
+            (clip.body_anchor,),
+        )

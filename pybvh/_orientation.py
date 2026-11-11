@@ -180,7 +180,7 @@ class _RestSkeleton(NamedTuple):
 # ---------------------------------------------------------------------------
 
 # How the body anchor was found, as OrientationReport names it.
-_BodyAnchorSource = Literal["lr_pairs", "default"]
+_BodyAnchorSource = Literal["set", "lr_pairs", "default"]
 
 
 class _BodyAnchor(NamedTuple):
@@ -190,12 +190,13 @@ class _BodyAnchor(NamedTuple):
     ----------
     node : int
         The anchor's index in node order.
-    source : {"lr_pairs", "default"}
+    source : {"set", "lr_pairs", "default"}
+        ``"set"``: the joint the user set (``Bvh.body_anchor``).
         ``"lr_pairs"``: found where the L/R pairs meet
         (:func:`_find_body_anchor`). ``"default"``: no pair, so the root.
     candidates : tuple of int
         The meeting joints the rule compared, the most joints below them
-        first; empty for ``"default"``.
+        first; empty for ``"set"`` and ``"default"``.
     """
 
     node: int
@@ -1291,7 +1292,10 @@ class OrientationReport:
     body_anchor : BvhNode
         The joint the body's measures start from, a node of the clip:
         what :attr:`Bvh.body_anchor <pybvh.bvh.Bvh.body_anchor>` returns.
-    body_anchor_source : {"lr_pairs", "default"}
+    body_anchor_source : {"set", "lr_pairs", "default"}
+        ``"set"``: the joint the user set, assigned to
+        :attr:`Bvh.body_anchor <pybvh.bvh.Bvh.body_anchor>` or passed as
+        ``body_anchor=`` at load; the rule is not run.
         ``"lr_pairs"``: where the L/R pairs of the mapping in effect
         meet. Each pair meets at the lowest joint that both its joints'
         chains to the root pass through; the anchor is the meeting joint
@@ -1302,7 +1306,7 @@ class OrientationReport:
     body_anchor_candidates : tuple of BvhNode
         The meeting joints the rule compared, the most joints below them
         first: the anchor alone when the pairs meet at one joint closest
-        to the root. Empty for ``"default"``.
+        to the root. Empty for ``"set"`` and ``"default"``.
     """
 
     rest_up: str | None

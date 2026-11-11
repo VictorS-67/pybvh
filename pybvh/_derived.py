@@ -1,7 +1,8 @@
 """The lifecycle of a clip's derived state (ADR 0003).
 
 A :class:`~pybvh.bvh.Bvh` computes some values from its inputs (its
-skeleton, its motion, its world-up override and its L/R mapping setting)
+skeleton, its motion, its world-up override, its L/R mapping setting and
+its body anchor setting)
 and keeps them until an input changes. This module holds those values and knows when each one is
 stale; ``Bvh`` keeps the code that computes them, fills an empty value on
 read, and reports every change of an input to its :class:`DerivedState`.
@@ -30,6 +31,7 @@ class _Change(Enum):
     USER_REPLACED_MOTION = auto()
     WORLD_UP_OVERRIDE = auto()
     LR_MAPPING_SETTING = auto()
+    BODY_ANCHOR_SETTING = auto()
 
 
 _SKELETON_OR_MOTION: Final = frozenset(
@@ -65,18 +67,23 @@ _CLEARED_BY: Final[dict[str, frozenset[_Change]]] = {
     # where it differs from this one, which a rest-up guess read from the
     # new legs can.
     "world_up_guess_announced": frozenset({_Change.USER_REPLACED_MOTION}),
-    # Read from the rest pose, the L/R mapping in effect and world up, set
-    # or guessed (ADR 0004); pybvh's own motion writes change none of them.
+    # Read from the rest pose, the L/R mapping in effect, world up, set
+    # or guessed (ADR 0004), and the body anchor, set or found; pybvh's own
+    # motion writes change none of them.
     "orientation_report": frozenset(
         {
             _Change.SKELETON,
             _Change.USER_REPLACED_MOTION,
             _Change.WORLD_UP_OVERRIDE,
             _Change.LR_MAPPING_SETTING,
+            _Change.BODY_ANCHOR_SETTING,
         }
     ),
     # Found by the rule from the hierarchy and the pairs of the L/R mapping
-    # in effect; never from the motion or world up.
+    # in effect; never from the motion or world up. A body anchor the user
+    # set is read ahead of it (Bvh._found_body_anchor), so the setting does
+    # not clear it. Every value computed from the anchor has
+    # BODY_ANCHOR_SETTING in its row.
     "body_anchor": frozenset({_Change.SKELETON, _Change.LR_MAPPING_SETTING}),
 }
 
@@ -116,7 +123,8 @@ class DerivedState:
         (``Bvh.orientation_report``).
     body_anchor : _BodyAnchor or None
         The body anchor found by the rule, in ``nodes`` index space, with
-        its source and candidates (``Bvh.body_anchor``).
+        its source and candidates (``Bvh.body_anchor`` when the user set
+        none).
     """
 
     # Slots make a name in _CLEARED_BY that is not a field raise on the
@@ -185,6 +193,11 @@ class DerivedState:
     def lr_mapping_changed(self) -> None:
         """The user set or cleared the L/R mapping (``Bvh.lr_mapping``)."""
         self._clear(_Change.LR_MAPPING_SETTING)
+
+    def body_anchor_changed(self) -> None:
+        """The user set the body anchor or returned it to the rule
+        (``Bvh.body_anchor``)."""
+        self._clear(_Change.BODY_ANCHOR_SETTING)
 
     def _clear(self, change: _Change) -> None:
         for name, changes in _CLEARED_BY.items():

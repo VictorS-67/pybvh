@@ -570,6 +570,10 @@ class Bvh:
         # right), None once they cleared it, or "names" (the default) for
         # the pairs detected from the joint names.
         self._lr_mapping_setting: dict[str, str] | Literal["names"] | None = "names"
+        # The body anchor the user set, as its position in ``nodes``, or
+        # None for the one the rule finds. A position, not a node: pybvh's
+        # own skeleton edits replace the nodes and keep their order.
+        self._body_anchor_setting: int | None = None
 
         if nodes is None:
             nodes = [BvhRoot()]
@@ -2069,8 +2073,25 @@ class Bvh:
         """
         return self._nodes[self._found_body_anchor().node]
 
+    @body_anchor.setter
+    def body_anchor(self, value: NodeSelector | None) -> None:
+        if value is None:
+            self._set_body_anchor_setting(None)
+            return
+        joint = self.index(value, space="joint")
+        self._set_body_anchor_setting(self._non_end_site_indices()[joint])
+
+    def _set_body_anchor_setting(self, setting: int | None) -> None:
+        """Store the user's body anchor, a position in ``nodes`` or
+        ``None``, and report the change."""
+        self._body_anchor_setting = setting
+        self._derived.body_anchor_changed()
+
     def _found_body_anchor(self) -> _BodyAnchor:
-        """The body anchor the rule finds, kept in the derived state."""
+        """The body anchor in effect: the one the user set, else the one
+        the rule finds, kept in the derived state."""
+        if self._body_anchor_setting is not None:
+            return _BodyAnchor(self._body_anchor_setting, "set", ())
         found = self._derived.body_anchor
         if found is None:
             found = _find_body_anchor(self._rest_skeleton())

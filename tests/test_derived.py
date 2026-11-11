@@ -1,7 +1,7 @@
 """Tests for the lifecycle of a clip's derived state (`pybvh._derived`).
 
 The module holds every value a `Bvh` computes from its skeleton, motion,
-world up or L/R mapping setting, and one method per change to those inputs. Each change must clear
+world up, L/R mapping setting or body anchor setting, and one method per change to those inputs. Each change must clear
 exactly the values computed from what changed, and nothing else: a value left
 in place after its input changed is stale, and a value cleared needlessly is a
 recomputation every caller pays for. The expected rows below are ADR 0003's
@@ -53,6 +53,11 @@ CLEARED_BY = {
     "user_replaced_motion": MOTION_DEPENDENTS | GUESSED_WORLD_UP | REPORT,
     "world_up_changed": {"floor_height"} | REPORT,
     "lr_mapping_changed": GUESSED_HERE | REPORT | BODY_ANCHOR,
+    # The user set the body anchor or returned it to the rule: what is
+    # computed from the anchor goes. The anchor the rule finds stays: it
+    # reads the hierarchy and the L/R mapping only, and the setting is
+    # read ahead of it.
+    "body_anchor_changed": REPORT,
 }
 
 

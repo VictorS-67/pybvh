@@ -478,7 +478,7 @@ def _pairs_by_rule(
         ns_prefix, base, number_suffix = _split_name(name)
         for partner_base, is_left in rule(base):
             partner = ns_prefix + partner_base + number_suffix
-            if partner != name and partner in names and partner not in taken:
+            if partner in names and partner not in taken:
                 pairs.append((name, partner) if is_left else (partner, name))
                 taken.update((name, partner))
                 break

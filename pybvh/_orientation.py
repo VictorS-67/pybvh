@@ -166,6 +166,9 @@ class _RestSkeleton(NamedTuple):
     lr_pairs : ndarray of shape (P, 2)
         ``(left_idx, right_idx)`` rows into the N axis: the joint pairs of
         the L/R mapping in effect.
+    static_root : bool
+        Whether the root declares no channels (``CHANNELS 0``): each of its
+        children then heads a tree of its own for the body anchor.
     """
 
     node_names: Sequence[str]
@@ -173,6 +176,7 @@ class _RestSkeleton(NamedTuple):
     parent_idx: npt.NDArray[np.intp]
     is_end_site: npt.NDArray[np.bool_]
     lr_pairs: npt.NDArray[np.intp]
+    static_root: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -231,33 +235,82 @@ def _find_body_anchor(skeleton: _RestSkeleton) -> _BodyAnchor:
     anchor is the root. Neither the rest positions nor the motion are
     read.
 
+    Under a static root (``CHANNELS 0``, as Blender's exporter writes
+    above several parentless bones), each child of the root heads a tree,
+    and the trees are compared before the meeting joints. When a second
+    tree has at least half the joints of the largest, the clip has no
+    body: the candidates are those of each tree with at least half the
+    largest's joints, the largest tree first, a tree's candidate being
+    its largest shallowest meeting joint, or its head when no pair lies
+    inside it. Otherwise only the largest tree's pairs are read, the
+    pairs whose two joints are both inside it, so a pair of IK targets
+    that are two trees, which meets at the root, is not counted; when
+    none is left, the anchor is the root, by default.
+
     Parameters
     ----------
     skeleton : _RestSkeleton
-        The hierarchy (``parent_idx``, ``is_end_site``) and the pairs of
-        the L/R mapping in effect (``lr_pairs``).
+        The hierarchy (``parent_idx``, ``is_end_site``), the pairs of the
+        L/R mapping in effect (``lr_pairs``) and whether the root is
+        static (``static_root``).
 
     Returns
     -------
     _BodyAnchor
     """
     parent_idx = skeleton.parent_idx
-    if len(skeleton.lr_pairs) == 0:
+    pairs = [(int(a), int(b)) for a, b in skeleton.lr_pairs]
+    if not pairs:
         return _BodyAnchor(0, "default", ())
     depth = np.zeros(len(parent_idx), dtype=np.intp)
     for node in range(1, len(parent_idx)):
         depth[node] = depth[parent_idx[node]] + 1
-    meeting = {_meeting_joint(parent_idx, depth, int(a), int(b)) for a, b in skeleton.lr_pairs}
-    shallowest = min(depth[joint] for joint in meeting)
     # A node's joints, itself included, end sites excluded: summed from the
     # leaves up, a parent coming before its children.
     joints_below = (~skeleton.is_end_site).astype(np.intp)
     for node in range(len(parent_idx) - 1, 0, -1):
         joints_below[parent_idx[node]] += joints_below[node]
-    candidates = sorted(
-        (joint for joint in meeting if depth[joint] == shallowest),
-        key=lambda joint: (-joints_below[joint], joint),
-    )
+
+    def shallowest_meeting_joints(pairs: list[tuple[int, int]]) -> list[int]:
+        """The pairs' meeting joints at the shallowest depth, the most
+        joints below them first."""
+        meeting = {_meeting_joint(parent_idx, depth, a, b) for a, b in pairs}
+        shallowest = min(depth[joint] for joint in meeting)
+        return sorted(
+            (joint for joint in meeting if depth[joint] == shallowest),
+            key=lambda joint: (-joints_below[joint], joint),
+        )
+
+    if skeleton.static_root:
+        # Each child of the root heads a tree; each node's tree is its head.
+        tree = np.full(len(parent_idx), -1, dtype=np.intp)
+        for node in range(1, len(parent_idx)):
+            tree[node] = node if parent_idx[node] == 0 else tree[parent_idx[node]]
+        heads = sorted(
+            (node for node in range(1, len(parent_idx)) if parent_idx[node] == 0),
+            key=lambda head: (-joints_below[head], head),
+        )
+        largest = joints_below[heads[0]]
+        compared = [head for head in heads if 2 * joints_below[head] >= largest]
+        pairs_in = {
+            head: [(a, b) for a, b in pairs if tree[a] == head and tree[b] == head]
+            for head in compared
+        }
+        if len(compared) > 1:
+            # A tree's candidate is where its pairs meet, or its head when
+            # no pair lies inside it.
+            return _BodyAnchor(
+                None,
+                "ambiguous",
+                tuple(
+                    shallowest_meeting_joints(pairs_in[head])[0] if pairs_in[head] else head
+                    for head in compared
+                ),
+            )
+        pairs = pairs_in[heads[0]]
+        if not pairs:
+            return _BodyAnchor(0, "default", ())
+    candidates = shallowest_meeting_joints(pairs)
     largest = joints_below[candidates[0]]
     if any(2 * joints_below[other] >= largest for other in candidates[1:]):
         return _BodyAnchor(None, "ambiguous", tuple(candidates))

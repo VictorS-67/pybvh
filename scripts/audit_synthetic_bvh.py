@@ -2,7 +2,7 @@
 """Independently audit the authored corpus; Python 3.10+, stdlib only, MIT.
 
 This parser consumes serialized files without using the generator's tree or
-pybvh. The expected body anchor is an author-supplied field; the audit
+pybvh. A root may declare no channel (``CHANNELS 0``, a static root). The expected body anchor is an author-supplied field; the audit
 checks that it names a joint of the file, or is None for a clip with no
 body.
 
@@ -76,6 +76,7 @@ def parse_bvh(text):
             require(len(decl) >= 2 and decl[0] == "CHANNELS", "missing CHANNELS")
             channels = decl[2:]
             require(int(decl[1]) == len(channels), "CHANNELS count mismatch")
+        if not end and not (root and not channels):  # CHANNELS 0: a static root
             rotations = [c for c in channels if c.endswith("rotation")]
             positions = [c for c in channels if c.endswith("position")]
             require(
@@ -152,7 +153,7 @@ def audit(text, expected_body_anchor, authored=None):
             if "Xposition" in n.channels
             else []
         )
-        rotations = [[s[a + "rotation"] for a in "XYZ"] for s in samples]
+        rotations = [[s[a + "rotation"] for a in "XYZ"] for s in samples] if n.channels else []
         if any(r != rotations[0] for r in rotations[1:]):
             changing_rotation.append(n.name)
         if positions:

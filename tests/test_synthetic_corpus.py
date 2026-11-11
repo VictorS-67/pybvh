@@ -1,6 +1,6 @@
 """The synthetic corpus in ``bvh_data/synthetic/``: its generators and its reading.
 
-Two scripts write the corpus: ``generate_synthetic_bvh.py`` writes seventeen
+Two scripts write the corpus: ``generate_synthetic_bvh.py`` writes nineteen
 clips, ``manifest.json`` and ``README.md``, and audits each clip with
 ``audit_synthetic_bvh.py``; ``generate_lying_down_bvh.py`` writes the
 lying-down clip. The test runs both into a temporary directory and compares
@@ -9,15 +9,16 @@ script and its regenerated output land together. The lying-down clip takes
 its skeleton from ``bvh_data/bvh_test1.bvh``, so a change to that fixture
 fails this test too, until the clip is regenerated.
 
-pybvh reads every clip, ten of which declare position channels on a joint
-other than the root (#186), and each round-trips: write then read gives an
-equal clip, and the second write the bytes of the first. Forward kinematics
+pybvh reads every clip, twelve of which declare position channels on a joint
+other than the root (#186) and two a ``CHANNELS 0`` root, and each
+round-trips: write then read gives an equal clip, and the second write the
+bytes of the first. Forward kinematics
 gives the positions the generator intends: the values its manifest samples,
 the travel and turns of its motion formulas, worked by hand here, and the
 equalities it states between clips (a rigid six-channel body and its
 rotation-only twin, a body under a static reference and the same body as the
-root). The ``CHANNELS 0`` root, which no corpus clip declares, is checked by
-hand in ``tests/test_static_root.py``.
+root). ``tests/test_static_root.py`` checks the ``CHANNELS 0`` root by hand
+on a smaller file.
 """
 
 from __future__ import annotations
@@ -71,6 +72,7 @@ READABLE = [
     ("helper_pair_moving_root.bvh", 5),
     ("hips_beside_spine.bvh", 5),
     ("hips_hands_6ch.bvh", 5),
+    ("ik_targets_static_root.bvh", 5),
     ("mixed_zxy_positions.bvh", 5),
     ("no_lr_pairs.bvh", 5),
     ("quadruped_tails_6ch.bvh", 5),
@@ -81,6 +83,7 @@ READABLE = [
     ("rotation_only_control.bvh", 5),
     ("synthetic_stretch.bvh", 5),
     ("two_figures_moving_root.bvh", 5),
+    ("two_figures_static_root.bvh", 5),
 ]
 
 
@@ -100,6 +103,17 @@ def test_clip_reads_and_round_trips(name, frames, tmp_path):
     second = tmp_path / "second.bvh"
     reread.write(second)
     assert second.read_bytes() == first.read_bytes()
+
+
+@pytest.mark.parametrize("name", ["ik_targets_static_root.bvh", "two_figures_static_root.bvh"])
+def test_a_static_root_is_written_back_as_channels_0(name, tmp_path):
+    clip = read_bvh_file(CORPUS / name)
+    assert clip.root.is_static()
+    clip.write(tmp_path / name)
+    # The root's block, up to its first child.
+    root_block = (tmp_path / name).read_text().split("JOINT")[0].splitlines()
+    assert [line.strip() for line in root_block if "CHANNELS" in line] == ["CHANNELS 0"]
+    assert read_bvh_file(tmp_path / name) == clip
 
 
 # --------------------------------------------------------------------------

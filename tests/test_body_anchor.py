@@ -50,8 +50,8 @@ def _read(path):
         return read_bvh_file(path)
 
 
-def test_the_manifest_lists_the_seventeen_generated_clips():
-    assert len(EXPECTED) == 17
+def test_the_manifest_lists_the_nineteen_generated_clips():
+    assert len(EXPECTED) == 19
 
 
 @pytest.mark.parametrize("name", sorted(EXPECTED), ids=sorted(EXPECTED))
@@ -71,6 +71,27 @@ def test_two_figures_under_a_root_that_moves_give_no_body():
     assert clip.body_anchor is None
     report = clip.orientation_report
     assert report.body_anchor is None
+    assert report.body_anchor_source == "ambiguous"
+    assert [node.name for node in report.body_anchor_candidates] == ["Hips", "Hips_2"]
+
+
+def test_ik_targets_under_a_static_root_give_the_hips():
+    # The left/right pair of IK targets is found, and it meets at the
+    # static root; the targets are two trees of their own, so the pair is
+    # not counted and the hips' tree is kept.
+    clip = _read(CORPUS / "ik_targets_static_root.bvh")
+    assert clip.root.is_static()
+    assert clip.lr_mapping["LeftFootIK"] == "RightFootIK"
+    assert clip.body_anchor.name == "Hips"
+    candidates = clip.orientation_report.body_anchor_candidates
+    assert [node.name for node in candidates] == ["Hips"]
+
+
+def test_two_figures_under_a_static_root_give_no_body():
+    clip = _read(CORPUS / "two_figures_static_root.bvh")
+    assert clip.root.is_static()
+    assert clip.body_anchor is None
+    report = clip.orientation_report
     assert report.body_anchor_source == "ambiguous"
     assert [node.name for node in report.body_anchor_candidates] == ["Hips", "Hips_2"]
 

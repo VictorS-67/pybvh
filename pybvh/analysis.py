@@ -1476,7 +1476,7 @@ def skeleton_size(bvh: Bvh, feet: Sequence[NodeSelector] | None = None) -> float
     foot_indices = _feet_indices(bvh, feet, "skeleton_size()")
     rest_coords = bvh._rest_pose()
     reference = bvh._size_reference(foot_indices)
-    distance = geometry._mean_distance_to_root(rest_coords[foot_indices], rest_coords[reference])
+    distance = geometry._mean_distance_to(rest_coords[foot_indices], rest_coords[reference])
     if distance is None:
         raise ValueError(
             "skeleton_size: every foot coincides with the size reference "

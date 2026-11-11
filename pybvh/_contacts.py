@@ -332,7 +332,7 @@ def _contacts_from_positions(
     node_positions: npt.NDArray[np.float64],
     nodes: Sequence[BvhNode],
     node_rest: npt.NDArray[np.float64],
-    root_rest: npt.NDArray[np.float64],
+    scale_reference_rest: npt.NDArray[np.float64],
     *,
     frame_time: float,
     up_idx: int,
@@ -342,7 +342,7 @@ def _contacts_from_positions(
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], ContactReport]:
     """Per-frame contact labels of the tested nodes, from their positions.
 
-    ``node_positions`` is ``(F, n_nodes, 3)``, in world coordinates; ``nodes`` are those nodes, in the same order, for the report; ``node_rest`` is their rest positions ``(n_nodes, 3)`` and ``root_rest`` the rest position ``(3,)`` of the joint the scale is measured from (the size reference of the feet, or the root), which give the skeleton scale the default thresholds are written in. The up axis is ``up_idx`` signed by ``up_sign``. Returns the ``(F, n_nodes)`` labels (1.0 in contact), with the :class:`ContactReport` when ``return_info``.
+    ``node_positions`` is ``(F, n_nodes, 3)``, in world coordinates; ``nodes`` are those nodes, in the same order, for the report; ``node_rest`` is their rest positions ``(n_nodes, 3)`` and ``scale_reference_rest`` the rest position ``(3,)`` of the joint the scale is measured from (the size reference of the feet, or the root), which give the skeleton scale the default thresholds are written in. The up axis is ``up_idx`` signed by ``up_sign``. Returns the ``(F, n_nodes)`` labels (1.0 in contact), with the :class:`ContactReport` when ``return_info``.
 
     The caller has checked the inputs whose messages name the clip: at least one node, and a ``frame_time`` above zero whenever the method reads the speed or a duration filter is on.
     """
@@ -351,7 +351,7 @@ def _contacts_from_positions(
 
     # The scale the default thresholds are written in and the report's foot
     # skate is divided by.
-    scale, scale_measured = _skeleton_scale(node_rest, root_rest)
+    scale, scale_measured = _skeleton_scale(node_rest, scale_reference_rest)
 
     # ---- Signals (F, n_nodes), threshold resolution ----
     speed = None
@@ -523,13 +523,13 @@ def _optional_read_only(array: npt.NDArray[_A] | None) -> npt.NDArray[_A] | None
 
 def _skeleton_scale(
     node_rest: npt.NDArray[np.float64],
-    root_rest: npt.NDArray[np.float64],
+    scale_reference_rest: npt.NDArray[np.float64],
 ) -> tuple[float, bool]:
     """Scale reference for the contact detectors' default thresholds, and whether it was measured.
 
-    The mean rest-pose distance from ``root_rest`` (the joint the caller measures from) to the tested nodes, :func:`pybvh.analysis.skeleton_size`'s measurement, with ``True``. Where it measures nothing (every node sits on the root) the scale is ``1.0``, with ``False``, so the thresholds don't collapse to zero: the public ``skeleton_size`` raises instead of fabricating, but a threshold scale must exist even where a measurement does not, and the report says it stood in.
+    The mean rest-pose distance from ``scale_reference_rest`` (the joint the caller measures from) to the tested nodes, :func:`pybvh.analysis.skeleton_size`'s measurement, with ``True``. Where it measures nothing (every node sits on ``scale_reference_rest``) the scale is ``1.0``, with ``False``, so the thresholds don't collapse to zero: the public ``skeleton_size`` raises instead of fabricating, but a threshold scale must exist even where a measurement does not, and the report says it stood in.
     """
-    distance = geometry._mean_distance_to_root(node_rest, root_rest)
+    distance = geometry._mean_distance_to(node_rest, scale_reference_rest)
     return (1.0, False) if distance is None else (distance, True)
 
 

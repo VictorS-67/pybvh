@@ -19,11 +19,13 @@ from pybvh._orientation import (
     _detect_lr_mapping_by_names,
     _facing_basis,
     _facing_labels,
+    _find_body,
     _find_body_anchor,
     _heading_units,
     _infer_rest_forward,
     _infer_rest_left,
     _infer_rest_up,
+    _infer_rest_up_and_left,
     _infer_world_up,
     _resolve_lr_pairs,
     _resolve_node_lr_pairs,
@@ -292,14 +294,14 @@ class TestUpFromTheBodyAnchor:
         # No head name; the root carries a prop as well as the hips, so a
         # walk down from the root would stop at the root, where the legs
         # do not split, and the prop's spread along x would answer.
-        names = ["Reference", "Hips", "Crown", "Waist", "Prop"]
+        names = ["Reference", "Hips", "Crown", "Brow", "Waist", "Prop"]
         names += ["LeftLeg", "LeftFoot", "RightLeg", "RightFoot"]
         skeleton = _skeleton(names, _REFERENCE_REST, _REFERENCE_LEGS, parents=_REFERENCE_PARENTS)
         assert _infer_rest_up(skeleton, _HIPS) == _RestUp("+y", "leg_pair")
 
     def test_a_pair_that_does_not_meet_at_the_anchor_is_not_read_as_the_legs(self):
         # Both feet below one leg of the hips: the pair meets below the hips.
-        names = ["Reference", "Hips", "Crown", "Waist", "Prop"]
+        names = ["Reference", "Hips", "Crown", "Brow", "Waist", "Prop"]
         names += ["LeftLeg", "LeftFoot", "RightLeg", "RightFoot"]
         parents = [-1, 0, 1, 2, 1, 0, 1, 6, 6, 8]
         skeleton = _skeleton(names, _REFERENCE_REST, [[7, 9]], parents=parents)
@@ -661,6 +663,136 @@ class TestBodyAnchor:
             "lr_pairs",
             ["Hips", "Helper"],
         )
+
+
+def _body_of(nodes, anchor):
+    """The body the anchor named *anchor* gives, as the names of its nodes
+    in node order; end sites are the names ending in ``_End``."""
+    skeleton = _tree(nodes, end_sites=[n for n, _ in nodes if n.endswith("_End")])
+    names = skeleton.node_names
+    in_body = _find_body(skeleton, names.index(anchor))
+    return [name for name, inside in zip(names, in_body, strict=True) if inside]
+
+
+# A torso whose chest holds two arms and a head, and two legs, each to be
+# hung under a joint of the test's choosing.
+_TORSO = [
+    ("Spine", "Root"),
+    ("Chest", "Spine"),
+    ("LeftArm", "Chest"),
+    ("RightArm", "Chest"),
+    ("Neck", "Chest"),
+    ("Head", "Neck"),
+    ("Head_End", "Head"),
+]
+_LEG_ROWS = [
+    ("LeftUpLeg", "Hips"),
+    ("LeftFoot", "LeftUpLeg"),
+    ("LeftFoot_End", "LeftFoot"),
+    ("RightUpLeg", "Hips"),
+    ("RightFoot", "RightUpLeg"),
+    ("RightFoot_End", "RightFoot"),
+]
+
+
+class TestBody:
+    """The body: the anchor and every node below it, started higher when
+    a head name or a foot name is missing below the anchor."""
+
+    def test_the_anchor_and_every_node_below_it(self):
+        # A root above the hips stays outside the body.
+        nodes = [("Reference", None), ("Hips", "Reference"), *_BODY]
+        assert _body_of(nodes, "Hips") == ["Hips", *(name for name, _ in _BODY)]
+
+    def test_a_missing_head_name_starts_the_body_where_one_is_below(self):
+        nodes = [("Prop", None), ("Root", "Prop"), *_TORSO, ("Hips", "Root"), *_LEG_ROWS]
+        assert _body_of(nodes, "Hips") == [name for name, _ in nodes[1:]]
+
+    def test_a_missing_foot_name_starts_the_body_where_one_is_below(self):
+        # The arms meet at the chest: the anchor holds the head, not the feet.
+        nodes = [("Prop", None), ("Root", "Prop"), *_TORSO, ("Hips", "Root"), *_LEG_ROWS]
+        assert _body_of(nodes, "Chest") == [name for name, _ in nodes[1:]]
+
+    def test_both_missing_start_the_body_at_the_higher_joint(self):
+        # The head name is one joint above the anchor, the foot name two.
+        nodes = [
+            ("Prop", None),
+            ("Top", "Prop"),
+            ("Base", "Top"),
+            ("LeftToe", "Base"),
+            ("RightToe", "Base"),
+            ("Middle", "Top"),
+            ("Neck", "Middle"),
+            ("Arms", "Middle"),
+            ("LeftHand", "Arms"),
+            ("RightHand", "Arms"),
+        ]
+        assert _body_of(nodes, "Arms") == [name for name, _ in nodes[1:]]
+
+    def test_the_closest_joint_above_with_the_name_below(self):
+        # The neck is below the middle joint, which the climb stops at.
+        nodes = [
+            ("Top", None),
+            ("Spine", "Top"),
+            ("Middle", "Top"),
+            ("Neck", "Middle"),
+            ("Arms", "Middle"),
+            ("LeftFoot", "Arms"),
+            ("RightFoot", "Arms"),
+        ]
+        assert _body_of(nodes, "Arms") == ["Middle", "Neck", "Arms", "LeftFoot", "RightFoot"]
+
+    def test_no_joint_above_with_the_missing_name(self):
+        nodes = [("Reference", None), ("Prop", "Reference"), ("Hips", "Reference"), *_LEG_ROWS]
+        assert _body_of(nodes, "Hips") == ["Hips", *(name for name, _ in _LEG_ROWS)]
+
+    def test_names_are_read_as_words(self):
+        # "Footsteps" holds "foot" but is another word, so the hips, which
+        # hold "LeftLeg", are not left for the root.
+        nodes = [
+            ("Bip01", None),
+            ("Footsteps", "Bip01"),
+            ("Hips", "Bip01"),
+            ("Spine", "Hips"),
+            ("LeftLeg", "Hips"),
+            ("RightLeg", "Hips"),
+        ]
+        assert _body_of(nodes, "Hips") == ["Hips", "Spine", "LeftLeg", "RightLeg"]
+
+    def test_the_names_of_end_sites_are_not_read(self):
+        nodes = [("Root", None), ("Head", "Root"), ("Hips", "Root"), ("LeftFoot", "Hips")]
+        nodes += [("Spine_End", "Hips")]
+        assert _body_of(nodes, "Hips") == ["Root", "Head", "Hips", "LeftFoot", "Spine_End"]
+
+
+class TestReadInTheBody:
+    """The head joint and the L/R pairs of rest left are read in the body
+    alone: a prop beside it is passed over."""
+
+    def test_a_head_name_outside_the_body_is_not_the_head_joint(self):
+        # The prop hangs from the reference root, beside the hips; the
+        # body's head lies on the hips, so its neck is the head joint.
+        names = list(_REFERENCE_NAMES)
+        names[5] = "HeadLamp"
+        skeleton = _skeleton(names, _REFERENCE_REST, parents=_REFERENCE_PARENTS)
+        assert _up_marker_index(skeleton, _HIPS) == 3
+
+    def test_rest_left_reads_the_pairs_with_both_joints_in_the_body(self):
+        # A pair of props beside the body lies far along -x, the legs
+        # along +x.
+        names = ["Reference", "Hips", "Head", "LeftLeg", "RightLeg", "LeftProp", "RightProp"]
+        rest = [
+            [0.0, 0.0, 0.0],
+            [0.0, 10.0, 0.0],
+            [0.0, 19.0, 0.0],
+            [2.0, 5.0, 0.0],
+            [-2.0, 5.0, 0.0],
+            [-50.0, 0.0, 0.0],
+            [50.0, 0.0, 0.0],
+        ]
+        parents = [-1, 0, 1, 1, 1, 0, 0]
+        skeleton = _skeleton(names, rest, [[3, 4], [5, 6]], parents=parents)
+        assert _infer_rest_up_and_left(skeleton, 1) == (_RestUp("+y", "named_joint"), "+x")
 
 
 # The body anchor of a skeleton without pairs: its root.

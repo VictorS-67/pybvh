@@ -94,6 +94,11 @@ _FALLBACK_FORWARD = {"y": "+z", "z": "+x", "x": "+y"}
 # telling first.
 _UP_BODY_PARTS = ("head", "neck", "chest", "spine")
 
+# The words of a joint name that say it is part of a leg or a foot: the body
+# starts above the body anchor when none of its joints holds one
+# (_find_body).
+_FOOT_NAMES = ("leg", "foot", "toe", "toes")
+
 # What each orientation fact was read from, as OrientationReport names it.
 _RestUpSource = Literal["named_joint", "leg_pair", "largest_spread"]
 _RestForwardSource = Literal["lr_geometry", "default"]
@@ -255,12 +260,77 @@ def _meeting_joint(
     return a
 
 
+def _find_body(skeleton: _RestSkeleton, anchor: int) -> npt.NDArray[np.bool_]:
+    """The nodes of the body: the joint it starts at and every node below.
+
+    The body starts at the body anchor, unless no joint below the anchor
+    has a head name (``head``, ``neck``, ``chest``, ``spine``, the names
+    the head joint is found with) or none has a foot name (``leg``, ``foot``, ``toe``,
+    ``toes``), each read as a word of the joint's name
+    (:func:`_name_words`). For a missing name, the body starts at the
+    closest joint above the anchor that has a joint with that name below
+    it; with both missing, at the higher of the two joints. When no
+    joint above has the missing name, the anchor stays the start for
+    that name. So on a rig whose hips sit beside its spine, under a
+    common root, the body starts at that root and holds the head, and a
+    reference root or a helper beside a whole body stays outside it. End
+    sites' names are not read. The anchor itself does not move.
+
+    Parameters
+    ----------
+    skeleton : _RestSkeleton
+        The node names and the hierarchy (``node_names``,
+        ``parent_idx``, ``is_end_site``).
+    anchor : int
+        The body anchor's index (:func:`_find_body_anchor`).
+
+    Returns
+    -------
+    ndarray of shape (N,), bool
+        Which nodes are in the body.
+    """
+    parent_idx = skeleton.parent_idx
+    words = [
+        set() if end_site else _name_words(name)
+        for name, end_site in zip(skeleton.node_names, skeleton.is_end_site, strict=True)
+    ]
+    above = []  # the anchor's ancestors, the closest first
+    node = int(parent_idx[anchor])
+    while node >= 0:
+        above.append(node)
+        node = int(parent_idx[node])
+
+    # For each missing name, how many joints above the anchor the climb
+    # goes: 0 for the anchor's parent.
+    climbs = []
+    for parts in (_UP_BODY_PARTS, _FOOT_NAMES):
+        named = np.array([not name_words.isdisjoint(parts) for name_words in words])
+        # A node's named joints, itself included, summed from the leaves
+        # up; a parent comes before its children.
+        named_in_subtree = named.astype(np.intp)
+        for child in range(len(parent_idx) - 1, 0, -1):
+            named_in_subtree[parent_idx[child]] += named_in_subtree[child]
+        named_below = named_in_subtree - named
+        if named_below[anchor]:
+            continue
+        climb = next((rank for rank, joint in enumerate(above) if named_below[joint]), None)
+        if climb is not None:
+            climbs.append(climb)
+    start = above[max(climbs)] if climbs else anchor
+
+    in_body = np.zeros(len(parent_idx), dtype=bool)
+    in_body[start] = True
+    for child in range(start + 1, len(parent_idx)):
+        in_body[child] = in_body[parent_idx[child]]
+    return in_body
+
+
 def _up_marker_index(skeleton: _RestSkeleton, anchor: int) -> int | None:
     """The node whose direction from the body anchor says which way is up.
 
     The one body-part lookup for "up", shared by the rest up and the
-    world-up guess so the two read the same node: the first joint, in node
-    order, whose name holds ``head`` as a word, else ``neck``, ``chest``
+    world-up guess so the two read the same node: the first joint of the
+    body (:func:`_find_body`), in node order, whose name holds ``head`` as a word, else ``neck``, ``chest``
     or ``spine``, in any case, after its namespace and number suffix
     (:func:`_name_words`). So ``Head``, ``mixamorig:Head``, ``Bip01
     Head``, ``CC_Base_Head``, ``J_Bip_C_Head`` and ``HeadTop_End`` (a
@@ -286,9 +356,12 @@ def _up_marker_index(skeleton: _RestSkeleton, anchor: int) -> int | None:
         The node's index, or ``None`` when no node qualifies.
     """
     local = skeleton.rest_positions - skeleton.rest_positions[anchor]
+    in_body = _find_body(skeleton, anchor)
     words = [
-        set() if end_site else _name_words(name)
-        for name, end_site in zip(skeleton.node_names, skeleton.is_end_site, strict=True)
+        _name_words(name) if inside and not end_site else set()
+        for name, end_site, inside in zip(
+            skeleton.node_names, skeleton.is_end_site, in_body, strict=True
+        )
     ]
     for part in _UP_BODY_PARTS:
         # The first node of a repeated name, by position in the walk.
@@ -892,7 +965,9 @@ def _infer_rest_up_and_left(
     """
     rest_up = _infer_rest_up(skeleton, anchor)
     rest_up_axis = None if rest_up is None else rest_up.axis
-    return rest_up, _infer_rest_left(skeleton.rest_positions, skeleton.lr_pairs, rest_up_axis)
+    in_body = _find_body(skeleton, anchor)
+    pairs = skeleton.lr_pairs[in_body[skeleton.lr_pairs].all(axis=1)]
+    return rest_up, _infer_rest_left(skeleton.rest_positions, pairs, rest_up_axis)
 
 
 # The up axis the house defaults are keyed on when a skeleton has none: the
@@ -1167,7 +1242,7 @@ class OrientationReport:
         one point).
     rest_up_source : {"named_joint", "leg_pair", "largest_spread"} or None
         ``"named_joint"``: the main axis from the body anchor to the
-        first joint whose name holds ``head`` as a word, else ``neck``,
+        first joint of the body whose name holds ``head`` as a word, else ``neck``,
         ``chest`` or ``spine`` (``Head``, ``mixamorig:Head``, ``Bip01
         Head``; not ``Forehead``).
         ``"leg_pair"``: no such joint, so the axis opposite the legs:

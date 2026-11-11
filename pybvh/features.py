@@ -154,7 +154,11 @@ def to_feature_array(
         your model is sensitive to that; ``'6d'`` (the default) has no
         such discontinuity, which is the representation's whole point.
     include_root_pos : bool, optional
-        If True (default), include root position (3 columns).
+        If True (default), include root position (3 columns): the root's
+        row of :meth:`Bvh.node_positions
+        <pybvh.bvh.Bvh.node_positions>` under ``centered``, so centred
+        on :attr:`~pybvh.bvh.Bvh.body_anchor`. On a clip whose anchor is
+        its root it is zero under ``"skeleton"``.
     include_velocities : bool, optional
         If True, include joint velocity features, in units per
         **frame** — deliberately not :func:`joint_velocities`' own
@@ -169,7 +173,9 @@ def to_feature_array(
         detected in world frame (see :func:`pybvh.analysis.foot_contacts`),
         whatever ``centered`` says.
     centered : str, optional
-        Coordinate centering mode (default ``"world"``).
+        Coordinate centering mode (default ``"world"``), as
+        :meth:`Bvh.node_positions <pybvh.bvh.Bvh.node_positions>` reads
+        it.
     feet : sequence of str or BvhNode, or None, optional
         The feet for contact detection, each a node name or one of
         ``bvh.nodes`` (see :data:`~pybvh.NodeSelector`), resolved as
@@ -228,17 +234,20 @@ def to_feature_array(
 
     parts: list[npt.NDArray[np.float64]] = []
 
-    # Root position — apply same ``centered`` semantics as node_positions.
+    # Root position — the root's row of node_positions(centered=...), which
+    # centres on the body anchor.
     if include_root_pos:
-        if centered == "skeleton":
-            parts.append(np.zeros_like(motion["root_pos"]))
-        elif centered == "first":
+        root_pos = motion["root_pos"]
+        if centered == "world":
+            parts.append(root_pos)
+        elif bvh._body_anchor_index() != 0:
+            parts.append(bvh._all_node_positions(centered)[:, 0])
+        elif centered == "skeleton":
+            parts.append(np.zeros_like(root_pos))
+        else:  # "first"
             # Ground-plane centering: first-frame root subtracted in the
             # non-up axes only, matching node_positions(centered="first").
-            root_pos = motion["root_pos"]
             parts.append(root_pos - _ground_plane_offset(root_pos[0], bvh.world_up))
-        else:  # "world"
-            parts.append(motion["root_pos"])
 
     # Joint translations — each relative to its parent, so ``centered``
     # leaves them alone.

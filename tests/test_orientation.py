@@ -20,6 +20,7 @@ from pybvh._orientation import (
     _facing_basis,
     _facing_labels,
     _find_body_anchor,
+    _heading_units,
     _infer_rest_forward,
     _infer_rest_left,
     _infer_rest_up,
@@ -28,7 +29,6 @@ from pybvh._orientation import (
     _resolve_node_lr_pairs,
     _RestSkeleton,
     _RestUp,
-    _root_heading_units,
     _up_marker_index,
     _warn_facing_defaulted_at_frames,
     _WorldUpGuess,
@@ -357,29 +357,29 @@ class TestRootHeading:
     """The heading: the root rotation applied to rest forward, on the ground."""
 
     def test_identity_root_reads_rest_forward(self):
-        heading = _root_heading_units(np.eye(3)[np.newaxis], "+z", "+y")
+        heading = _heading_units(np.eye(3)[np.newaxis], "+z", "+y")
         np.testing.assert_allclose(heading, [[0.0, 0.0, 1.0]], atol=1e-12)
 
     def test_a_turn_about_up_turns_the_heading(self):
         # A quarter turn about +y carries +z onto +x.
-        heading = _root_heading_units(_about([0, 1, 0], 90)[np.newaxis], "+z", "+y")
+        heading = _heading_units(_about([0, 1, 0], 90)[np.newaxis], "+z", "+y")
         np.testing.assert_allclose(heading, [[1.0, 0.0, 0.0]], atol=1e-12)
 
     def test_a_tilted_root_is_read_on_the_ground(self):
         # 30 degrees forward pitch about +x: +z goes to (0, -0.5, 0.866),
         # whose ground direction is still +z.
-        heading = _root_heading_units(_about([1, 0, 0], 30)[np.newaxis], "+z", "+y")
+        heading = _heading_units(_about([1, 0, 0], 30)[np.newaxis], "+z", "+y")
         np.testing.assert_allclose(heading, [[0.0, 0.0, 1.0]], atol=1e-12)
 
     def test_nan_where_the_forward_stands_along_world_up(self):
         rotmats = np.stack([np.eye(3), _about([1, 0, 0], -90), np.eye(3)])
-        heading = _root_heading_units(rotmats, "+z", "+y")
+        heading = _heading_units(rotmats, "+z", "+y")
         assert np.isnan(heading[1]).all()
         np.testing.assert_allclose(heading[[0, 2]], [[0, 0, 1], [0, 0, 1]], atol=1e-12)
 
     def test_read_against_the_world_up_given(self):
         # The same root under a z-up world: rest forward +y stays +y.
-        heading = _root_heading_units(np.eye(3)[np.newaxis], "+y", "+z")
+        heading = _heading_units(np.eye(3)[np.newaxis], "+y", "+z")
         np.testing.assert_allclose(heading, [[0.0, 1.0, 0.0]], atol=1e-12)
 
 

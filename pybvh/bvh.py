@@ -417,9 +417,12 @@ def _validated_lr_mapping(mapping: dict[str, str], joint_names: Sequence[str]) -
 
 def _build_rest_pose(bvh: Bvh) -> npt.NDArray[np.float64]:
     """FK of ``bvh``'s skeleton with every angle zero, the root at the origin
-    and each translating joint at its offset, the rest pose (ADR 0010)."""
+    and each translating joint at its offset, the rest pose (ADR 0010).
+
+    Posed from the topology, not the clip: the rest pose is centred on the
+    root, and the rest skeleton that the body anchor is found from holds it."""
     return frames_to_node_positions(
-        bvh,
+        bvh.fk_topology,
         root_pos=np.zeros(3),
         joint_angles=np.zeros((bvh.joint_count, 3), dtype=np.float64),
         centered="skeleton",
@@ -1754,8 +1757,8 @@ class Bvh:
         reading is accepted only when its largest component is at least
         twice the second-largest — a first frame bent or leaning far
         from every axis is treated as ambiguous and defers to
-        :attr:`rest_up`, with a warning when the root's rotation at
-        frame 0 carries :attr:`rest_up` onto another axis, since the
+        :attr:`rest_up`, with a warning when the body anchor's rotation
+        at frame 0 carries :attr:`rest_up` onto another axis, since the
         rest pose may then be authored in another convention than the
         motion. A figure straight and horizontal at frame 0 with its
         head near a horizontal axis (lying flat, a plank) does decide,
@@ -1848,7 +1851,8 @@ class Bvh:
         """Warn when *guess* is the house default; and, unless the clip was
         loaded with ``warn_on_world_up_disagreement=False``, when it
         disagrees with *rest_up*, or when it fell back on rest up and the
-        root rotation of frame 0 carries rest up onto another axis."""
+        body anchor's world rotation at frame 0 carries rest up onto
+        another axis."""
         if guess.source == "default":
             _warn_world_up_defaulted()
         elif not self._warn_on_world_up_disagreement:
@@ -1857,8 +1861,8 @@ class Bvh:
             assert rest_up is not None  # a disagreement needs a rest up
             _warn_world_up_disagreement(rest_up, guess.axis)
         else:
-            root_rotation = self._root_rotmats([0])[0] if self.frame_count > 0 else None
-            carried = _root_contradicts_rest_up(guess, root_rotation)
+            anchor_rotation = self._body_anchor_rotmats([0])[0] if self.frame_count > 0 else None
+            carried = _root_contradicts_rest_up(guess, anchor_rotation)
             if carried is not None:
                 _warn_rest_up_contradicted_by_root(guess.axis, carried)
 
@@ -2117,7 +2121,8 @@ class Bvh:
         :attr:`rest_up`: never from :attr:`world_up` or the animation.
         The rest pose is the skeleton with every rotation zero, so this
         is a direction in the skeleton's frame, not in the world; the
-        root rotation of a frame carries it into the world, which is
+        world rotation of :attr:`body_anchor` at a frame carries it into
+        the world, which is
         what the heading of :func:`~pybvh.analysis.root_trajectory`
         reads. On a clean file, where rest up is world up, it is also
         what :meth:`forward_at` measures on the rest pose's own
@@ -2424,7 +2429,7 @@ class Bvh:
         vector is quantized to the nearest of the six signed world
         axes. See :meth:`facing_frame` for the continuous per-frame
         basis as unit vectors, and for the fallback when the frame's
-        left/right axis cannot be read (the root's heading at that
+        left/right axis cannot be read (the body's heading at that
         frame, then a house default, which warns).
 
         Parameters
@@ -2506,7 +2511,8 @@ class Bvh:
         """The facing chain on *coords*, whose rows are the clip's *frames*.
 
         Gathers the chain's inputs (the facing L/R pairs, world up and,
-        when rest forward is measured, the root's heading at *frames*),
+        when rest forward is measured, the body anchor's world rotation at
+        *frames*, for the heading),
         runs it, and warns when a row carries the house default. With
         *frames* ``None`` the rows are a pose with no clip frame, and the
         heading stage is skipped. Returns ``(forward, left, up, valid)``.
@@ -2514,13 +2520,13 @@ class Bvh:
         world_up = self.world_up
         report = self.orientation_report
         lr_pairs = self._facing_lr_pairs()
-        root_rotmats = rest_forward = None
+        anchor_rotmats = rest_forward = None
         if frames is not None and lr_pairs.shape[0] > 0:
             if report.rest_forward_source == "lr_geometry":
                 rest_forward = report.rest_forward
-                root_rotmats = self._root_rotmats(frames)
+                anchor_rotmats = self._body_anchor_rotmats(frames)
         forward, left, up, valid, defaulted = _facing_basis(
-            coords, lr_pairs, world_up, root_rotmats, rest_forward
+            coords, lr_pairs, world_up, anchor_rotmats, rest_forward
         )
         if defaulted.any():
             if lr_pairs.shape[0] == 0:
@@ -2535,13 +2541,61 @@ class Bvh:
     def _root_rotmats(self, frames: Sequence[int] | slice = slice(None)) -> npt.NDArray[np.float64]:
         """The root's rotation matrix at each of *frames*, shape ``(F, 3, 3)``.
 
-        What carries a direction of the skeleton's own frame into the
-        world at a frame (ADR 0004): the root's heading and the facing
-        chain's heading stage read it.
+        The world rotation of the body anchor on a clip whose anchor is
+        its root (:meth:`_body_anchor_rotmats`).
         """
         joint_angles = self._motion()["joint_angles"]
         # The per-joint form, which reads a static root's order '' as the identity.
         return rotations.euler_to_rotmat(joint_angles[frames, :1], [_euler_order(self.root)])[:, 0]
+
+    def _body_anchor_index(self) -> int:
+        """The node index of :attr:`body_anchor`, for the readers that describe the body.
+
+        The one way the body-level readers reach the anchor: the travel
+        (:meth:`_body_anchor_positions`), the heading
+        (:meth:`_body_anchor_rotmats`) and the ``centered`` modes.
+        """
+        return self._found_body_anchor().node
+
+    def _body_anchor_positions(self) -> npt.NDArray[np.float64]:
+        """The body anchor's world position per frame, shape ``(F, 3)``, read-only.
+
+        The body's travel. On a clip whose anchor is its root it is
+        :attr:`root_pos` itself, with no forward kinematics run.
+        """
+        anchor = self._body_anchor_index()
+        if anchor == 0:
+            return self.root_pos
+        return self._world_node_positions()[:, anchor]
+
+    def _body_anchor_rotmats(
+        self, frames: Sequence[int] | slice = slice(None)
+    ) -> npt.NDArray[np.float64]:
+        """The body anchor's world rotation at each of *frames*, shape ``(F, 3, 3)``.
+
+        What carries a direction of the skeleton's own frame into the
+        world at a frame, for the body (ADR 0004): the heading and the
+        facing chain's heading stage read it. The rotations of the chain
+        from the root to the anchor, composed parent first as forward
+        kinematics composes them. On a clip whose anchor is its root it
+        is :meth:`_root_rotmats`.
+        """
+        anchor = self._body_anchor_index()
+        if anchor == 0:
+            return self._root_rotmats(frames)
+        topology = self.fk_topology
+        chain = []
+        node = anchor
+        while node != -1:
+            chain.append(int(topology.joint_idx[node]))
+            node = int(topology.parent_idx[node])
+        chain.reverse()  # root first
+        joint_angles = self._motion()["joint_angles"][frames][:, chain]
+        local = rotations.euler_to_rotmat(joint_angles, [topology.euler_orders[j] for j in chain])
+        world = local[:, 0]
+        for k in range(1, len(chain)):
+            world = world @ local[:, k]
+        return world
 
     def facing_frame(self):
         """Per-frame facing basis as continuous unit vectors.
@@ -2644,14 +2698,15 @@ class Bvh:
         """
         _check_centered(centered)
         world = self._world_node_positions()
+        if centered == "world":
+            return world
+        anchor = self._body_anchor_positions()
         if centered == "skeleton":
-            return world - self.root_pos[:, np.newaxis, :]
-        if centered == "first":
-            # with no frames there is nothing to center on
-            if self.frame_count == 0:
-                return world.copy()
-            return world - _ground_plane_offset(self.root_pos[0], self.world_up)
-        return world
+            return world - anchor[:, np.newaxis, :]
+        # with no frames there is nothing to center on
+        if self.frame_count == 0:
+            return world.copy()
+        return world - _ground_plane_offset(anchor[0], self.world_up)
 
     def node_positions(
         self, frame: int | None = None, centered: str = "world"
@@ -2678,21 +2733,21 @@ class Bvh:
             Negative indices count from the end (NumPy semantics), so
             ``-1`` is the **last** frame.
         centered : str
-            ``"world"`` – root at actual position.
-            ``"skeleton"`` – root at origin for all frames.
-            ``"first"`` – ground-plane centering: the first frame's root
-            position is subtracted in the two axes perpendicular to
-            :attr:`world_up`; the up coordinate is untouched, so the
+            ``"world"`` – every node at its world position.
+            ``"skeleton"`` – :attr:`body_anchor` at origin for all frames.
+            ``"first"`` – ground-plane centering: the first frame's body
+            anchor position is subtracted in the two axes perpendicular
+            to :attr:`world_up`; the up coordinate is untouched, so the
             motion starts above the origin at its original height.
 
-            The three modes read the root. On a root that stays in place
-            with the body below it (a static root, ``CHANNELS 0``, or a
-            reference node whose channels do not change), they centre
-            on the reference node, not on the body: under
-            ``"skeleton"`` the body still travels. The body's travel is
-            then the world position of its hips node,
-            ``bvh.node_positions()[:, bvh.node_index["Hips"]]`` for a
-            hips node named ``Hips``.
+            The two centred modes read the body anchor, which is the
+            root on a clip whose anchor is its root. On a root that
+            stays in place with the body below it (a static root,
+            ``CHANNELS 0``, or a reference node whose channels do not
+            change), they centre on the body, not on the reference
+            node: under ``"skeleton"`` the hips stay at the origin and
+            the reference node moves. With *frame* given, ``"first"``
+            centres on that frame's anchor, the one frame posed.
         """
         _check_centered(centered)
         if frame is None:
@@ -2706,6 +2761,21 @@ class Bvh:
             )
         actual = frame if frame >= 0 else frame + self.frame_count
         motion = self._motion()
+        anchor = self._body_anchor_index()
+        if anchor != 0 and centered != "world":
+            # Centred on the anchor's row of the frame's world positions.
+            if self._derived.node_positions is not None:
+                world_frame = self._derived.node_positions[actual]
+            else:
+                world_frame = frames_to_node_positions(
+                    self,
+                    root_pos=motion["root_pos"][actual],
+                    joint_angles=motion["joint_angles"][actual],
+                    joint_translations=motion["joint_translations"][actual],
+                )
+            if centered == "skeleton":
+                return world_frame - world_frame[anchor]
+            return world_frame - _ground_plane_offset(world_frame[anchor], self.world_up)
         if self._derived.node_positions is not None:
             world_frame = self._derived.node_positions[actual]
             if centered == "world":

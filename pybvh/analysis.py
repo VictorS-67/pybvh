@@ -18,7 +18,7 @@ import numpy as np
 import numpy.typing as npt
 
 from . import _contacts, geometry, rotations
-from ._orientation import _root_heading_units
+from ._orientation import _heading_units
 from ._warnings import user_stacklevel
 from .bvh import Bvh
 from .bvhnode import BvhNode, NodeSelector
@@ -551,29 +551,33 @@ def root_trajectory(
 ) -> npt.NDArray[np.float64]:
     """Extract root trajectory features commonly used in motion ML.
 
-    Returns the root's ground-plane position and heading angle (as
-    ``sin``/``cos`` pair).  Optionally appends ground-plane and
-    heading velocities.
+    Returns the ground-plane position and heading angle (as
+    ``sin``/``cos`` pair) of :attr:`~pybvh.bvh.Bvh.body_anchor`, the joint
+    the body's measures start from. On a clip whose anchor is its root,
+    the most common case, that is the root's. Optionally appends
+    ground-plane and heading velocities.
 
     The heading reference is :attr:`~pybvh.bvh.Bvh.rest_forward`, the
     direction the rest pose faces in the skeleton's own frame (rest left
-    × rest up, read from the rest pose alone). The root rotation of each
-    frame carries it into the world, and the heading is its projection
-    on the ground. At a frame whose root rotation is identity the
-    heading is therefore rest forward's own ground direction, whatever
+    × rest up, read from the rest pose alone). The body anchor's world
+    rotation at each frame (its own rotation composed with those of the
+    joints above it) carries it into the world, and the heading is its
+    projection on the ground. At a frame whose anchor's world rotation
+    is identity the heading is therefore rest forward's own ground
+    direction, whatever
     rotation the clip starts with. When rest forward is the house
     default (no usable left/right geometry; reading it warns), the
     heading is still built on it, and both the heading and its rate of
     turn (``heading_vel``) depend on that guessed reference whenever
-    the root pitches or rolls: a tilted root's forward projects on the
-    ground at an angle, and turns there at a rate, that differ with the
-    forward it starts from. On a defaulted rest forward they are
-    reliable only for a root that turns about world up alone.
+    the anchor pitches or rolls: a tilted anchor's forward projects on
+    the ground at an angle, and turns there at a rate, that differ with
+    the forward it starts from. On a defaulted rest forward they are
+    reliable only for an anchor that turns about world up alone.
     :func:`facing_frame` chooses otherwise for its fallback, which takes
     no heading from a defaulted rest forward.
 
-    The heading is **orientation-derived** — the root bone's rotation
-    applied to the rest forward, projected to the ground plane — not
+    The heading is **orientation-derived** — the body anchor's world
+    rotation applied to the rest forward, projected to the ground plane — not
     the direction of travel (a side-stepping character keeps its
     heading). It therefore inherits pelvis twist, and its ground-plane
     projection shrinks when the character bends far forward;
@@ -592,12 +596,11 @@ def root_trajectory(
     it); the heading is unwrapped over the readable frames only, so no
     other sample is affected. The ground columns are always finite.
 
-    The trajectory is the root's. On a root that stays in place with the
+    The function keeps its name, but the trajectory is the body
+    anchor's, not the root's. On a root that stays in place with the
     body below it (a static root, ``CHANNELS 0``, or a reference node
-    whose channels do not change), it describes the reference node, not
-    the body: the ground position stays still and the heading does not
-    turn. The body's travel is then the world position of its hips node
-    (see :meth:`Bvh.node_positions <pybvh.bvh.Bvh.node_positions>`).
+    whose channels do not change), it therefore describes the body: the
+    hips travel and turn while the root stays still.
 
     Parameters
     ----------
@@ -643,12 +646,12 @@ def root_trajectory(
     up_idx = {"x": 0, "y": 1, "z": 2}[up_str[1]]
     ground_axes = [i for i in range(3) if i != up_idx]
 
-    # Rest forward, in the skeleton's own frame: the root rotation is what
-    # carries it into the world, frame by frame.
+    # Rest forward, in the skeleton's own frame: the body anchor's world
+    # rotation is what carries it into the world, frame by frame.
     # (F, 3), NaN rows
-    fwd_ground = _root_heading_units(bvh._root_rotmats(), bvh.rest_forward, up_str)
+    fwd_ground = _heading_units(bvh._body_anchor_rotmats(), bvh.rest_forward, up_str)
 
-    ground_pos = bvh.root_pos[:, ground_axes]  # (F, 2)
+    ground_pos = bvh._body_anchor_positions()[:, ground_axes]  # (F, 2)
     heading = np.arctan2(fwd_ground[:, ground_axes[1]], fwd_ground[:, ground_axes[0]])  # (F,)
 
     base = np.column_stack(
@@ -716,7 +719,7 @@ def facing_frame(bvh: Bvh) -> FacingFrame:
     orientation (no roll or pitch; a character bending forward keeps
     their facing frame level). It is also distinct from
     :func:`root_trajectory`'s heading, which is a *second facing
-    estimate built differently* — the root bone's rotation applied to
+    estimate built differently* — the body anchor's world rotation applied to
     the rest forward — not a direction of motion: that heading inherits
     pelvis twist and collapses toward numerical ambiguity when the
     character bends far forward, while this basis measures the
@@ -735,7 +738,7 @@ def facing_frame(bvh: Bvh) -> FacingFrame:
     Fallback policy (shared by :meth:`Bvh.forward_at` and
     :meth:`Bvh.left_at`): a frame whose horizontal ``(left - right)``
     average nearly vanishes or lies along ``world_up`` (norm below
-    ``1e-6``, the body on its side) takes the root's heading at that
+    ``1e-6``, the body on its side) takes the body's heading at that
     frame (the one :func:`root_trajectory` returns) as its forward, when
     :attr:`Bvh.rest_forward` is measured and that heading is readable
     (:func:`root_trajectory` builds a heading on a defaulted rest
@@ -772,7 +775,7 @@ def facing_frame(bvh: Bvh) -> FacingFrame:
     --------
     Bvh.forward_at, Bvh.left_at : The categorical (snapped axis label)
         form of the same construction.
-    root_trajectory : Root-bone-orientation heading (a different facing
+    root_trajectory : Body-anchor-orientation heading (a different facing
         estimate — see Notes above; not a travel direction).
     """
     forward, left, up, valid = bvh._facing_at(bvh._all_node_positions(), slice(None))
@@ -2477,12 +2480,12 @@ def kinetic_energy(
     return 0.5 * np.sum(m * speed_sq, axis=-1)
 
 
-def _root_horizontal_distance(bvh: Bvh) -> float:
-    """Path length of the root projected onto the ground plane."""
+def _anchor_horizontal_distance(bvh: Bvh) -> float:
+    """Path length of the body anchor projected onto the ground plane."""
     up = _axis_to_vector(bvh.world_up)
-    root = bvh.root_pos
-    height = root @ up
-    horizontal = root - height[:, None] * up
+    anchor = bvh._body_anchor_positions()
+    height = anchor @ up
+    horizontal = anchor - height[:, None] * up
     return float(geometry.path_length(horizontal))
 
 
@@ -2613,18 +2616,19 @@ def stride_length(
 
 
 def walking_pace(bvh: Bvh) -> float:
-    """Mean horizontal speed — root ground-path length per second.
+    """Mean horizontal speed — the body anchor's ground-path length per second.
 
     Same definition as the ``walking_pace`` field of
-    :func:`gait_parameters`, but computed directly from the root path so
+    :func:`gait_parameters`, but computed directly from the path of
+    :attr:`~pybvh.bvh.Bvh.body_anchor` (the root's, on a clip whose
+    anchor is its root) so
     it needs no feet or contact detection.  Note it only
     *approximates* ``stride_length × cadence / 2`` (exact for straight,
     steady, symmetric gait; it diverges on curved or irregular walking
-    because the root path and the foot landings measure different
+    because the anchor's path and the foot landings measure different
     things). On a root that stays in place with the body below it (a
     static root, or a reference node whose channels do not change), the
-    root path is the reference node's, so the pace is zero; the body's
-    travel is then the world position of its hips node.
+    pace is still the body's, read from the hips, not the root.
 
     Parameters
     ----------
@@ -2650,7 +2654,7 @@ def walking_pace(bvh: Bvh) -> float:
     duration = (bvh.frame_count - 1) * bvh.frame_time
     if duration <= 0:
         return float("nan")
-    return _root_horizontal_distance(bvh) / duration
+    return _anchor_horizontal_distance(bvh) / duration
 
 
 GaitParameters = namedtuple(
@@ -2763,7 +2767,7 @@ def gait_parameters(
     """Spatiotemporal gait parameters in one pass.
 
     Bundles the foot-measured gait analysis: ``cadence`` (onsets/s),
-    ``walking_pace`` (root ground speed), ``stride_length`` and its
+    ``walking_pace`` (body anchor ground speed), ``stride_length`` and its
     coefficient of variation ``stride_cv`` (landing→next-same-foot-landing),
     ``step_length`` (forward advance between successive any-foot landings,
     measured along the direction of travel so step *width* is excluded),
@@ -2794,7 +2798,7 @@ def gait_parameters(
       multiply by 100 for SI magnitude; the direction of the asymmetry is
       not recoverable from this field.
     - ``step_length`` projects onto a **single whole-clip progression
-      chord** (the root's first→last horizontal displacement), not a
+      chord** (the body anchor's first→last horizontal displacement), not a
       per-step heading. On a curved walk this systematically shortens the
       value, and a closed loop has no net travel and returns ``nan``.
       ``stride_length`` by contrast is the full **Euclidean** distance
@@ -2802,12 +2806,12 @@ def gait_parameters(
       while ``step_length`` excludes it — the two are not the 2:1 pair a
       clinical report would use on curved or wide-stance gait.
     - ``walking_pace`` and the progression chord of ``step_length`` read
-      the **root**. On a root that stays in place with the body below it
-      (a static root, or a reference node whose channels do not change),
-      they describe the reference node, not the body: the pace is zero
-      and ``step_length`` is ``nan``, as on a clip with no net travel.
-      The body's travel is then the world position of its hips node. The
-      foot-measured fields do not read the root.
+      the **body anchor** (:attr:`~pybvh.bvh.Bvh.body_anchor`), which is
+      the root on a clip whose anchor is its root. On a root that stays
+      in place with the body below it (a static root, or a reference
+      node whose channels do not change), they describe the body, read
+      from the hips, not the root. The foot-measured fields do not read
+      the anchor.
 
     Parameters
     ----------
@@ -2884,16 +2888,16 @@ def _gait_parameters_unchecked(
     foot_xyz = bvh._world_node_positions()[:, foot_indices, :]  # (F, n_feet, 3)
     foot_h = foot_xyz - (foot_xyz @ up)[..., None] * up  # project to ground
 
-    root = bvh.root_pos
-    root_h = root - (root @ up)[:, None] * up  # (F, 3) on the ground
-    progression = root_h[-1] - root_h[0]  # net travel direction
+    anchor = bvh._body_anchor_positions()
+    anchor_h = anchor - (anchor @ up)[:, None] * up  # (F, 3) on the ground
+    progression = anchor_h[-1] - anchor_h[0]  # net travel direction
 
     return _compute_gait_parameters(
         contacts,
         foot_h,
         [foot.name for foot in foot_nodes],
         bvh.frame_time,
-        _root_horizontal_distance(bvh),
+        _anchor_horizontal_distance(bvh),
         progression,
     )
 

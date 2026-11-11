@@ -413,14 +413,15 @@ def frames_to_node_positions(
         :mod:`pybvh.rotations`.
     centered : str
         ``"world"``  – root at its actual position.
-        ``"skeleton"`` – root at origin in every frame.
-        ``"first"`` – ground-plane centering: the first frame's root
-        position is subtracted in the two axes other than ``world_up``
-        only, so the motion starts above the origin at its original
-        height.
-        The modes read the root: on a root that stays in place with the
-        body below it, they centre on the reference node, not on the
-        body (see :meth:`Bvh.node_positions`).
+        ``"skeleton"`` – the centre node at origin in every frame.
+        ``"first"`` – ground-plane centering: the first frame's centre
+        node position is subtracted in the two axes other than
+        ``world_up`` only, so the motion starts above the origin at its
+        original height.
+        The centre node is the :attr:`~pybvh.bvh.Bvh.body_anchor` of a
+        *skeleton* given as a Bvh, and the root of a node list or an
+        :class:`FkTopology`, which carry no L/R mapping to find a body
+        from (see :meth:`Bvh.node_positions`).
     world_up : str or None, optional
         Signed world-up axis string (e.g. ``'+y'``) — only read by
         ``centered="first"``, to decide which coordinate is left
@@ -475,7 +476,11 @@ def frames_to_node_positions(
     channels being its position. Centering then translates every node
     of a frame alike: by that frame's ``root_pos`` under ``"world"``, by
     ``root_pos`` less the first frame's ground-plane position under
-    ``"first"``, and not at all under ``"skeleton"``. A reader that adds
+    ``"first"``, and not at all under ``"skeleton"``. On a Bvh whose
+    body anchor is not its root, ``"skeleton"`` then subtracts each
+    frame's anchor position, and ``"first"`` subtracts the first
+    frame's anchor ground-plane position from the world positions in
+    place of the root's. A reader that adds
     the root's offset to ``root_pos`` instead places every node off by
     that offset, which differs only for a file whose root offset is not
     zero.
@@ -578,11 +583,17 @@ def frames_to_node_positions(
         skel_centered=(centered == "skeleton"),
     )
 
-    # "first" centering: subtract the first frame's root position in the
+    # The node the modes centre on: a Bvh's body anchor, else the root.
+    anchor = 0 if source_bvh is None or centered == "world" else source_bvh._body_anchor_index()
+    if centered == "skeleton" and anchor != 0:
+        positions -= positions[:, anchor : anchor + 1]
+
+    # "first" centering: subtract the first frame's anchor position in the
     # two non-up axes only — the up coordinate stays in world units.
     if centered == "first" and positions.shape[0] > 0:
         assert world_up is not None  # mypy: set above whenever centered == "first"
-        positions -= _ground_plane_offset(root_pos_arr[0], world_up)
+        start = root_pos_arr[0] if anchor == 0 else positions[0, anchor].copy()
+        positions -= _ground_plane_offset(start, world_up)
 
     # Return (N, 3) for single frame, (F, N, 3) for multiple
     if single_frame:

@@ -8691,12 +8691,17 @@ class TestLRMappingMoreConventions:
                 id="side-token-spaced",
             ),
             pytest.param([("左足", "右足"), ("左手", "右手")], id="japanese"),
+            pytest.param([("lThigh", "rThigh"), ("lShin", "rShin")], id="lowercase-prefix"),
         ],
     )
     def test_the_convention_gives_its_pairs(self, pairs):
         bvh = make_named_joints_bvh([name for pair in pairs for name in pair])
         assert _named_lr_pairs(bvh) == set(pairs)
         assert bvh.orientation_report.lr_mapping_source == "names"
+
+    def test_a_mixed_skeleton_gives_its_leg_pair_and_its_eye_pair(self):
+        bvh = make_named_joints_bvh(["hip", "lThigh", "rThigh", "head", "leftEye", "rightEye"])
+        assert _named_lr_pairs(bvh) == {("lThigh", "rThigh"), ("leftEye", "rightEye")}
 
     def test_a_japanese_side_after_the_first_character_gives_no_pair(self):
         bvh = make_named_joints_bvh(["足左", "足右"])

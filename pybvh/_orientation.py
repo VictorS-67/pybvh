@@ -430,9 +430,25 @@ def _japanese_prefix_partners(base: str) -> Iterator[tuple[str, bool]]:
         yield partner_char + base[1:], is_left
 
 
+# A lowercase side letter, with its partner and whether it is the left.
+_SIDE_LETTERS = {"l": ("r", True), "r": ("l", False)}
+
+
+def _lowercase_prefix_partners(base: str) -> Iterator[tuple[str, bool]]:
+    """``lThigh`` to ``rThigh``: a lowercase side letter before an uppercase letter."""
+    side = _SIDE_LETTERS.get(base[:1])
+    if side is not None and base[1:2].isupper():
+        partner_letter, is_left = side
+        yield partner_letter + base[1:], is_left
+
+
 # The rules tried after the three of ``_detect_lr_mapping_by_names``'s
 # first pass, in order.
-_LR_NAME_RULES: tuple[_LrNameRule, ...] = (_side_token_partners, _japanese_prefix_partners)
+_LR_NAME_RULES: tuple[_LrNameRule, ...] = (
+    _side_token_partners,
+    _japanese_prefix_partners,
+    _lowercase_prefix_partners,
+)
 
 
 def _pairs_by_rule(

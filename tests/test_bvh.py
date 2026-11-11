@@ -8693,11 +8693,23 @@ class TestLRMappingMoreConventions:
             pytest.param([("左足", "右足"), ("左手", "右手")], id="japanese"),
             pytest.param([("lThigh", "rThigh"), ("lShin", "rShin")], id="lowercase-prefix"),
             pytest.param([("lfemur", "rfemur"), ("ltibia", "rtibia")], id="bare-prefix"),
+            pytest.param(
+                [
+                    ("rig:b_l_upleg.001", "rig:b_r_upleg.001"),
+                    ("rig:左足", "rig:右足"),
+                    ("rig:lThigh.002", "rig:rThigh.002"),
+                ],
+                id="namespace-and-number-suffix-set-aside",
+            ),
         ],
     )
-    def test_the_convention_gives_its_pairs(self, pairs):
-        bvh = make_named_joints_bvh([name for pair in pairs for name in pair])
+    @pytest.mark.parametrize("right_first", [False, True], ids=["left-first", "right-first"])
+    def test_the_convention_gives_its_pairs(self, pairs, right_first):
+        # The side comes from the name, not from which joint comes first.
+        order = [pair[::-1] if right_first else pair for pair in pairs]
+        bvh = make_named_joints_bvh([name for pair in order for name in pair])
         assert _named_lr_pairs(bvh) == set(pairs)
+        assert bvh.lr_mapping == {**dict(pairs), **{right: left for left, right in pairs}}
         assert bvh.orientation_report.lr_mapping_source == "names"
 
     def test_one_bare_prefix_pair_alone_gives_no_pair(self):

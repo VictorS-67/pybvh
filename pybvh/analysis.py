@@ -600,7 +600,7 @@ def root_trajectory(
     anchor's, not the root's. On a root that stays in place with the
     body below it (a static root, ``CHANNELS 0``, or a reference node
     whose channels do not change), it therefore describes the body: the
-    hips travel and turn while the root stays still.
+    body anchor travels and turns while the root stays still.
 
     Parameters
     ----------
@@ -2656,7 +2656,7 @@ def walking_pace(bvh: Bvh) -> float:
     because the anchor's path and the foot landings measure different
     things). On a root that stays in place with the body below it (a
     static root, or a reference node whose channels do not change), the
-    pace is still the body's, read from the hips, not the root.
+    pace is still the body's, read from the body anchor, not the root.
 
     Parameters
     ----------
@@ -2838,7 +2838,7 @@ def gait_parameters(
       the root on a clip whose anchor is its root. On a root that stays
       in place with the body below it (a static root, or a reference
       node whose channels do not change), they describe the body, read
-      from the hips, not the root. The foot-measured fields do not read
+      from the body anchor, not the root. The foot-measured fields do not read
       the anchor.
 
     Parameters

@@ -537,13 +537,13 @@ def _up_from_leg_pair(skeleton: _RestSkeleton, anchor: int) -> str | None:
         return None
 
     positions = skeleton.rest_positions
-    hip = positions[anchor]
+    anchor_position = positions[anchor]
     far_ends = []
     for leg in (left_branch, right_branch):
         below = np.flatnonzero(branch == leg)
-        distances = np.linalg.norm(positions[below] - hip, axis=1)
+        distances = np.linalg.norm(positions[below] - anchor_position, axis=1)
         far_ends.append(positions[below[np.argmax(distances)]])
-    return get_main_direction(hip - np.mean(far_ends, axis=0))
+    return get_main_direction(anchor_position - np.mean(far_ends, axis=0))
 
 
 def _infer_rest_up(skeleton: _RestSkeleton, anchor: int) -> _RestUp | None:

@@ -1818,8 +1818,8 @@ class Bvh:
         ``chest`` or ``spine``, in any case and after a ``foo:``
         namespace or a ``.001`` suffix (``mixamorig:Head`` and ``Bip01
         Head`` match, ``Forehead`` does not; end sites are not read),
-        skipping one that sits at the root in the rest pose; "hips" is
-        always the root node whatever it is called; and the frame-0
+        skipping one that sits on :attr:`body_anchor` in the rest pose;
+        and the frame-0
         reading is accepted only when its largest component is at least
         twice the second-largest — a first frame bent or leaning far
         from every axis is treated as ambiguous and defers to
@@ -2987,7 +2987,7 @@ class Bvh:
             stays in place with the body below it (a static root,
             ``CHANNELS 0``, or a reference node whose channels do not
             change), they centre on the body, not on the reference
-            node: under ``"skeleton"`` the hips stay at the origin and
+            node: under ``"skeleton"`` the body anchor stays at the origin and
             the reference node moves. With *frame* given, ``"first"``
             centres on that frame's anchor, the one frame posed.
         """

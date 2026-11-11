@@ -442,12 +442,26 @@ def _lowercase_prefix_partners(base: str) -> Iterator[tuple[str, bool]]:
         yield partner_letter + base[1:], is_left
 
 
+def _bare_prefix_partners(base: str) -> Iterator[tuple[str, bool]]:
+    """``lfemur`` to ``rfemur``: a lowercase side letter with no delimiter."""
+    side = _SIDE_LETTERS.get(base[:1])
+    if side is not None and len(base) > 1:
+        partner_letter, is_left = side
+        yield partner_letter + base[1:], is_left
+
+
+# How many pairs the bare prefix must give on a skeleton to count: one
+# pair alone can be two names that differ by a first l / r by chance
+# (``light`` / ``right``), and a convention names a whole skeleton.
+_MIN_BARE_PREFIX_PAIRS = 2
+
 # The rules tried after the three of ``_detect_lr_mapping_by_names``'s
-# first pass, in order.
-_LR_NAME_RULES: tuple[_LrNameRule, ...] = (
-    _side_token_partners,
-    _japanese_prefix_partners,
-    _lowercase_prefix_partners,
+# first pass, in order, each with the fewest pairs it must give to count.
+_LR_NAME_RULES: tuple[tuple[_LrNameRule, int], ...] = (
+    (_side_token_partners, 1),
+    (_japanese_prefix_partners, 1),
+    (_lowercase_prefix_partners, 1),
+    (_bare_prefix_partners, _MIN_BARE_PREFIX_PAIRS),
 )
 
 
@@ -559,8 +573,11 @@ def _detect_lr_mapping_by_names(joint_names: Sequence[str]) -> dict[str, str]:
 
     # The later rules pair only the names the three above left unpaired,
     # so that no pair they give can change.
-    for rule in _LR_NAME_RULES:
-        for left, right in _pairs_by_rule(rule, joint_names, seen):
+    for rule, min_pairs in _LR_NAME_RULES:
+        pairs = _pairs_by_rule(rule, joint_names, seen)
+        if len(pairs) < min_pairs:
+            continue
+        for left, right in pairs:
             mapping[left] = right
             seen.update((left, right))
 

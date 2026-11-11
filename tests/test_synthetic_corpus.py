@@ -1,6 +1,6 @@
 """The synthetic corpus in ``bvh_data/synthetic/``: its generators and its reading.
 
-Two scripts write the corpus: ``generate_synthetic_bvh.py`` writes twelve
+Two scripts write the corpus: ``generate_synthetic_bvh.py`` writes fourteen
 clips, ``manifest.json`` and ``README.md``, and audits each clip with
 ``audit_synthetic_bvh.py``; ``generate_lying_down_bvh.py`` writes the
 lying-down clip. The test runs both into a temporary directory and compares
@@ -65,8 +65,10 @@ def test_generators_reproduce_the_committed_corpus(tmp_path):
 READABLE = [
     ("blender_mixed.bvh", 5),
     ("bvh_synthetic_lying_down.bvh", 120),
+    ("chest_and_hips_same_depth.bvh", 5),
     ("footsteps_humanoid_6ch.bvh", 5),
     ("footsteps_humanoid_offset_6ch.bvh", 5),
+    ("hips_beside_spine.bvh", 5),
     ("hips_hands_6ch.bvh", 5),
     ("mixed_zxy_positions.bvh", 5),
     ("quadruped_tails_6ch.bvh", 5),

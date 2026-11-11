@@ -1,7 +1,7 @@
 {
   "generator": "scripts/generate_synthetic_bvh.py",
-  "generator_version": "2.3.0",
-  "generator_sha256": "a8fd110e8046bf213be17b80bbd30681966b038c063b7ee279c874903b24fe7d",
+  "generator_version": "2.4.0",
+  "generator_sha256": "e55256347d1edcc1209f90f946742fbfce2cff1d1ed5302c7a8ce1e179b06937",
   "audit_sha256": "90e6a5c23b06425491787d50cd2951c321f324410e0d678340aeb526b9e76199",
   "seed": 40067,
   "frames": 5,
@@ -14560,6 +14560,1780 @@
             "0.000000",
             "5.000000",
             "0.000000"
+          ],
+          "channels": []
+        }
+      ]
+    },
+    {
+      "file": "hips_beside_spine.bvh",
+      "profile": "hips_beside_spine",
+      "profile_revision": 2,
+      "seed": 40078,
+      "synthetic": true,
+      "copied_components": [],
+      "provenance": "Generic authored topology, original offsets and analytic motion; conventional joint names; no source file or numerical data imported",
+      "source_url": null,
+      "source_sha256": null,
+      "licence": "MIT (repository LICENSE)",
+      "frames": 5,
+      "describes": "a moving root with two children: the spine chain, where the arms and the neck branch, and the hips with the legs; the legs meet at the hips, which hold no head joint",
+      "shape_after": "authored: a root at the waist that the spine and the hips both hang from",
+      "frame_time": "0.03333333333333333",
+      "up_axis": "Y",
+      "expected_body_anchor": "Hips",
+      "expected_body_anchor_source": "lr_pairs",
+      "notes": "the body starts at the root, above the anchor, so it holds the head",
+      "sha256": "48b28ec0aafef87e86348b5a6b0fff8151a89051d9d80467af297d8ae005741d",
+      "joints": 23,
+      "end_sites": 5,
+      "width": 72,
+      "six_channel_non_root_joints": [],
+      "rigid_six_channel_joints": [],
+      "moving_six_channel_joints": [],
+      "position_varying_joints": [
+        "Root"
+      ],
+      "rotation_varying_joints": [
+        "Root",
+        "Spine",
+        "Spine1",
+        "Chest",
+        "Neck",
+        "Head",
+        "LeftShoulder",
+        "LeftArm",
+        "LeftForeArm",
+        "LeftHand",
+        "RightShoulder",
+        "RightArm",
+        "RightForeArm",
+        "RightHand",
+        "Hips",
+        "LeftUpLeg",
+        "LeftLeg",
+        "LeftFoot",
+        "LeftToeBase",
+        "RightUpLeg",
+        "RightLeg",
+        "RightFoot",
+        "RightToeBase"
+      ],
+      "position_samples_xyz": {
+        "Root": [
+          [
+            "0.000000",
+            "98.000000",
+            "0.000000"
+          ],
+          [
+            "0.000000",
+            "99.200000",
+            "6.000000"
+          ],
+          [
+            "0.000000",
+            "98.000000",
+            "12.000000"
+          ],
+          [
+            "0.000000",
+            "96.800000",
+            "18.000000"
+          ],
+          [
+            "0.000000",
+            "98.000000",
+            "24.000000"
+          ]
+        ]
+      },
+      "root_position_channels": [
+        "Xposition",
+        "Yposition",
+        "Zposition"
+      ],
+      "body_anchor_node_index": 17,
+      "body_anchor_joint_index": 14,
+      "node_identities": [
+        {
+          "id": "Root",
+          "name": "Root",
+          "node_index": 0,
+          "parent_id": null,
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Xposition",
+            "Yposition",
+            "Zposition",
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "Spine",
+          "name": "Spine",
+          "node_index": 1,
+          "parent_id": "Root",
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "6.000000",
+            "-1.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "Spine1",
+          "name": "Spine1",
+          "node_index": 2,
+          "parent_id": "Spine",
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "12.000000",
+            "0.500000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "Chest",
+          "name": "Chest",
+          "node_index": 3,
+          "parent_id": "Spine1",
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "14.000000",
+            "0.500000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "Neck",
+          "name": "Neck",
+          "node_index": 4,
+          "parent_id": "Chest",
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "14.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "Head",
+          "name": "Head",
+          "node_index": 5,
+          "parent_id": "Neck",
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "10.000000",
+            "1.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "EndSiteHead",
+          "name": "EndSiteHead",
+          "node_index": 6,
+          "parent_id": "Head",
+          "end_site": true,
+          "offset": [
+            "0.000000",
+            "12.000000",
+            "0.000000"
+          ],
+          "channels": []
+        },
+        {
+          "id": "LeftShoulder",
+          "name": "LeftShoulder",
+          "node_index": 7,
+          "parent_id": "Chest",
+          "end_site": false,
+          "offset": [
+            "8.000000",
+            "12.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftArm",
+          "name": "LeftArm",
+          "node_index": 8,
+          "parent_id": "LeftShoulder",
+          "end_site": false,
+          "offset": [
+            "14.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftForeArm",
+          "name": "LeftForeArm",
+          "node_index": 9,
+          "parent_id": "LeftArm",
+          "end_site": false,
+          "offset": [
+            "27.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftHand",
+          "name": "LeftHand",
+          "node_index": 10,
+          "parent_id": "LeftForeArm",
+          "end_site": false,
+          "offset": [
+            "25.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "EndSiteLeftHand",
+          "name": "EndSiteLeftHand",
+          "node_index": 11,
+          "parent_id": "LeftHand",
+          "end_site": true,
+          "offset": [
+            "10.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": []
+        },
+        {
+          "id": "RightShoulder",
+          "name": "RightShoulder",
+          "node_index": 12,
+          "parent_id": "Chest",
+          "end_site": false,
+          "offset": [
+            "-8.000000",
+            "12.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "RightArm",
+          "name": "RightArm",
+          "node_index": 13,
+          "parent_id": "RightShoulder",
+          "end_site": false,
+          "offset": [
+            "-14.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "RightForeArm",
+          "name": "RightForeArm",
+          "node_index": 14,
+          "parent_id": "RightArm",
+          "end_site": false,
+          "offset": [
+            "-27.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "RightHand",
+          "name": "RightHand",
+          "node_index": 15,
+          "parent_id": "RightForeArm",
+          "end_site": false,
+          "offset": [
+            "-25.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "EndSiteRightHand",
+          "name": "EndSiteRightHand",
+          "node_index": 16,
+          "parent_id": "RightHand",
+          "end_site": true,
+          "offset": [
+            "-10.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": []
+        },
+        {
+          "id": "Hips",
+          "name": "Hips",
+          "node_index": 17,
+          "parent_id": "Root",
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "-4.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftUpLeg",
+          "name": "LeftUpLeg",
+          "node_index": 18,
+          "parent_id": "Hips",
+          "end_site": false,
+          "offset": [
+            "9.000000",
+            "-3.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftLeg",
+          "name": "LeftLeg",
+          "node_index": 19,
+          "parent_id": "LeftUpLeg",
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "-42.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftFoot",
+          "name": "LeftFoot",
+          "node_index": 20,
+          "parent_id": "LeftLeg",
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "-41.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftToeBase",
+          "name": "LeftToeBase",
+          "node_index": 21,
+          "parent_id": "LeftFoot",
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "-6.000000",
+            "13.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "EndSiteLeftToeBase",
+          "name": "EndSiteLeftToeBase",
+          "node_index": 22,
+          "parent_id": "LeftToeBase",
+          "end_site": true,
+          "offset": [
+            "0.000000",
+            "0.000000",
+            "7.000000"
+          ],
+          "channels": []
+        },
+        {
+          "id": "RightUpLeg",
+          "name": "RightUpLeg",
+          "node_index": 23,
+          "parent_id": "Hips",
+          "end_site": false,
+          "offset": [
+            "-9.000000",
+            "-3.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "RightLeg",
+          "name": "RightLeg",
+          "node_index": 24,
+          "parent_id": "RightUpLeg",
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "-42.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "RightFoot",
+          "name": "RightFoot",
+          "node_index": 25,
+          "parent_id": "RightLeg",
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "-41.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "RightToeBase",
+          "name": "RightToeBase",
+          "node_index": 26,
+          "parent_id": "RightFoot",
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "-6.000000",
+            "13.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "EndSiteRightToeBase",
+          "name": "EndSiteRightToeBase",
+          "node_index": 27,
+          "parent_id": "RightToeBase",
+          "end_site": true,
+          "offset": [
+            "0.000000",
+            "0.000000",
+            "7.000000"
+          ],
+          "channels": []
+        }
+      ]
+    },
+    {
+      "file": "chest_and_hips_same_depth.bvh",
+      "profile": "chest_and_hips_same_depth",
+      "profile_revision": 2,
+      "seed": 40079,
+      "synthetic": true,
+      "copied_components": [],
+      "provenance": "Generic authored topology, original offsets and analytic motion; conventional joint names; no source file or numerical data imported",
+      "source_url": null,
+      "source_sha256": null,
+      "licence": "MIT (repository LICENSE)",
+      "frames": 5,
+      "describes": "a moving root with two children: a chest where the arms, with fingers, and the neck branch directly, and the hips with the legs; the arms and the legs meet at the same depth, and the chest's side is the larger",
+      "shape_after": "authored: an upper body and a lower body that both hang from the root",
+      "frame_time": "0.03333333333333333",
+      "up_axis": "Y",
+      "expected_body_anchor": "Chest",
+      "expected_body_anchor_source": "lr_pairs",
+      "notes": "the accepted limit of #205: the chest is the anchor; the body starts at the root, above it, so it holds the feet",
+      "sha256": "21f84abe57e6290d9b71ad36f2e157cb8e85d75bd814ea1db4d76d96773479b7",
+      "joints": 53,
+      "end_sites": 15,
+      "width": 162,
+      "six_channel_non_root_joints": [],
+      "rigid_six_channel_joints": [],
+      "moving_six_channel_joints": [],
+      "position_varying_joints": [
+        "Root"
+      ],
+      "rotation_varying_joints": [
+        "Root",
+        "Chest",
+        "Neck",
+        "Head",
+        "LeftShoulder",
+        "LeftArm",
+        "LeftForeArm",
+        "LeftHand",
+        "LeftThumb1",
+        "LeftThumb2",
+        "LeftThumb3",
+        "LeftIndex1",
+        "LeftIndex2",
+        "LeftIndex3",
+        "LeftMiddle1",
+        "LeftMiddle2",
+        "LeftMiddle3",
+        "LeftRing1",
+        "LeftRing2",
+        "LeftRing3",
+        "LeftPinky1",
+        "LeftPinky2",
+        "LeftPinky3",
+        "LeftHandHelper",
+        "RightShoulder",
+        "RightArm",
+        "RightForeArm",
+        "RightHand",
+        "RightThumb1",
+        "RightThumb2",
+        "RightThumb3",
+        "RightIndex1",
+        "RightIndex2",
+        "RightIndex3",
+        "RightMiddle1",
+        "RightMiddle2",
+        "RightMiddle3",
+        "RightRing1",
+        "RightRing2",
+        "RightRing3",
+        "RightPinky1",
+        "RightPinky2",
+        "RightPinky3",
+        "RightHandHelper",
+        "Hips",
+        "LeftUpLeg",
+        "LeftLeg",
+        "LeftFoot",
+        "LeftToeBase",
+        "RightUpLeg",
+        "RightLeg",
+        "RightFoot",
+        "RightToeBase"
+      ],
+      "position_samples_xyz": {
+        "Root": [
+          [
+            "0.000000",
+            "98.000000",
+            "0.000000"
+          ],
+          [
+            "0.000000",
+            "99.200000",
+            "6.000000"
+          ],
+          [
+            "0.000000",
+            "98.000000",
+            "12.000000"
+          ],
+          [
+            "0.000000",
+            "96.800000",
+            "18.000000"
+          ],
+          [
+            "0.000000",
+            "98.000000",
+            "24.000000"
+          ]
+        ]
+      },
+      "root_position_channels": [
+        "Xposition",
+        "Yposition",
+        "Zposition"
+      ],
+      "body_anchor_node_index": 1,
+      "body_anchor_joint_index": 1,
+      "node_identities": [
+        {
+          "id": "Root",
+          "name": "Root",
+          "node_index": 0,
+          "parent_id": null,
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Xposition",
+            "Yposition",
+            "Zposition",
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "Chest",
+          "name": "Chest",
+          "node_index": 1,
+          "parent_id": "Root",
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "30.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "Neck",
+          "name": "Neck",
+          "node_index": 2,
+          "parent_id": "Chest",
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "14.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "Head",
+          "name": "Head",
+          "node_index": 3,
+          "parent_id": "Neck",
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "10.000000",
+            "1.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "EndSiteHead",
+          "name": "EndSiteHead",
+          "node_index": 4,
+          "parent_id": "Head",
+          "end_site": true,
+          "offset": [
+            "0.000000",
+            "12.000000",
+            "0.000000"
+          ],
+          "channels": []
+        },
+        {
+          "id": "LeftShoulder",
+          "name": "LeftShoulder",
+          "node_index": 5,
+          "parent_id": "Chest",
+          "end_site": false,
+          "offset": [
+            "8.000000",
+            "12.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftArm",
+          "name": "LeftArm",
+          "node_index": 6,
+          "parent_id": "LeftShoulder",
+          "end_site": false,
+          "offset": [
+            "14.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftForeArm",
+          "name": "LeftForeArm",
+          "node_index": 7,
+          "parent_id": "LeftArm",
+          "end_site": false,
+          "offset": [
+            "27.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftHand",
+          "name": "LeftHand",
+          "node_index": 8,
+          "parent_id": "LeftForeArm",
+          "end_site": false,
+          "offset": [
+            "25.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftThumb1",
+          "name": "LeftThumb1",
+          "node_index": 9,
+          "parent_id": "LeftHand",
+          "end_site": false,
+          "offset": [
+            "3.000000",
+            "-1.000000",
+            "3.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftThumb2",
+          "name": "LeftThumb2",
+          "node_index": 10,
+          "parent_id": "LeftThumb1",
+          "end_site": false,
+          "offset": [
+            "3.000000",
+            "0.000000",
+            "2.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftThumb3",
+          "name": "LeftThumb3",
+          "node_index": 11,
+          "parent_id": "LeftThumb2",
+          "end_site": false,
+          "offset": [
+            "3.000000",
+            "0.000000",
+            "2.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "EndSiteLeftThumb3",
+          "name": "EndSiteLeftThumb3",
+          "node_index": 12,
+          "parent_id": "LeftThumb3",
+          "end_site": true,
+          "offset": [
+            "3.000000",
+            "0.000000",
+            "2.000000"
+          ],
+          "channels": []
+        },
+        {
+          "id": "LeftIndex1",
+          "name": "LeftIndex1",
+          "node_index": 13,
+          "parent_id": "LeftHand",
+          "end_site": false,
+          "offset": [
+            "9.000000",
+            "0.000000",
+            "2.500000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftIndex2",
+          "name": "LeftIndex2",
+          "node_index": 14,
+          "parent_id": "LeftIndex1",
+          "end_site": false,
+          "offset": [
+            "4.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftIndex3",
+          "name": "LeftIndex3",
+          "node_index": 15,
+          "parent_id": "LeftIndex2",
+          "end_site": false,
+          "offset": [
+            "4.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "EndSiteLeftIndex3",
+          "name": "EndSiteLeftIndex3",
+          "node_index": 16,
+          "parent_id": "LeftIndex3",
+          "end_site": true,
+          "offset": [
+            "4.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": []
+        },
+        {
+          "id": "LeftMiddle1",
+          "name": "LeftMiddle1",
+          "node_index": 17,
+          "parent_id": "LeftHand",
+          "end_site": false,
+          "offset": [
+            "9.000000",
+            "0.000000",
+            "0.500000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftMiddle2",
+          "name": "LeftMiddle2",
+          "node_index": 18,
+          "parent_id": "LeftMiddle1",
+          "end_site": false,
+          "offset": [
+            "4.500000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftMiddle3",
+          "name": "LeftMiddle3",
+          "node_index": 19,
+          "parent_id": "LeftMiddle2",
+          "end_site": false,
+          "offset": [
+            "4.500000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "EndSiteLeftMiddle3",
+          "name": "EndSiteLeftMiddle3",
+          "node_index": 20,
+          "parent_id": "LeftMiddle3",
+          "end_site": true,
+          "offset": [
+            "4.500000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": []
+        },
+        {
+          "id": "LeftRing1",
+          "name": "LeftRing1",
+          "node_index": 21,
+          "parent_id": "LeftHand",
+          "end_site": false,
+          "offset": [
+            "8.500000",
+            "0.000000",
+            "-1.500000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftRing2",
+          "name": "LeftRing2",
+          "node_index": 22,
+          "parent_id": "LeftRing1",
+          "end_site": false,
+          "offset": [
+            "4.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftRing3",
+          "name": "LeftRing3",
+          "node_index": 23,
+          "parent_id": "LeftRing2",
+          "end_site": false,
+          "offset": [
+            "4.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "EndSiteLeftRing3",
+          "name": "EndSiteLeftRing3",
+          "node_index": 24,
+          "parent_id": "LeftRing3",
+          "end_site": true,
+          "offset": [
+            "4.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": []
+        },
+        {
+          "id": "LeftPinky1",
+          "name": "LeftPinky1",
+          "node_index": 25,
+          "parent_id": "LeftHand",
+          "end_site": false,
+          "offset": [
+            "8.000000",
+            "0.000000",
+            "-3.500000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftPinky2",
+          "name": "LeftPinky2",
+          "node_index": 26,
+          "parent_id": "LeftPinky1",
+          "end_site": false,
+          "offset": [
+            "3.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftPinky3",
+          "name": "LeftPinky3",
+          "node_index": 27,
+          "parent_id": "LeftPinky2",
+          "end_site": false,
+          "offset": [
+            "3.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "EndSiteLeftPinky3",
+          "name": "EndSiteLeftPinky3",
+          "node_index": 28,
+          "parent_id": "LeftPinky3",
+          "end_site": true,
+          "offset": [
+            "3.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": []
+        },
+        {
+          "id": "LeftHandHelper",
+          "name": "LeftHandHelper",
+          "node_index": 29,
+          "parent_id": "LeftHand",
+          "end_site": false,
+          "offset": [
+            "2.000000",
+            "-3.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "EndSiteLeftHandHelper",
+          "name": "EndSiteLeftHandHelper",
+          "node_index": 30,
+          "parent_id": "LeftHandHelper",
+          "end_site": true,
+          "offset": [
+            "0.000000",
+            "-2.000000",
+            "0.000000"
+          ],
+          "channels": []
+        },
+        {
+          "id": "RightShoulder",
+          "name": "RightShoulder",
+          "node_index": 31,
+          "parent_id": "Chest",
+          "end_site": false,
+          "offset": [
+            "-8.000000",
+            "12.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "RightArm",
+          "name": "RightArm",
+          "node_index": 32,
+          "parent_id": "RightShoulder",
+          "end_site": false,
+          "offset": [
+            "-14.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "RightForeArm",
+          "name": "RightForeArm",
+          "node_index": 33,
+          "parent_id": "RightArm",
+          "end_site": false,
+          "offset": [
+            "-27.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "RightHand",
+          "name": "RightHand",
+          "node_index": 34,
+          "parent_id": "RightForeArm",
+          "end_site": false,
+          "offset": [
+            "-25.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "RightThumb1",
+          "name": "RightThumb1",
+          "node_index": 35,
+          "parent_id": "RightHand",
+          "end_site": false,
+          "offset": [
+            "-3.000000",
+            "-1.000000",
+            "3.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "RightThumb2",
+          "name": "RightThumb2",
+          "node_index": 36,
+          "parent_id": "RightThumb1",
+          "end_site": false,
+          "offset": [
+            "-3.000000",
+            "0.000000",
+            "2.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "RightThumb3",
+          "name": "RightThumb3",
+          "node_index": 37,
+          "parent_id": "RightThumb2",
+          "end_site": false,
+          "offset": [
+            "-3.000000",
+            "0.000000",
+            "2.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "EndSiteRightThumb3",
+          "name": "EndSiteRightThumb3",
+          "node_index": 38,
+          "parent_id": "RightThumb3",
+          "end_site": true,
+          "offset": [
+            "-3.000000",
+            "0.000000",
+            "2.000000"
+          ],
+          "channels": []
+        },
+        {
+          "id": "RightIndex1",
+          "name": "RightIndex1",
+          "node_index": 39,
+          "parent_id": "RightHand",
+          "end_site": false,
+          "offset": [
+            "-9.000000",
+            "0.000000",
+            "2.500000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "RightIndex2",
+          "name": "RightIndex2",
+          "node_index": 40,
+          "parent_id": "RightIndex1",
+          "end_site": false,
+          "offset": [
+            "-4.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "RightIndex3",
+          "name": "RightIndex3",
+          "node_index": 41,
+          "parent_id": "RightIndex2",
+          "end_site": false,
+          "offset": [
+            "-4.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "EndSiteRightIndex3",
+          "name": "EndSiteRightIndex3",
+          "node_index": 42,
+          "parent_id": "RightIndex3",
+          "end_site": true,
+          "offset": [
+            "-4.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": []
+        },
+        {
+          "id": "RightMiddle1",
+          "name": "RightMiddle1",
+          "node_index": 43,
+          "parent_id": "RightHand",
+          "end_site": false,
+          "offset": [
+            "-9.000000",
+            "0.000000",
+            "0.500000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "RightMiddle2",
+          "name": "RightMiddle2",
+          "node_index": 44,
+          "parent_id": "RightMiddle1",
+          "end_site": false,
+          "offset": [
+            "-4.500000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "RightMiddle3",
+          "name": "RightMiddle3",
+          "node_index": 45,
+          "parent_id": "RightMiddle2",
+          "end_site": false,
+          "offset": [
+            "-4.500000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "EndSiteRightMiddle3",
+          "name": "EndSiteRightMiddle3",
+          "node_index": 46,
+          "parent_id": "RightMiddle3",
+          "end_site": true,
+          "offset": [
+            "-4.500000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": []
+        },
+        {
+          "id": "RightRing1",
+          "name": "RightRing1",
+          "node_index": 47,
+          "parent_id": "RightHand",
+          "end_site": false,
+          "offset": [
+            "-8.500000",
+            "0.000000",
+            "-1.500000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "RightRing2",
+          "name": "RightRing2",
+          "node_index": 48,
+          "parent_id": "RightRing1",
+          "end_site": false,
+          "offset": [
+            "-4.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "RightRing3",
+          "name": "RightRing3",
+          "node_index": 49,
+          "parent_id": "RightRing2",
+          "end_site": false,
+          "offset": [
+            "-4.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "EndSiteRightRing3",
+          "name": "EndSiteRightRing3",
+          "node_index": 50,
+          "parent_id": "RightRing3",
+          "end_site": true,
+          "offset": [
+            "-4.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": []
+        },
+        {
+          "id": "RightPinky1",
+          "name": "RightPinky1",
+          "node_index": 51,
+          "parent_id": "RightHand",
+          "end_site": false,
+          "offset": [
+            "-8.000000",
+            "0.000000",
+            "-3.500000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "RightPinky2",
+          "name": "RightPinky2",
+          "node_index": 52,
+          "parent_id": "RightPinky1",
+          "end_site": false,
+          "offset": [
+            "-3.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "RightPinky3",
+          "name": "RightPinky3",
+          "node_index": 53,
+          "parent_id": "RightPinky2",
+          "end_site": false,
+          "offset": [
+            "-3.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "EndSiteRightPinky3",
+          "name": "EndSiteRightPinky3",
+          "node_index": 54,
+          "parent_id": "RightPinky3",
+          "end_site": true,
+          "offset": [
+            "-3.000000",
+            "0.000000",
+            "0.000000"
+          ],
+          "channels": []
+        },
+        {
+          "id": "RightHandHelper",
+          "name": "RightHandHelper",
+          "node_index": 55,
+          "parent_id": "RightHand",
+          "end_site": false,
+          "offset": [
+            "-2.000000",
+            "-3.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "EndSiteRightHandHelper",
+          "name": "EndSiteRightHandHelper",
+          "node_index": 56,
+          "parent_id": "RightHandHelper",
+          "end_site": true,
+          "offset": [
+            "0.000000",
+            "-2.000000",
+            "0.000000"
+          ],
+          "channels": []
+        },
+        {
+          "id": "Hips",
+          "name": "Hips",
+          "node_index": 57,
+          "parent_id": "Root",
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "-4.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftUpLeg",
+          "name": "LeftUpLeg",
+          "node_index": 58,
+          "parent_id": "Hips",
+          "end_site": false,
+          "offset": [
+            "9.000000",
+            "-3.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftLeg",
+          "name": "LeftLeg",
+          "node_index": 59,
+          "parent_id": "LeftUpLeg",
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "-42.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftFoot",
+          "name": "LeftFoot",
+          "node_index": 60,
+          "parent_id": "LeftLeg",
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "-41.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "LeftToeBase",
+          "name": "LeftToeBase",
+          "node_index": 61,
+          "parent_id": "LeftFoot",
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "-6.000000",
+            "13.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "EndSiteLeftToeBase",
+          "name": "EndSiteLeftToeBase",
+          "node_index": 62,
+          "parent_id": "LeftToeBase",
+          "end_site": true,
+          "offset": [
+            "0.000000",
+            "0.000000",
+            "7.000000"
+          ],
+          "channels": []
+        },
+        {
+          "id": "RightUpLeg",
+          "name": "RightUpLeg",
+          "node_index": 63,
+          "parent_id": "Hips",
+          "end_site": false,
+          "offset": [
+            "-9.000000",
+            "-3.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "RightLeg",
+          "name": "RightLeg",
+          "node_index": 64,
+          "parent_id": "RightUpLeg",
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "-42.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "RightFoot",
+          "name": "RightFoot",
+          "node_index": 65,
+          "parent_id": "RightLeg",
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "-41.000000",
+            "0.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "RightToeBase",
+          "name": "RightToeBase",
+          "node_index": 66,
+          "parent_id": "RightFoot",
+          "end_site": false,
+          "offset": [
+            "0.000000",
+            "-6.000000",
+            "13.000000"
+          ],
+          "channels": [
+            "Zrotation",
+            "Xrotation",
+            "Yrotation"
+          ]
+        },
+        {
+          "id": "EndSiteRightToeBase",
+          "name": "EndSiteRightToeBase",
+          "node_index": 67,
+          "parent_id": "RightToeBase",
+          "end_site": true,
+          "offset": [
+            "0.000000",
+            "0.000000",
+            "7.000000"
           ],
           "channels": []
         }

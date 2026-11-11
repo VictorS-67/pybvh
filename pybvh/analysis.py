@@ -1261,8 +1261,15 @@ def auto_detect_feet(bvh: Bvh) -> list[BvhNode]:
 
     Algorithm:
 
-    1. Substring match: candidates are joints whose names contain
-       ``"foot"`` or ``"toe"`` (case-insensitive).
+    1. Substring match: candidates are the joints of the body whose
+       names contain ``"foot"`` or ``"toe"`` (case-insensitive). The
+       body is :attr:`~pybvh.Bvh.body_anchor` and every node below it,
+       started at the closest joint above the anchor that has one below
+       it when no joint below the anchor has a head name (``head``,
+       ``neck``, ``chest``, ``spine``) or a foot name (``leg``,
+       ``foot``, ``toe``, ``toes``), each read as a word of the name. So
+       a 3ds Max ``Footsteps`` node beside the hips, or a prop beside the
+       body, is no candidate.
     2. Tip-descendant filter: keep only candidates that have an end
        site or a toe-named child.  This drops IK helpers, which
        typically have no children.
@@ -1307,11 +1314,12 @@ def auto_detect_feet(bvh: Bvh) -> list[BvhNode]:
     """
     up_idx, up_sign, _ = bvh.world_up_axis
 
-    # Step 1: substring match
+    # Step 1: substring match, in the body
+    in_body = bvh._in_body()
     matched = [
         n
-        for n in bvh.nodes
-        if not n.is_end_site() and any(kw in n.name.lower() for kw in ("foot", "toe"))
+        for n, inside in zip(bvh.nodes, in_body, strict=True)
+        if inside and not n.is_end_site() and any(kw in n.name.lower() for kw in ("foot", "toe"))
     ]
     if not matched:
         return []

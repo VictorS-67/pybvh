@@ -35,6 +35,7 @@ from ._orientation import (
     _detect_lr_mapping_by_names,
     _facing_basis,
     _facing_labels,
+    _find_body,
     _find_body_anchor,
     _infer_rest_up_and_left,
     _infer_world_up,
@@ -2076,17 +2077,27 @@ class Bvh:
             self._derived.body_anchor = found
         return found
 
+    def _in_body(self) -> npt.NDArray[np.bool_]:
+        """Which nodes are in the body, in node order: the body anchor and
+        every node below it, started higher when a head or a foot name is
+        missing below it (:func:`~pybvh._orientation._find_body`)."""
+        return _find_body(self._rest_skeleton(), self._found_body_anchor().node)
+
     @property
     def rest_up(self) -> str | None:
         """The skeleton's own up axis, read from the rest pose alone.
 
         Read-only. The main axis from :attr:`body_anchor` to the first
-        joint, in node order, whose name holds ``head`` as a word, else
-        ``neck``, ``chest`` or ``spine``, in any case and after a
-        ``foo:`` namespace or a ``.001`` suffix: ``Head``,
+        joint of the body, in node order, whose name holds ``head`` as a
+        word, else ``neck``, ``chest`` or ``spine``, in any case and
+        after a ``foo:`` namespace or a ``.001`` suffix: ``Head``,
         ``mixamorig:Head``, ``Bip01 Head`` and ``CC_Base_Head`` are
         heads, ``Forehead`` is not. A joint that sits on the anchor is
         skipped, and end sites, whose names are generated, are not read.
+        The body is the anchor and every node below it; when no joint
+        below the anchor has one of these names, it starts at the
+        closest joint above the anchor that has one below it, so a prop
+        or a helper beside the body is never the head joint.
         Without such a joint, the axis opposite the legs: the first pair
         of :attr:`lr_pairs` that meets at the anchor, split across two of
         its branches, read from the anchor to the far ends of those
@@ -2116,7 +2127,8 @@ class Bvh:
         """The direction the rest pose faces, in the skeleton's own frame.
 
         Read-only. ``rest left × rest up``, where rest left is the rest
-        pose's L/R geometry (the pairs of :attr:`lr_mapping`) measured
+        pose's L/R geometry (the pairs of :attr:`lr_mapping` whose two
+        joints are in the body, as :attr:`rest_up` reads it) measured
         against :attr:`rest_up`. Read from the rest pose alone, like
         :attr:`rest_up`: never from :attr:`world_up` or the animation.
         The rest pose is the skeleton with every rotation zero, so this

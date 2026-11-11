@@ -45,6 +45,7 @@ from ._orientation import (
     _resolve_node_lr_pairs,
     _RestSkeleton,
     _root_contradicts_rest_up,
+    _size_reference,
     _warn_facing_defaulted_at_frames,
     _warn_facing_defaulted_no_pairs,
     _warn_facing_defaulted_on_pose,
@@ -2202,6 +2203,18 @@ class Bvh:
         every node below it, started higher when a head or a foot name is
         missing below it (:func:`~pybvh._orientation._find_body`)."""
         return _find_body(self._rest_skeleton(), self._found_body_anchor().node)
+
+    def _size_reference(self, feet: Sequence[int]) -> int:
+        """The node index the sizes of *feet* (node indices) are read from.
+
+        The lowest joint that has the feet in two or more of its
+        branches, else the body anchor, reached through
+        :meth:`_body_anchor_index`
+        (:func:`~pybvh._orientation._size_reference`). Read by
+        ``skeleton_size`` and by the "feet below hips" check and the
+        threshold scale of ``foot_contacts``.
+        """
+        return _size_reference(self.fk_topology.parent_idx, feet, self._body_anchor_index())
 
     @property
     def rest_up(self) -> str | None:
@@ -5154,10 +5167,12 @@ class Bvh:
         return analysis.velocity_reductions(speed, 1.0 / self.frame_time)
 
     def skeleton_size(self, feet: Sequence[NodeSelector] | None = None) -> float:
-        """Absolute skeleton scale — mean rest-pose root-to-foot distance.
+        """Absolute skeleton scale — mean rest-pose distance from the feet to the joint they branch from.
 
-        Raises ``ValueError`` for a skeleton whose size cannot be
-        measured (no feet found, or all feet on the root) rather than
+        That joint is the lowest one that has the feet in two or more of
+        its branches, else :attr:`body_anchor`. Raises ``ValueError`` for a
+        skeleton whose size cannot be measured (no feet found, or all feet
+        on that joint) rather than
         returning a substitute. See :func:`pybvh.analysis.skeleton_size`."""
         from . import analysis
 

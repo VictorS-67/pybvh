@@ -31,6 +31,7 @@ from pybvh._orientation import (
     _resolve_node_lr_pairs,
     _RestSkeleton,
     _RestUp,
+    _size_reference,
     _up_marker_index,
     _warn_facing_defaulted_at_frames,
     _WorldUpGuess,
@@ -763,6 +764,54 @@ class TestBody:
         nodes = [("Root", None), ("Head", "Root"), ("Hips", "Root"), ("LeftFoot", "Hips")]
         nodes += [("Spine_End", "Hips")]
         assert _body_of(nodes, "Hips") == ["Root", "Head", "Hips", "LeftFoot", "Spine_End"]
+
+
+def _size_reference_of(nodes, feet, anchor):
+    """The size reference of the feet named *feet*, as a name, on the tree
+    of *nodes* whose body anchor is the joint named *anchor*."""
+    skeleton = _tree(nodes)
+    names = skeleton.node_names
+    found = _size_reference(
+        skeleton.parent_idx, [names.index(foot) for foot in feet], names.index(anchor)
+    )
+    return names[found]
+
+
+class TestSizeReference:
+    """The joint the sizes are read from: the lowest joint that has the
+    feet in two or more of its branches, else the body anchor."""
+
+    def test_two_feet_give_the_joint_where_the_legs_meet(self):
+        # A root above the hips is passed over.
+        nodes = [("Reference", None), ("Hips", "Reference"), *_BODY]
+        assert _size_reference_of(nodes, _FEET, "Hips") == "Hips"
+
+    def test_the_four_feet_of_a_quadruped_give_where_the_hind_and_front_chains_part(self):
+        nodes = [
+            ("Root", None),
+            ("Pelvis", "Root"),
+            ("LeftHindFoot", "Pelvis"),
+            ("RightHindFoot", "Pelvis"),
+            ("Spine", "Pelvis"),
+            ("Chest", "Spine"),
+            ("LeftFrontFoot", "Chest"),
+            ("RightFrontFoot", "Chest"),
+        ]
+        feet = ["LeftHindFoot", "RightHindFoot", "LeftFrontFoot", "RightFrontFoot"]
+        assert _size_reference_of(nodes, feet, "Chest") == "Pelvis"
+
+    def test_one_foot_gives_the_body_anchor(self):
+        nodes = [("Reference", None), ("Hips", "Reference"), *_BODY]
+        assert _size_reference_of(nodes, ["LeftFoot"], "Hips") == "Hips"
+
+    def test_a_foot_and_its_toe_on_one_leg_give_the_body_anchor(self):
+        nodes = [("Reference", None), ("Hips", "Reference"), *_BODY]
+        assert _size_reference_of(nodes, ["LeftUpLeg", "LeftFoot"], "Hips") == "Hips"
+
+    def test_a_foot_and_a_helper_beside_the_body_give_their_meeting_joint(self):
+        # Given by hand, as asked: the helper hangs from the root.
+        nodes = [("Bip01", None), ("Footsteps", "Bip01"), ("Hips", "Bip01"), *_BODY]
+        assert _size_reference_of(nodes, ["Footsteps", "LeftFoot"], "Hips") == "Bip01"
 
 
 class TestReadInTheBody:

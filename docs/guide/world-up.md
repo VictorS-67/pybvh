@@ -235,7 +235,7 @@ bvh.forward_at(0)   # '-z' (facing direction at frame 0)
 bvh.forward_at(60)  # '+x' (character has turned by frame 60)
 ```
 
-The direction is derived from actual joint positions. pybvh averages the L/R joint pairs in world space to find the leftward direction, measured against `world_up`. Forward is that leftward crossed with `world_up`. This tracks the character's real facing as they rotate through the animation, not the rest pose.
+The direction is derived from actual joint positions. pybvh averages, in world space, the L/R joint pairs whose two joints are in the body that `bvh.body_anchor` heads, to find the leftward direction, measured against `world_up`. Forward is that leftward crossed with `world_up`. This tracks the character's real facing as they rotate through the animation, not the rest pose.
 
 bvhplot's camera auto-orientation and follow mode use it internally.
 

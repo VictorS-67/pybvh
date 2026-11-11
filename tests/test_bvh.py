@@ -2890,6 +2890,120 @@ class TestEndSiteForms:
 
 
 # =============================================================================
+# Test: a joint name with spaces is read whole
+# =============================================================================
+
+
+def _biped_text(root="ROOT Bip01 Pelvis", left="JOINT Bip01 L Thigh"):
+    """The text of a two-legged clip whose joint names hold spaces, as 3ds Max Biped names do."""
+    return (
+        "\n".join(
+            [
+                "HIERARCHY",
+                root,
+                "{",
+                "  OFFSET 0 0 0",
+                "  CHANNELS 6 Xposition Yposition Zposition Zrotation Xrotation Yrotation",
+                f"  {left}",
+                "  {",
+                "    OFFSET 1 0 0",
+                "    CHANNELS 3 Zrotation Xrotation Yrotation",
+                "    End Site",
+                "    {",
+                "      OFFSET 0 -1 0",
+                "    }",
+                "  }",
+                "  JOINT Bip01 R Thigh",
+                "  {",
+                "    OFFSET -1 0 0",
+                "    CHANNELS 3 Zrotation Xrotation Yrotation",
+                "    End Site",
+                "    {",
+                "      OFFSET 0 -1 0",
+                "    }",
+                "  }",
+                "}",
+                "MOTION",
+                "Frames: 2",
+                "Frame Time: 0.033333",
+                "0 0 0 0 0 0 0 0 0 0 0 0",
+                "1 0 0 0 0 0 0 0 0 0 0 0",
+            ]
+        )
+        + "\n"
+    )
+
+
+class TestNamesWithSpaces:
+    """The name of a ``ROOT`` or ``JOINT`` is the rest of its line, spaces included."""
+
+    def test_the_issue_file_reads_whole_names(self, tmp_path):
+        path = tmp_path / "spaces.bvh"
+        path.write_text(_biped_text())
+
+        bvh = read_bvh_file(path)
+
+        assert [n.name for n in bvh.nodes] == [
+            "Bip01 Pelvis",
+            "Bip01 L Thigh",
+            "EndSiteBip01 L Thigh",
+            "Bip01 R Thigh",
+            "EndSiteBip01 R Thigh",
+        ]
+
+    def test_a_write_keeps_the_names_and_its_bytes_are_stable(self, tmp_path):
+        src = tmp_path / "spaces.bvh"
+        src.write_text(_biped_text(left="JOINT Bip01  L Thigh"))
+        bvh = read_bvh_file(src)
+
+        first = tmp_path / "first.bvh"
+        bvh.write(first)
+        again = read_bvh_file(first)
+        second = tmp_path / "second.bvh"
+        again.write(second)
+
+        assert [n.name for n in again.nodes][:2] == ["Bip01 Pelvis", "Bip01  L Thigh"]
+        assert again == bvh
+        assert second.read_bytes() == first.read_bytes()
+
+    @pytest.mark.parametrize(
+        "left",
+        ["JOINT\tBip01 L Thigh\t", "JOINT Bip01 L Thigh   ", "JOINT   Bip01 L Thigh \t "],
+        ids=["tabs", "trailing_spaces", "spaces_and_tab"],
+    )
+    def test_whitespace_at_the_ends_of_a_name_is_dropped(self, left, tmp_path):
+        path = tmp_path / "padded.bvh"
+        path.write_text(_biped_text(left=left))
+        assert read_bvh_file(path).nodes[1].name == "Bip01 L Thigh"
+
+    def test_a_joint_is_selected_by_its_whole_name(self, tmp_path):
+        path = tmp_path / "spaces.bvh"
+        path.write_text(_biped_text())
+        bvh = read_bvh_file(path)
+
+        assert bvh.index("Bip01 R Thigh", space="node") == 3
+        assert bvh.index("Bip01 R Thigh", space="joint") == 2
+        # The left thigh moves 1 unit along X between the two frames.
+        assert bvh.path_length("Bip01 L Thigh") == pytest.approx(1.0)
+
+    def test_a_brace_after_a_one_word_name_opens_the_block_as_before(self, tmp_path):
+        """``ROOT Hips {`` read as ``Hips`` before names could hold spaces, and still does."""
+        path = tmp_path / "brace.bvh"
+        path.write_text(_biped_text(root="ROOT Hips {", left="JOINT Bip01 L Thigh\t{ "))
+        names = [n.name for n in read_bvh_file(path).nodes]
+        assert names[:2] == ["Hips", "Bip01 L Thigh"]
+
+    @pytest.mark.parametrize("root", ["ROOT", "ROOT \t", "ROOT {"], ids=["bare", "blank", "brace"])
+    def test_a_missing_name_raises_naming_the_line_and_file(self, root, tmp_path):
+        path = tmp_path / "nameless.bvh"
+        path.write_text(_biped_text(root=root))
+        with pytest.raises(
+            ValueError, match=re.escape(f"ROOT without a name at line 2 in file {path}")
+        ):
+            read_bvh_file(path)
+
+
+# =============================================================================
 # Test: the reader recovers the rate a truncating exporter meant
 # =============================================================================
 

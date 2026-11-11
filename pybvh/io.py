@@ -98,6 +98,18 @@ def read_bvh_file(
     every frame, and its row of :attr:`Bvh.joint_angles` is zero.
     :func:`write_bvh_file` writes it back as ``CHANNELS 0``.
 
+    The name of a ``ROOT`` or ``JOINT`` is the rest of its line, with
+    the whitespace at both ends removed. Inner whitespace is kept as
+    written: ``JOINT Bip01 L Thigh`` (a 3ds Max Biped name) reads as
+    ``"Bip01 L Thigh"``, and :func:`write_bvh_file` writes it back the
+    same. A ``{`` as the line's last word opens the block and is not
+    part of the name: ``ROOT Hips {`` reads as ``"Hips"``. The BVH
+    format has no quoting, and other readers differ on such a name:
+    bvh-python keeps the first word only, and Blender's importer joins
+    the words with underscores (``Bip01_L_Thigh``). So a file with
+    these names can read differently elsewhere. pybvh does not warn
+    about it.
+
     The reader normalizes three things, rather than preserving them
     verbatim. So a round-trip is lossless in *motion*, but not
     byte-for-byte:
@@ -369,7 +381,17 @@ def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
             token = line[0]
 
             if token in ("ROOT", "JOINT"):
-                name = line[1]
+                # The name is the rest of the line (read_bvh_file's Notes).
+                # A '{' as the line's last word opens the block, as it did
+                # when the name was the first word: _read_node_block then
+                # finds no '{' line, which it allows.
+                name = raw_line.strip()[len(token) :].strip()
+                if line[-1] == "{":
+                    name = name[:-1].rstrip()
+                if not name:
+                    raise ValueError(
+                        f"{token} without a name at line {line_number} in file {filepath}"
+                    )
                 if token == "ROOT" and table:
                     raise ValueError(
                         f"Second ROOT '{name}' at line {line_number} in file "

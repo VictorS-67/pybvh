@@ -166,6 +166,91 @@ class _RestSkeleton(NamedTuple):
     lr_pairs: npt.NDArray[np.intp]
 
 
+# ---------------------------------------------------------------------------
+# The body anchor: where the L/R pairs meet, read from the hierarchy alone
+# ---------------------------------------------------------------------------
+
+# How the body anchor was found, as OrientationReport names it.
+_BodyAnchorSource = Literal["lr_pairs", "default"]
+
+
+class _BodyAnchor(NamedTuple):
+    """The joint the body's measures start from, and how it was found.
+
+    Attributes
+    ----------
+    node : int
+        The anchor's index in node order.
+    source : {"lr_pairs", "default"}
+        ``"lr_pairs"``: found where the L/R pairs meet
+        (:func:`_find_body_anchor`). ``"default"``: no pair, so the root.
+    candidates : tuple of int
+        The meeting joints the rule compared, the most joints below them
+        first; empty for ``"default"``.
+    """
+
+    node: int
+    source: _BodyAnchorSource
+    candidates: tuple[int, ...]
+
+
+def _find_body_anchor(skeleton: _RestSkeleton) -> _BodyAnchor:
+    """The body anchor the rule finds, from the hierarchy and the L/R pairs.
+
+    Each pair has a meeting joint: the lowest joint that both joints'
+    chains to the root pass through. The candidates are the meeting
+    joints at the shallowest depth, the root at depth 0, so the legs,
+    which meet at the hips, win over the arms, which meet lower, at the
+    chest, and a root above the hips or a helper beside them is passed
+    over. Of several candidates, the anchor is the one with the most
+    joints below it, itself included and end sites excluded; on equal
+    counts, the first in node order. Without a pair, the anchor is the
+    root. Neither the rest positions nor the motion are read.
+
+    Parameters
+    ----------
+    skeleton : _RestSkeleton
+        The hierarchy (``parent_idx``, ``is_end_site``) and the pairs of
+        the L/R mapping in effect (``lr_pairs``).
+
+    Returns
+    -------
+    _BodyAnchor
+    """
+    parent_idx = skeleton.parent_idx
+    if len(skeleton.lr_pairs) == 0:
+        return _BodyAnchor(0, "default", ())
+    depth = np.zeros(len(parent_idx), dtype=np.intp)
+    for node in range(1, len(parent_idx)):
+        depth[node] = depth[parent_idx[node]] + 1
+    meeting = {_meeting_joint(parent_idx, depth, int(a), int(b)) for a, b in skeleton.lr_pairs}
+    shallowest = min(depth[joint] for joint in meeting)
+    # A node's joints, itself included, end sites excluded: summed from the
+    # leaves up, a parent coming before its children.
+    joints_below = (~skeleton.is_end_site).astype(np.intp)
+    for node in range(len(parent_idx) - 1, 0, -1):
+        joints_below[parent_idx[node]] += joints_below[node]
+    candidates = sorted(
+        (joint for joint in meeting if depth[joint] == shallowest),
+        key=lambda joint: (-joints_below[joint], joint),
+    )
+    return _BodyAnchor(candidates[0], "lr_pairs", tuple(candidates))
+
+
+def _meeting_joint(
+    parent_idx: npt.NDArray[np.intp], depth: npt.NDArray[np.intp], a: int, b: int
+) -> int:
+    """The lowest node that the chains from *a* and from *b* to the root
+    both pass through, each chain holding its own node."""
+    while depth[a] > depth[b]:
+        a = int(parent_idx[a])
+    while depth[b] > depth[a]:
+        b = int(parent_idx[b])
+    while a != b:
+        a, b = int(parent_idx[a]), int(parent_idx[b])
+    return a
+
+
 def _up_marker_index(skeleton: _RestSkeleton) -> int | None:
     """The node whose direction from the root says which way is up.
 

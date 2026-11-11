@@ -14,10 +14,12 @@ import pytest
 
 from pybvh._orientation import (
     OrientationReport,
+    _BodyAnchor,
     _build_orientation_report,
     _detect_lr_mapping_by_names,
     _facing_basis,
     _facing_labels,
+    _find_body_anchor,
     _infer_rest_forward,
     _infer_rest_left,
     _infer_rest_up,
@@ -483,6 +485,120 @@ class TestFacingLabels:
         up = np.array([0.0, 1.0, 0.0])
         vectors = {"+x": [1, 0, 0], "-x": [-1, 0, 0], "+z": [0, 0, 1], "-z": [0, 0, -1]}
         np.testing.assert_array_equal(np.cross(vectors[forward], vectors[left]), up)
+
+
+def _tree(nodes, lr_pairs=(), end_sites=()):
+    """The rest skeleton of a tree given as ``(name, parent name)`` rows in
+    node order, the root's parent ``None``; ``lr_pairs`` and ``end_sites``
+    by name. The rest pose is all zeros: the body anchor reads none of it."""
+    names = [name for name, _ in nodes]
+    parents = [-1 if parent is None else names.index(parent) for _, parent in nodes]
+    return _skeleton(
+        names,
+        np.zeros((len(names), 3)),
+        [[names.index(left), names.index(right)] for left, right in lr_pairs],
+        [names.index(name) for name in end_sites],
+        parents,
+    )
+
+
+# A body whose root is its hips: two legs to their feet, a spine to a chest
+# that holds two arms and a head, each chain ending in an end site.
+_BODY = [
+    ("LeftUpLeg", "Hips"),
+    ("LeftFoot", "LeftUpLeg"),
+    ("LeftFoot_End", "LeftFoot"),
+    ("RightUpLeg", "Hips"),
+    ("RightFoot", "RightUpLeg"),
+    ("RightFoot_End", "RightFoot"),
+    ("Spine", "Hips"),
+    ("Chest", "Spine"),
+    ("LeftArm", "Chest"),
+    ("LeftArm_End", "LeftArm"),
+    ("RightArm", "Chest"),
+    ("RightArm_End", "RightArm"),
+    ("Head", "Chest"),
+    ("Head_End", "Head"),
+]
+_BODY_END_SITES = [name for name, _ in _BODY if name.endswith("_End")]
+_LEGS = ("LeftUpLeg", "RightUpLeg")
+_FEET = ("LeftFoot", "RightFoot")
+_ARMS = ("LeftArm", "RightArm")
+
+
+def _anchor_of(nodes, lr_pairs):
+    """The body anchor the rule finds, as names: the anchor, its source and
+    the candidates."""
+    skeleton = _tree(nodes, lr_pairs, [n for n, _ in nodes if n.endswith("_End")])
+    found = _find_body_anchor(skeleton)
+    names = skeleton.node_names
+    return (
+        names[found.node],
+        found.source,
+        [names[index] for index in found.candidates],
+    )
+
+
+class TestBodyAnchor:
+    """The joint the body's measures start from: where the L/R pairs meet,
+    at the shallowest depth; the root without a pair."""
+
+    def test_the_root_is_the_hips(self):
+        nodes = [("Hips", None), *_BODY]
+        # The arms meet lower, at the chest: the legs' meeting joint is
+        # the shallowest.
+        assert _anchor_of(nodes, [_LEGS, _FEET, _ARMS]) == ("Hips", "lr_pairs", ["Hips"])
+
+    def test_a_root_above_the_hips(self):
+        nodes = [("Reference", None), ("Hips", "Reference"), *_BODY]
+        assert _anchor_of(nodes, [_LEGS, _ARMS]) == ("Hips", "lr_pairs", ["Hips"])
+
+    def test_a_reference_root_that_carries_props(self):
+        nodes = [
+            ("Reference", None),
+            ("Hips", "Reference"),
+            *_BODY,
+            ("Sword", "Reference"),
+            ("SwordTip", "Sword"),
+            ("SwordTip_End", "SwordTip"),
+            ("Marker", "Reference"),
+            ("Marker_End", "Marker"),
+        ]
+        assert _anchor_of(nodes, [_LEGS, _ARMS]) == ("Hips", "lr_pairs", ["Hips"])
+
+    def test_a_helper_leaf_beside_the_body(self):
+        nodes = [("Bip01", None), ("Footsteps", "Bip01"), ("Hips", "Bip01"), *_BODY]
+        assert _anchor_of(nodes, [_LEGS, _ARMS]) == ("Hips", "lr_pairs", ["Hips"])
+
+    def test_a_mapping_of_the_arms_only(self):
+        nodes = [("Hips", None), *_BODY]
+        assert _anchor_of(nodes, [_ARMS]) == ("Chest", "lr_pairs", ["Chest"])
+
+    def test_no_pair_gives_the_root(self):
+        nodes = [("Reference", None), ("Hips", "Reference"), *_BODY]
+        assert _anchor_of(nodes, []) == ("Reference", "default", [])
+
+    def test_of_candidates_at_one_depth_the_one_with_more_joints_below(self):
+        # Two pairs that meet at depth 1: the hips, with 10 joints counted
+        # from them, and a helper with 3; end sites are not counted.
+        nodes = [
+            ("Root", None),
+            ("Helper", "Root"),
+            ("LeftTarget", "Helper"),
+            ("LeftTarget_End", "LeftTarget"),
+            ("RightTarget", "Helper"),
+            ("RightTarget_End", "RightTarget"),
+            ("Hips", "Root"),
+            *_BODY,
+        ]
+        assert _anchor_of(nodes, [("LeftTarget", "RightTarget"), _LEGS]) == (
+            "Hips",
+            "lr_pairs",
+            ["Hips", "Helper"],
+        )
+
+
+_NO_ANCHOR = _BodyAnchor(0, "default", ())
 
 
 class TestReport:

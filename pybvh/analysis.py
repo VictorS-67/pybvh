@@ -2679,6 +2679,8 @@ def walking_pace(bvh: Bvh) -> float:
     Source: Crane & Gross, Gross et al. 2012.
     """
     _require_rate(bvh.frame_time, "walking_pace()")
+    # Before the early return: a clip with no body is refused at any length.
+    bvh._body_anchor_index()
     duration = (bvh.frame_count - 1) * bvh.frame_time
     if duration <= 0:
         return float("nan")

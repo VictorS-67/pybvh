@@ -86,9 +86,13 @@ BODY_LEVEL = {
     "foot_contacts, the feet detected": lambda b: foot_contacts(b),
     "skeleton_size, the feet given": lambda b: skeleton_size(b, TOES),
     "walking_pace": lambda b: walking_pace(b),
+    "walking_pace, one frame": lambda b: walking_pace(b[:1]),
     "cadence": lambda b: cadence(b, TOES),
     "stride_length": lambda b: stride_length(b, TOES),
     "gait_parameters": lambda b: gait_parameters(b, TOES),
+    "gait_parameters, one frame, the contacts given": lambda b: gait_parameters(
+        b[:1], TOES, contacts=np.zeros((1, 2))
+    ),
     "mirror": lambda b: mirror(b),
     "mirror(lateral='x')": lambda b: mirror(b, lateral="x"),
     "mirror, the pairs of one figure given": lambda b: mirror(b, lr_mapping=FIRST_FIGURE_PAIRS),

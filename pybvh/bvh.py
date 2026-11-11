@@ -553,6 +553,7 @@ class Bvh:
         source_path: str | None = None,
         warn_on_world_up_disagreement: bool = True,
         joint_translations: npt.ArrayLike | None = None,
+        body_anchor: NodeSelector | None = None,
     ) -> None:
         # The derived state exists before any property setter runs, so the
         # setters can report their change unconditionally. Each value in it
@@ -613,6 +614,9 @@ class Bvh:
             self._world_up_override = _validate_axis_string(world_up)
         if lr_mapping is not None:
             self._validate_and_set_lr_mapping(lr_mapping)
+        # Before the guess below, which may read the anchor.
+        if body_anchor is not None:
+            self.body_anchor = body_anchor
 
         if world_up == "auto":
             self._settle_world_up()
@@ -2663,6 +2667,7 @@ class Bvh:
         world_up: str = "auto",
         warn_on_world_up_disagreement: bool = True,
         lr_mapping: dict[str, str] | None = None,
+        body_anchor: str | None = None,
     ) -> Bvh:
         """Read a Bvh from a ``.bvh`` file — the constructor counterpart of :meth:`write`.
 
@@ -2676,6 +2681,7 @@ class Bvh:
             world_up=world_up,
             warn_on_world_up_disagreement=warn_on_world_up_disagreement,
             lr_mapping=lr_mapping,
+            body_anchor=body_anchor,
         )
 
     @classmethod

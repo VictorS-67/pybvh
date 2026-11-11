@@ -85,6 +85,7 @@ def read_bvh_directory(
     warn_on_world_up_disagreement: bool = True,
     lr_mapping: dict[str, str] | None = None,
     skip_errors: bool = False,
+    body_anchor: str | None = None,
 ) -> list[Bvh]:
     """Load all BVH files from a directory.
 
@@ -133,6 +134,11 @@ def read_bvh_directory(
         skipped. If False (default), the first failure propagates as
         the original exception. Use True when robustness against
         occasional corrupt files matters more than strict verification.
+    body_anchor : str or None, optional
+        The name of the joint the body's measures start from, set on
+        every loaded file (see :func:`read_bvh_file`). A file that has no
+        joint of that name, or more than one, fails to load, as
+        ``skip_errors`` says.
 
     Returns
     -------
@@ -196,6 +202,7 @@ def read_bvh_directory(
                         world_up=world_up,
                         warn_on_world_up_disagreement=warn_on_world_up_disagreement,
                         lr_mapping=lr_mapping,
+                        body_anchor=body_anchor,
                     )
                 )
             except Exception as error:

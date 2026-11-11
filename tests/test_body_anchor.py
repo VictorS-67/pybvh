@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pybvh import read_bvh_file
+from pybvh import Bvh, read_bvh_directory, read_bvh_file
 
 REPO = Path(__file__).resolve().parent.parent
 CORPUS = REPO / "bvh_data" / "synthetic"
@@ -236,3 +236,38 @@ class TestSetting:
             "lr_pairs",
             (clip.body_anchor,),
         )
+
+
+class TestAtLoad:
+    """``read_bvh_file(..., body_anchor=...)``: the setting, at load."""
+
+    def _load(self, reader, **kwargs):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            return reader(CORPUS / "reference_humanoid_6ch.bvh", **kwargs)
+
+    @pytest.mark.parametrize(
+        "reader",
+        [
+            read_bvh_file,
+            Bvh.from_file,
+            lambda path, **kw: read_bvh_directory(path.parent, pattern=path.name, **kw)[0],
+        ],
+        ids=["read_bvh_file", "Bvh.from_file", "read_bvh_directory"],
+    )
+    def test_equals_reading_then_setting(self, reader):
+        loaded = self._load(reader, body_anchor="Chest")
+        then_set = _read(CORPUS / "reference_humanoid_6ch.bvh")
+        then_set.body_anchor = "Chest"
+        assert loaded == then_set
+        assert loaded.body_anchor.name == "Chest"
+        assert loaded.orientation_report.body_anchor_source == "set"
+        assert loaded.world_up == then_set.world_up
+
+    def test_a_missing_name_raises_the_resolver_s_error(self):
+        clip = _read(CORPUS / "reference_humanoid_6ch.bvh")
+        with pytest.raises(ValueError) as expected:
+            clip.body_anchor = "Pelvis"
+        with pytest.raises(ValueError) as raised:
+            self._load(read_bvh_file, body_anchor="Pelvis")
+        assert str(raised.value) == str(expected.value)

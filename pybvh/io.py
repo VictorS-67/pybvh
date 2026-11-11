@@ -36,6 +36,7 @@ def read_bvh_file(
     world_up: str = "auto",
     warn_on_world_up_disagreement: bool = True,
     lr_mapping: dict[str, str] | None = None,
+    body_anchor: str | None = None,
 ) -> Bvh:
     """Parse a BVH motion capture file and return a Bvh object.
 
@@ -69,6 +70,14 @@ def read_bvh_file(
         (``{"arm.L": "arm.R", ...}``). If you give one, the name-based
         auto-detection is skipped for this file. Use it for skeletons
         whose naming conventions the heuristic cannot parse.
+    body_anchor : str or None, optional
+        The name of the joint the body's measures start from, set on the
+        clip as :attr:`Bvh.body_anchor` is set, before the world up is
+        guessed. ``None`` (default) leaves the anchor to the rule that
+        :attr:`Bvh.body_anchor` describes. Give it when you know better
+        than the rule, such as on a rig whose chest and hips meet the
+        L/R pairs at the same depth. The clip and every clip derived from
+        it keep it (see :attr:`Bvh.body_anchor`).
 
     Returns
     -------
@@ -83,7 +92,9 @@ def read_bvh_file(
         missing, zero, negative, NaN or infinite, or if a joint declares
         other channels than 3 rotation channels, or 3 position + 3
         rotation channels (the error names the joint). The root declares
-        3 position + 3 rotation channels, or none (``CHANNELS 0``).
+        3 position + 3 rotation channels, or none (``CHANNELS 0``). Also
+        if ``body_anchor`` names no joint, an end site, or more than one
+        joint (the error of :meth:`Bvh.index`).
 
     Notes
     -----
@@ -166,7 +177,7 @@ def read_bvh_file(
       reads back as the same float.
 
     Values that pybvh infers or that you set (``world_up``,
-    ``lr_mapping``) have nowhere to live in the BVH format. They are
+    ``lr_mapping``, ``body_anchor``) have nowhere to live in the BVH format. They are
     lost on write. Re-apply them after reading.
     """
     return _bvh_from_parsed(
@@ -175,6 +186,7 @@ def read_bvh_file(
         world_up=world_up,
         warn_on_world_up_disagreement=warn_on_world_up_disagreement,
         lr_mapping=lr_mapping,
+        body_anchor=body_anchor,
     )
 
 
@@ -241,6 +253,7 @@ def _bvh_from_parsed(
     world_up: str = "auto",
     warn_on_world_up_disagreement: bool = True,
     lr_mapping: dict[str, str] | None = None,
+    body_anchor: str | None = None,
 ) -> Bvh:
     """The :class:`Bvh` of a parsed file: :func:`read_bvh_file`'s second
     step, after :func:`_extract_bvh_file_info`.
@@ -272,6 +285,7 @@ def _bvh_from_parsed(
         frame_time=frame_time,
         world_up=world_up,
         lr_mapping=lr_mapping,
+        body_anchor=body_anchor,
         source_path=str(filepath),
         warn_on_world_up_disagreement=warn_on_world_up_disagreement,
     )

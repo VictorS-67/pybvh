@@ -6,16 +6,23 @@ can rot: a new public method silently never appears in the docs, or a rename
 leaves a dead entry behind. These tests assert two-way set equality between
 what the markdown documents and what the code actually exposes, and fail
 with the exact member names so the fix is obvious.
+
+The fields of the public reports and the keywords of the readers are not
+listed on a page: mkdocstrings renders them from the docstring. The last
+tests assert the same set equality between each docstring's numpydoc
+section and the dataclass fields or the signature.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import re
 from pathlib import Path
 
 import pytest
 
+import pybvh
 from pybvh import analysis, rotations
 from pybvh.bvh import Bvh
 
@@ -86,3 +93,38 @@ def test_bvh_page_covers_every_public_member():
 def test_module_page_covers_every_public_member(page, mod, prefix):
     documented = _documented(page, prefix)
     _assert_two_way(documented, _module_public(mod), page)
+
+
+_SECTION_RE = r"^{name}\n-+\n(.*?)(?=^\w[\w ]*\n-+\n|\Z)"
+_ENTRY_RE = re.compile(r"^(\w+(?:, \w+)*) :", re.MULTILINE)
+
+
+def _entries(obj, section: str) -> set[str]:
+    """Names the numpydoc *section* of *obj*'s docstring documents."""
+    doc = inspect.cleandoc(obj.__doc__ or "")
+    match = re.search(_SECTION_RE.format(name=section), doc, re.MULTILINE | re.DOTALL)
+    if match is None:
+        return set()
+    return {name for entry in _ENTRY_RE.findall(match.group(1)) for name in entry.split(", ")}
+
+
+@pytest.mark.parametrize(
+    "report", [pybvh.OrientationReport, pybvh.ContactReport, pybvh.HarmonizeReport]
+)
+def test_report_docstring_covers_every_field(report):
+    fields = {field.name for field in dataclasses.fields(report)}
+    documented = _entries(report, "Attributes")
+    assert documented == fields, (
+        f"{report.__name__}'s Attributes: missing {sorted(fields - documented)}, "
+        f"stale {sorted(documented - fields)}"
+    )
+
+
+@pytest.mark.parametrize("reader", [pybvh.read_bvh_file, pybvh.read_bvh_directory])
+def test_reader_docstring_covers_every_keyword(reader):
+    keywords = set(inspect.signature(reader).parameters)
+    documented = _entries(reader, "Parameters")
+    assert documented == keywords, (
+        f"{reader.__name__}'s Parameters: missing {sorted(keywords - documented)}, "
+        f"stale {sorted(documented - keywords)}"
+    )

@@ -1750,12 +1750,17 @@ class Bvh:
         skipping one that sits at the root in the rest pose; "hips" is
         always the root node whatever it is called; and the frame-0
         reading is accepted only when its largest component is at least
-        twice the second-largest — a crouched, lying or leaning first
-        frame is treated as ambiguous and defers to :attr:`rest_up`,
-        with a warning when the root's rotation at frame 0 carries
-        :attr:`rest_up` onto another axis, since the rest pose may then
-        be authored in another convention than the motion. When the
-        rest pose is degenerate too, the property warns and returns
+        twice the second-largest — a first frame bent or leaning far
+        from every axis is treated as ambiguous and defers to
+        :attr:`rest_up`, with a warning when the root's rotation at
+        frame 0 carries :attr:`rest_up` onto another axis, since the
+        rest pose may then be authored in another convention than the
+        motion. A figure straight and horizontal at frame 0 with its
+        head near a horizontal axis (lying flat, a plank) does decide,
+        on that axis, with the disagreement warning when
+        :attr:`rest_up` names another axis; set the axis when the guess
+        is wrong. When the rest pose is
+        degenerate too, the property warns and returns
         ``'+y'``. Use
         :attr:`world_up_inferred` to see what the heuristic picks
         while an override is in effect.

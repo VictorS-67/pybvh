@@ -2175,8 +2175,8 @@ class Bvh:
         :meth:`left_at`, :meth:`facing_frame`), :meth:`root_trajectory`,
         the ``centered="skeleton"`` and ``"first"`` modes,
         :meth:`auto_detect_feet`, :meth:`foot_contacts`,
-        :meth:`skeleton_size`, the gait descriptors and :meth:`mirror`.
-        The operations that treat all nodes alike work as on any clip:
+        :meth:`ground_contacts`, :meth:`skeleton_size`, the gait
+        descriptors and :meth:`mirror`. The operations that treat all nodes alike work as on any clip:
         reading, writing, forward kinematics, the derivatives, slicing,
         concatenation, :meth:`resample`, the Euler orders,
         :meth:`scale`, :meth:`extract_joints` and the bounding volumes.
@@ -2756,7 +2756,8 @@ class Bvh:
         The one way the body-level readers reach the anchor and the body:
         the world-up guess, rest up, rest left and rest forward (through
         :meth:`_body_orientation`), the body (:meth:`_in_body`) and so the
-        feet, the sizes (:meth:`_size_reference`), the travel
+        feet, the sizes (:meth:`_size_reference`), the scale of
+        :meth:`ground_contacts`, the travel
         (:meth:`_body_anchor_positions`), the heading and the facing
         (:meth:`_body_anchor_rotmats`) and the ``centered`` modes. Raises
         ``ValueError`` on a clip with no body, naming the candidates and

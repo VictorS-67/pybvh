@@ -1157,7 +1157,7 @@ def ground_contacts(
     method : {"combined", "velocity", "height"}, optional
         Same meaning as in :func:`foot_contacts`.
     vel_threshold, vel_smooth_duration, height_threshold, floor, min_contact_duration, min_gap_duration, hysteresis, adaptive : keyword-only, optional
-        Same meaning and defaults as in :func:`foot_contacts`, read by the same methods (a setting given that the method does not read raises). A threshold given per node has one value per entry of ``nodes``. The auto thresholds scale by the mean rest-pose distance from the root to the **given** nodes (the same skeleton-scale rule, applied to this node set) — so the defaults stay proportionate for short chains like hands. Mind the ``floor="auto"`` warning above.
+        Same meaning and defaults as in :func:`foot_contacts`, read by the same methods (a setting given that the method does not read raises). A threshold given per node has one value per entry of ``nodes``. The auto thresholds scale by the mean rest-pose distance from :attr:`Bvh.body_anchor <pybvh.Bvh.body_anchor>` to the **given** nodes (the same skeleton-scale rule, applied to this node set) — so the defaults stay proportionate for short chains like hands. :func:`foot_contacts` measures from the joint the feet branch from instead; the two differ where the anchor is not that joint, as on a clip whose anchor is the chest beside the hips: ``bvh.body_anchor = "Hips"`` names the joint to measure from. Mind the ``floor="auto"`` warning above.
     height_reference : {"floor", "velocity"} or None, keyword-only, optional
         ``None`` (default) means ``"floor"``: the fixed ``0.013 × skeleton_scale`` margin above the floor. ``"velocity"`` enables :func:`foot_contacts`' per-node stance calibration; only use it when the nodes ground regularly enough to have stance statistics.
     return_info : bool, keyword-only, optional
@@ -1178,6 +1178,7 @@ def ground_contacts(
         - If an entry of ``nodes`` is a name that no node carries, or that several nodes share; a ``BvhNode`` that is not one of ``bvh.nodes``; or the same node selected twice.
         - If a duration (``vel_smooth_duration``, ``min_contact_duration``, ``min_gap_duration``) is negative or not finite, ``hysteresis`` is outside ``[0, 1)``, or a threshold given is not finite and above zero.
         - If ``frame_time == 0`` and the velocity signal (units/second) or a nonzero duration filter needs a time base.
+        - If the clip has no body (:attr:`Bvh.body_anchor <pybvh.Bvh.body_anchor>` is ``None``), whether or not ``world_up`` is set: the scale reads the body anchor.
     TypeError
         If ``nodes`` is a bare ``str`` or ``BvhNode`` instead of a sequence of them, or an entry is neither: an integer does not say which index space it counts in, and node ``i`` is ``bvh.nodes[i]``.
 
@@ -1206,7 +1207,7 @@ def ground_contacts(
         settings,
         return_info=return_info,
         check_rest_height=False,
-        scale_reference=0,
+        scale_reference=bvh._body_anchor_index(),
         caller="ground_contacts()",
     )
 
@@ -1223,7 +1224,7 @@ def _contacts_on_clip(
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]:
     """The clip's part of :func:`foot_contacts` and :func:`ground_contacts`, around the detector on plain arrays.
 
-    Both entry points resolve their selection with :func:`_selected_node_indices` into ``node_indices``, gather their settings into a :class:`~pybvh._contacts._ContactSettings`, and delegate here. This reads from the clip what the detector takes (the nodes and their positions, the rest pose, the frame time, the up axis), runs the checks whose messages name the clip (the frame time, the rest height), and hands the arrays to :func:`pybvh._contacts._contacts_from_positions`. ``check_rest_height`` enables the rest-pose "feet below hips" sanity check, which presumes the nodes are feet. ``scale_reference`` is the node index that check and the skeleton scale of the default thresholds measure from: the size reference of the feet (:meth:`Bvh._size_reference`) for :func:`foot_contacts`, the root for :func:`ground_contacts`. ``caller`` names the public function in the messages (``"foot_contacts()"``).
+    Both entry points resolve their selection with :func:`_selected_node_indices` into ``node_indices``, gather their settings into a :class:`~pybvh._contacts._ContactSettings`, and delegate here. This reads from the clip what the detector takes (the nodes and their positions, the rest pose, the frame time, the up axis), runs the checks whose messages name the clip (the frame time, the rest height), and hands the arrays to :func:`pybvh._contacts._contacts_from_positions`. ``check_rest_height`` enables the rest-pose "feet below hips" sanity check, which presumes the nodes are feet. ``scale_reference`` is the node index that check and the skeleton scale of the default thresholds measure from: the size reference of the feet (:meth:`Bvh._size_reference`) for :func:`foot_contacts`, the body anchor for :func:`ground_contacts`. ``caller`` names the public function in the messages (``"foot_contacts()"``).
     """
     if settings.reads_velocity:
         _require_rate(bvh.frame_time, f"{caller} with method={settings.method!r}")

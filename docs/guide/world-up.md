@@ -61,6 +61,7 @@ What reads the anchor:
 - The heading reads the anchor's world rotation: its own rotation composed with those of the joints above it.
 - The head joint, the L/R pairs of rest left and rest forward, and `auto_detect_feet` look only in the body: the anchor and every node below it. When the head or the feet are not below the anchor, the body starts at the closest joint above the anchor that has them below it.
 - `skeleton_size` and the thresholds of `foot_contacts` read the joint where the given feet branch, the hips on a biped. For one foot, or feet along one leg, they read the anchor.
+- The thresholds of `ground_contacts`, which takes any nodes, read the anchor.
 
 The report says how the anchor was found. `body_anchor_source` is `"set"`, `"lr_pairs"`, `"default"` or `"ambiguous"`. `body_anchor_candidates` lists the joints the rule compared, the most joints below them first (see [The orientation report](#the-orientation-report)).
 
@@ -78,7 +79,7 @@ A set anchor is one of your settings, as a set `lr_mapping` is. Every clip deriv
 
 ### A known limit: the chest and the hips at the same depth
 
-On some rigs, an upper body and a lower body both hang from the root. The arms then meet at the chest and the legs at the hips, at the same depth. The chest side is the larger one, because of the fingers, so the chest is the anchor. Direction and travel are then measured from the chest. The body, the feet and the sizes are still found: the body starts at the root, which has the feet below it, and the sizes are read where the feet branch, at the hips. Name the hips to correct it:
+On some rigs, an upper body and a lower body both hang from the root. The arms then meet at the chest and the legs at the hips, at the same depth. The chest side is the larger one, because of the fingers, so the chest is the anchor. Direction and travel are then measured from the chest. The body, the feet and the sizes are still found: the body starts at the root, which has the feet below it, and the sizes are read where the feet branch, at the hips. `ground_contacts` reads the anchor, so the feet given to it measure 126.99 from the chest, where `foot_contacts` measures them at 93.35. Name the hips to correct it:
 
 ```python
 bvh = pybvh.read_bvh_file("bvh_data/synthetic/chest_and_hips_same_depth.bvh")
@@ -90,7 +91,7 @@ bvh.body_anchor = "Hips"
 
 ### A clip with no body
 
-A hierarchy can hold two figures. When the rule finds several candidates of comparable size, the clip has no body until you name one. `body_anchor` is then `None`, and `body_anchor_source` is `"ambiguous"`. Neither raises. Every operation that reads the body raises a `ValueError` that names the candidates. These are the world-up guess, `rest_up`, `rest_forward`, the facing, `root_trajectory`, the `centered="skeleton"` and `centered="first"` modes, the feet, `foot_contacts`, `skeleton_size`, the gait descriptors and `mirror`. The operations that treat all nodes alike work as on any clip: reading, writing, forward kinematics, slicing, `scale`, `extract_joints` and the others. The scene ground and drawing read `world_up`, so they work once you set `world_up` or name the anchor.
+A hierarchy can hold two figures. When the rule finds several candidates of comparable size, the clip has no body until you name one. `body_anchor` is then `None`, and `body_anchor_source` is `"ambiguous"`. Neither raises. Every operation that reads the body raises a `ValueError` that names the candidates. These are the world-up guess, `rest_up`, `rest_forward`, the facing, `root_trajectory`, the `centered="skeleton"` and `centered="first"` modes, the feet, `foot_contacts`, `ground_contacts`, `skeleton_size`, the gait descriptors and `mirror`. The operations that treat all nodes alike work as on any clip: reading, writing, forward kinematics, slicing, `scale`, `extract_joints` and the others. The scene ground and drawing read `world_up`, so they work once you set `world_up` or name the anchor.
 
 ```python
 two = pybvh.read_bvh_file("bvh_data/synthetic/two_figures_moving_root.bvh")

@@ -76,6 +76,31 @@ class TestARootBesideTheBody:
         assert contacts.shape == (clip.frame_count, 2)
 
 
+class TestGroundContactsMeasureFromTheAnchor:
+    """``ground_contacts`` scales its thresholds from the body anchor."""
+
+    @pytest.mark.parametrize(
+        ("nodes", "control_scale"),
+        [
+            (["LeftToeBase", "RightToeBase"], 93.34880824091971),
+            (["LeftHand", "RightHand"], 88.20430828479978),
+        ],
+    )
+    def test_a_reference_root_gives_the_controls_scale(self, control, nodes, control_scale):
+        reference = _read(CORPUS / "reference_humanoid_6ch.bvh")
+        _, ours = reference.ground_contacts(nodes, return_info=True)
+        _, theirs = control.ground_contacts(nodes, return_info=True)
+        assert theirs.skeleton_scale == control_scale
+        assert ours.skeleton_scale == pytest.approx(control_scale, rel=1e-12)
+
+    def test_feet_below_an_anchor_above_the_hips_measure_from_the_anchor(self):
+        # A known limit: foot_contacts measures these feet from the hips.
+        clip = _read(CORPUS / "chest_and_hips_same_depth.bvh")
+        feet = ["LeftToeBase", "RightToeBase"]
+        _, report = clip.ground_contacts(feet, return_info=True)
+        assert report.skeleton_scale == pytest.approx(126.99, abs=0.005)
+
+
 def test_chest_and_hips_at_one_depth_measure_from_the_hips():
     # The anchor is the chest; the feet branch at the hips.
     clip = _read(CORPUS / "chest_and_hips_same_depth.bvh")
@@ -124,3 +149,5 @@ def test_a_clip_whose_root_is_where_its_feet_branch_gives_what_it_gave(
         contacts, report = clip.foot_contacts(method=method, return_info=True)
         assert tuple(int(n) for n in contacts.sum(axis=0)) == frames
         assert report.skeleton_scale == size
+    _, report = clip.ground_contacts(clip.auto_detect_feet(), return_info=True)
+    assert report.skeleton_scale == size

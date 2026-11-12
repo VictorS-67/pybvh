@@ -39,7 +39,7 @@ Every run-time import at module level points down this picture: a layer depends 
 | `_derived` | a clip's derived state: the values themselves, the body anchor that the rule found among them, and the table of which change to the skeleton, the motion, the world up, the L/R mapping or the body anchor that the user set clears which value (ADR 0003, ADR 0012) | compute a value: `bvh` computes each one and fills it on read |
 | `signal` | array-pure signal kernels | know a clip |
 | `geometry` | array-pure position descriptors | know a clip, or differentiate other than through `signal` |
-| `_contacts` | contact detection from plain data (the tested nodes, for the report, their positions, their and the root's rest positions, the frame time, the up axis, the settings): the signals, the thresholds, the labels, the confidence and the diagnostics | import a `Bvh`: `analysis.foot_contacts` and `ground_contacts` read the clip and run the checks that name it |
+| `_contacts` | contact detection from plain data (the tested nodes, for the report, their positions, their rest positions and that of the joint the scale is measured from, the frame time, the up axis, the settings): the signals, the thresholds, the labels, the confidence and the diagnostics | import a `Bvh`: `analysis.foot_contacts` and `ground_contacts` read the clip and run the checks that name it |
 | `analysis` | the descriptors of a clip, as functions taking the `Bvh` first, and the array kernels behind the dynamics descriptors | assemble an export array |
 | `features` | the flat feature array and its column layout | compute a descriptor: it calls `analysis` |
 | `transforms` | spatial transforms and augmentation, on a clip and on raw arrays, and the reorientations | |

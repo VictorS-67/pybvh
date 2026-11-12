@@ -91,7 +91,7 @@ bvh.body_anchor = "Hips"
 
 ### A known limit: a mapping of the arms alone
 
-The anchor is where the pairs of `lr_mapping` meet. A mapping that holds the arms alone, on a rig whose other names say nothing, makes the joint where the arms meet the anchor. Rest up is then read from the arms, which hang below it, as from legs. On `bvh_data/bvh_test1.bvh` with every node renamed and the arms as the only pair, the anchor is the joint that was `Spine3`, and `rest_up` reads `-z` (source `"leg_pair"`) for a body that stands along `+z`. Name the hips with `bvh.body_anchor = ...`, as for the chest, to correct it.
+The anchor is where the pairs of `lr_mapping` meet. A mapping that pairs the arms alone, on a rig whose names say nothing of the sides, makes the joint where the arms meet the anchor. Rest up is then read from the arms, which hang below it, as from legs. On `bvh_data/bvh_test1.bvh` with every node renamed and the arms as the only pair, the anchor is the joint that was `Spine3`, and `rest_up` reads `-z` (source `"leg_pair"`) for a body that stands along `+z`. Name the hips joint, as for the chest, to correct it: `bvh.body_anchor = ...` with the joint's name in your file, or with the node itself, for example `bvh.nodes[0]` when the hips are the root.
 
 ### A clip with no body
 

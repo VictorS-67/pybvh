@@ -9298,8 +9298,8 @@ class TestRestUpAcrossRigConventions:
         # A known limit (#205): the arms alone meet at Spine3, which becomes
         # the body anchor, and the leg-pair reading reads the pair that
         # meets at the anchor, so the arms, hanging below it, are read as
-        # legs and rest up is -z. Naming the anchor, bvh.body_anchor = ...,
-        # is the way out.
+        # legs and rest up is -z. Naming the hips joint, by its name in the
+        # file (here J0) or by its node, is the way out.
         clip = _read_quietly(_TEST1)
         spine3 = clip.node_index["Spine3"]
         clip.world_up = "+z"
@@ -9310,6 +9310,8 @@ class TestRestUpAcrossRigConventions:
         assert report.body_anchor is clip.nodes[spine3]
         assert report.body_anchor_source == "lr_pairs"
         assert (report.rest_up, report.rest_up_source) == ("-z", "leg_pair")
+        clip.body_anchor = clip.nodes[0]
+        assert clip.rest_up == "+z"
 
     def test_a_mapping_passed_to_mirror_reads_rest_up_as_the_set_one_does(self):
         # Every name made meaningless, so the clip finds no pairs of its own

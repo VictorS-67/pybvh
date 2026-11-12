@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 
 from pybvh import read_bvh_file
+from pybvh.spatial_coord import frames_to_node_positions
 
 REPO = Path(__file__).resolve().parent.parent
 CORPUS = REPO / "bvh_data" / "synthetic"
@@ -196,3 +197,37 @@ def test_a_clip_whose_anchor_is_its_root_reads_the_root_bit_for_bit(path):
     assert clip.walking_pace() == pytest.approx(
         path_length / ((clip.frame_count - 1) * clip.frame_time), rel=1e-12
     )
+
+
+def _with_a_body():
+    """The corpus clips that have a body, by name."""
+    names = []
+    for path in sorted(CORPUS.glob("*.bvh")):
+        if _read(path.name).body_anchor is not None:
+            names.append(path.name)
+    return names
+
+
+@pytest.mark.parametrize("centered", ["world", "skeleton", "first"])
+@pytest.mark.parametrize("name", _with_a_body())
+def test_the_root_block_and_the_rotations_give_back_the_centred_positions(name, centered):
+    # The root block is the root's row of node_positions(centered), so
+    # forward kinematics from it, the rotations and the joint translations
+    # gives back every centred position, also where the root lies above
+    # the body and the block is not zero.
+    clip = _read(name)
+    features = clip.to_feature_array(
+        representation="euler", centered=centered, include_joint_translations=True
+    )
+    layout = clip.feature_array_layout(representation="euler", include_joint_translations=True)
+    angles = features[:, layout["rotations"]].reshape(clip.joint_angles.shape)
+    np.testing.assert_array_equal(angles, clip.joint_angles)
+    positions = frames_to_node_positions(
+        clip.fk_topology,
+        root_pos=features[:, layout["root_pos"]],
+        joint_angles=angles,
+        joint_translations=features[:, layout["joint_translations"]].reshape(
+            clip.joint_translations.shape
+        ),
+    )
+    np.testing.assert_allclose(positions, clip.node_positions(centered=centered), atol=1e-9)

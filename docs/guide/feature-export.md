@@ -115,6 +115,8 @@ features = bvh.to_feature_array(
 
 ![Column-band diagram of the feature array: root_pos, rotations, velocities, and foot_contacts blocks with their widths](../gallery/img/feature-layout.png)
 
+The `root_pos` block is the root's row of `bvh.node_positions(centered=...)`. With the rotations (and the `joint_translations` block on a rig with translating joints), it gives back `node_positions(centered=...)` by forward kinematics. On a clip whose root lies above the body, such as a reference root above the hips, the block is the root's position relative to the body anchor: under `centered="skeleton"` it is not zero, and under `centered="first"` it is the root's centred row, not the anchor's. For the body's travel, add the `joint_translations` block or use `bvh.root_trajectory()`.
+
 A clip with translating joints (joints other than the root that declare position channels) holds their per-frame positions in `bvh.joint_translations`. The feature array leaves them out by default. Pass `include_joint_translations=True` to `to_feature_array`, `feature_array_layout` and `batch_to_numpy` to add them as a `joint_translations` block of `3 * P` columns after `root_pos`. With the block on, `batch_to_numpy` requires every clip to have the same translating joints.
 
 ## Normalization

@@ -158,7 +158,17 @@ def to_feature_array(
         row of :meth:`Bvh.node_positions
         <pybvh.bvh.Bvh.node_positions>` under ``centered``, so centred
         on :attr:`~pybvh.bvh.Bvh.body_anchor`. On a clip whose anchor is
-        its root it is zero under ``"skeleton"``.
+        its root it is zero under ``"skeleton"``. With the rotations (and
+        ``include_joint_translations=True`` on a rig with translating
+        joints), the block gives back ``node_positions(centered)`` by
+        forward kinematics
+        (:func:`~pybvh.spatial_coord.frames_to_node_positions`). On a
+        clip whose root lies above the body, the block is the root's
+        position relative to the anchor: under ``"skeleton"`` it is not
+        zero, and under ``"first"`` it is the root's centred row, not
+        the anchor's. For the body's travel, use
+        ``include_joint_translations=True`` or
+        :func:`~pybvh.analysis.root_trajectory`.
     include_velocities : bool, optional
         If True, include joint velocity features, in units per
         **frame** — deliberately not :func:`joint_velocities`' own

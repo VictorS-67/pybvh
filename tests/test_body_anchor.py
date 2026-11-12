@@ -384,11 +384,11 @@ class TestSetLifecycle:
         report = kept.orientation_report
         assert (kept.body_anchor.name, report.body_anchor_source) == ("Hips", "lr_pairs")
 
-    @pytest.mark.parametrize(("kept", "anchor"), [("Chest", "Chest"), ("Spine", "Hips")])
-    def test_copy_nodes_of_another_joint_count_goes_by_name(self, kept, anchor):
+    @pytest.mark.parametrize("kept", ["Chest", "Spine"])
+    def test_dropped_by_copy_nodes_of_another_joint_count(self, kept):
         # A clip without motion binds no joint, so copy(nodes=) may change
-        # the joint count, and the anchor, like a user L/R mapping, is
-        # found by name; the rule is used when no joint carries it.
+        # the joint count. The anchor is carried by position alone, so the
+        # copy then uses the rule, also when a joint keeps the name.
         rows = [
             {"name": "Hips", "parent": None, "offset": [0, 0, 0], "rot_channels": "ZYX"},
             {"name": "Chest", "parent": 0, "offset": [0, 1, 0], "rot_channels": "ZYX"},
@@ -398,9 +398,24 @@ class TestSetLifecycle:
         clip = Bvh(nodes_from_table(rows))
         clip.body_anchor = "Chest"
         edited = clip.copy(nodes=[rows[0], {**rows[1], "name": kept}, {**rows[3], "parent": 1}])
-        assert edited.body_anchor.name == anchor
-        expected = "set" if kept == anchor else "default"
-        assert edited.orientation_report.body_anchor_source == expected
+        assert edited.body_anchor.name == "Hips"
+        assert edited.orientation_report.body_anchor_source == "default"
+
+    def test_not_moved_to_another_joint_of_its_name_by_copy_nodes(self):
+        # Two joints named Hand, the first set as the anchor by node; a copy
+        # of another joint count that keeps only the second Hand does not
+        # make it the anchor.
+        rows = [
+            {"name": "Hips", "parent": None, "offset": [0, 0, 0], "rot_channels": "ZYX"},
+            {"name": "Hand", "parent": 0, "offset": [1, 0, 0], "rot_channels": "ZYX"},
+            {"name": "HandEnd", "parent": 1, "offset": [1, 0, 0]},
+            {"name": "Hand", "parent": 0, "offset": [-1, 0, 0], "rot_channels": "ZYX"},
+            {"name": "HandEnd", "parent": 3, "offset": [-1, 0, 0]},
+        ]
+        clip = Bvh(nodes_from_table(rows))
+        clip.body_anchor = clip.nodes[1]
+        edited = clip.copy(nodes=[rows[0], {**rows[3], "parent": 0}, {**rows[4], "parent": 1}])
+        assert edited.orientation_report.body_anchor_source != "set"
 
 
 def test_setting_the_anchor_guesses_world_up_again_as_at_load():

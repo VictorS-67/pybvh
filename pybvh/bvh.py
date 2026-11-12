@@ -1403,8 +1403,7 @@ class Bvh:
             detected from the names is detected again from the new names.
             A set :attr:`body_anchor` follows its joint by position too,
             under its new name; on a clip without motion that takes
-            another joint count, it goes by name, and without exactly one
-            joint of that name the copy uses the rule.
+            another joint count, the copy drops it and uses the rule.
             World up is inherited, set or guessed: new offsets do not
             change which way is up. To guess it again from the new
             skeleton, ``edited.world_up = edited.world_up_inferred``.
@@ -1532,21 +1531,17 @@ class Bvh:
         anchor: BvhNode,
     ) -> int | None:
         """The position in ``new_nodes`` of the set body anchor ``anchor``,
-        carried as ``copy(nodes=)`` carries a user L/R mapping.
+        carried by ``copy(nodes=)``.
 
         By position among the joints when the joint count stays, so a
-        renamed anchor is followed; else by name, when exactly one joint
-        of ``new_joints`` carries it. ``None`` when neither finds it: the
-        copy then uses the rule.
+        renamed anchor is followed. ``None`` when the joint count changes
+        (only a clip without motion allows it): the copy then uses the
+        rule. A name is not followed, since a name can repeat.
         """
-        if len(new_joints) == len(joints):
-            joint = next(j for j, node in enumerate(joints) if node is anchor)
-            carried = new_joints[joint]
-        else:
-            named = [node for node in new_joints if node.name == anchor.name]
-            if len(named) != 1:
-                return None
-            carried = named[0]
+        if len(new_joints) != len(joints):
+            return None
+        joint = next(j for j, node in enumerate(joints) if node is anchor)
+        carried = new_joints[joint]
         return next(i for i, node in enumerate(new_nodes) if node is carried)
 
     def _derive_clip(
@@ -2162,8 +2157,9 @@ class Bvh:
         :meth:`reorient_rest_up`, ...), keep it. Every clip derived from
         this one carries it: a slice, :meth:`copy`, a concatenation,
         :meth:`resample`, a transformed clip, and a pickle. ``copy(nodes=)``
-        carries it to the joint at the same position, under its new name,
-        as it carries a set :attr:`lr_mapping`. :meth:`extract_joints`
+        carries it to the joint at the same position, under its new name;
+        a copy that changes the joint count, which only a clip without
+        motion allows, drops it. :meth:`extract_joints`
         carries it when the joint is kept. A derived clip that no longer
         holds the joint drops the setting and uses the rule.
 

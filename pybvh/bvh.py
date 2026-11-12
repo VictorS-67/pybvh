@@ -2165,7 +2165,9 @@ class Bvh:
 
         **A clip with no body.** When the anchor is ``None``, every
         body-level operation raises ``ValueError``, naming the candidates
-        and the way out, ``bvh.body_anchor = ...``: the world-up guess,
+        and the way out, ``bvh.body_anchor = ...`` (by the node, from
+        ``orientation_report.body_anchor_candidates``, when the
+        candidates share a name with another joint): the world-up guess,
         :attr:`rest_up`, :attr:`rest_forward` and
         :attr:`has_lr_geometry`, the facing (:meth:`forward_at`,
         :meth:`left_at`, :meth:`facing_frame`), :meth:`root_trajectory`,
@@ -2768,11 +2770,19 @@ class Bvh:
         if anchor.node is None:
             names = [self._nodes[i].name for i in anchor.candidates]
             listed = ", ".join(repr(name) for name in names[:-1]) + f" and {names[-1]!r}"
+            joint_names = [self._nodes[i].name for i in self._non_end_site_indices()]
+            if all(joint_names.count(name) == 1 for name in names):
+                way_out = (
+                    f"`bvh.body_anchor = {names[0]!r}`, or pass `body_anchor=` to read_bvh_file"
+                )
+            else:
+                # A name several joints carry selects none of them; the
+                # setting and body_anchor= at load take a name.
+                way_out = "`bvh.body_anchor = bvh.orientation_report.body_anchor_candidates[0]`"
             raise ValueError(
                 f"This clip has no body: its hierarchy holds several figures of "
                 f"comparable size, whose body anchors would be {listed}. Name the "
-                f"one to describe, for example `bvh.body_anchor = {names[0]!r}`, "
-                f"or pass `body_anchor=` to read_bvh_file."
+                f"one to describe, for example {way_out}."
             )
         return anchor.node
 

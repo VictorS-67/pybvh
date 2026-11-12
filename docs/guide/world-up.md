@@ -107,6 +107,8 @@ two.body_anchor = "Hips"            # every operation now describes that figure
 two.rest_up                         # '+y'
 ```
 
+When the two figures share their joint names, a name selects neither of them. The error then names the candidate through the report: `two.body_anchor = two.orientation_report.body_anchor_candidates[0]`.
+
 ## Auto-detection
 
 When a clip is read from a file or built from arrays, `Bvh.__init__` guesses `world_up` from frame 0. The guess is the direction from the body anchor to the head, snapped to its main axis when its largest component is at least twice the second. The head is the first joint of the body whose name holds `head` as a word, else `neck`, `chest` or `spine`. `rest_up` reads the same joint.

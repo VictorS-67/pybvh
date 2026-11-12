@@ -155,6 +155,37 @@ HIERARCHY_LEVEL = {
 }
 
 
+class TestTheErrorsWayOut:
+    """The way out the no-body error names works on the clip."""
+
+    def test_unique_names_are_named(self):
+        with pytest.raises(ValueError) as raised:
+            _ = _read("two_figures_moving_root.bvh").rest_up
+        assert str(raised.value) == (
+            "This clip has no body: its hierarchy holds several figures of "
+            "comparable size, whose body anchors would be 'Hips' and 'Hips_2'. "
+            "Name the one to describe, for example `bvh.body_anchor = 'Hips'`, "
+            "or pass `body_anchor=` to read_bvh_file."
+        )
+
+    def test_shared_names_are_named_through_the_report(self):
+        # The second figure carries the first's names, so a name selects
+        # no candidate: the error names the candidate itself.
+        clip = _read("two_figures_static_root.bvh")
+        table = clip.to_node_table()
+        for row in table:
+            row["name"] = row["name"].removesuffix("_2")
+        clip = clip.copy(nodes=table)
+        with pytest.raises(ValueError, match="no body") as raised:
+            _ = clip.rest_up
+        message = str(raised.value)
+        assert "'Hips' and 'Hips'" in message
+        assert "`bvh.body_anchor = bvh.orientation_report.body_anchor_candidates[0]`" in message
+        assert "read_bvh_file" not in message
+        clip.body_anchor = clip.orientation_report.body_anchor_candidates[0]
+        assert clip.rest_up == "+y"
+
+
 class TestHierarchyLevelReturns:
     """Every hierarchy-level operation works on a clip with no body."""
 

@@ -89,6 +89,10 @@ bvh.skeleton_size(bvh.auto_detect_feet())                            # 93.35, re
 bvh.body_anchor = "Hips"
 ```
 
+### A known limit: a mapping of the arms alone
+
+The anchor is where the pairs of `lr_mapping` meet. A mapping that holds the arms alone, on a rig whose other names say nothing, makes the joint where the arms meet the anchor. Rest up is then read from the arms, which hang below it, as from legs. On `bvh_data/bvh_test1.bvh` with every node renamed and the arms as the only pair, the anchor is the joint that was `Spine3`, and `rest_up` reads `-z` (source `"leg_pair"`) for a body that stands along `+z`. Name the hips with `bvh.body_anchor = ...`, as for the chest, to correct it.
+
 ### A clip with no body
 
 A hierarchy can hold two figures. When the rule finds several candidates of comparable size, the clip has no body until you name one. `body_anchor` is then `None`, and `body_anchor_source` is `"ambiguous"`. Neither raises. Every operation that reads the body raises a `ValueError` that names the candidates. These are the world-up guess, `rest_up`, `rest_forward`, the facing, `root_trajectory`, the `centered="skeleton"` and `centered="first"` modes, the feet, `foot_contacts`, `ground_contacts`, `skeleton_size`, the gait descriptors and `mirror`. The operations that treat all nodes alike work as on any clip: reading, writing, forward kinematics, slicing, `scale`, `extract_joints` and the others. The scene ground and drawing read `world_up`, so they work once you set `world_up` or name the anchor.

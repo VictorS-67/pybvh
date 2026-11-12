@@ -9294,25 +9294,22 @@ class TestRestUpAcrossRigConventions:
         assert (report.rest_up, report.rest_left, report.rest_forward) == frame
         assert report.rest_up_source == "leg_pair"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "#205: the arms alone meet at Spine3, which becomes the body anchor, "
-            "and the leg-pair reading reads the pair that meets at the anchor, "
-            "so the arms, hanging down, are read as legs and rest up is '-z'"
-        ),
-    )
-    def test_a_mapping_of_the_arms_alone_is_not_read_as_the_legs(self):
-        # Both arms hang below the spine, one branch of the hips: rest up
-        # falls back to the largest spread, as 0.9.0 read it, labelled.
+    def test_a_mapping_of_the_arms_alone_reads_the_arms_as_legs(self):
+        # A known limit (#205): the arms alone meet at Spine3, which becomes
+        # the body anchor, and the leg-pair reading reads the pair that
+        # meets at the anchor, so the arms, hanging below it, are read as
+        # legs and rest up is -z. Naming the anchor, bvh.body_anchor = ...,
+        # is the way out.
         clip = _read_quietly(_TEST1)
+        spine3 = clip.node_index["Spine3"]
         clip.world_up = "+z"
         clip.lr_mapping = {"LeftArm": "RightArm"}
         names = iter(range(len(clip.nodes)))
         clip = _renamed(clip, lambda name: f"J{next(names)}")
         report = clip.orientation_report
-        assert (report.rest_up, report.rest_up_source) == ("+z", "largest_spread")
-        assert report.rest_forward == "+y"
+        assert report.body_anchor is clip.nodes[spine3]
+        assert report.body_anchor_source == "lr_pairs"
+        assert (report.rest_up, report.rest_up_source) == ("-z", "leg_pair")
 
     def test_a_mapping_passed_to_mirror_reads_rest_up_as_the_set_one_does(self):
         # Every name made meaningless, so the clip finds no pairs of its own

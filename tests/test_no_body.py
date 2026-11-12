@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
+import re
 import warnings
 from pathlib import Path
 
@@ -168,22 +169,48 @@ class TestTheErrorsWayOut:
             "or pass `body_anchor=` to read_bvh_file."
         )
 
-    def test_shared_names_are_named_through_the_report(self):
-        # The second figure carries the first's names, so a name selects
-        # no candidate: the error names the candidate itself.
+    @staticmethod
+    def _shared_names():
+        """``two_figures_static_root`` with the second figure carrying the
+        first's names."""
         clip = _read("two_figures_static_root.bvh")
         table = clip.to_node_table()
         for row in table:
             row["name"] = row["name"].removesuffix("_2")
-        clip = clip.copy(nodes=table)
+        return clip.copy(nodes=table)
+
+    @staticmethod
+    def _suggested_node(clip, message):
+        """The node the error's suggested assignment names, after running it."""
+        match = re.search(r"`(bvh\.body_anchor = bvh\.nodes\[\d+\])`", message)
+        assert match is not None, message
+        exec(match.group(1), {"bvh": clip})
+        return clip.body_anchor
+
+    def test_shared_names_are_named_by_the_node(self):
+        # The second figure carries the first's names, so a name selects
+        # no candidate: the error names the candidate's node.
+        clip = self._shared_names()
         with pytest.raises(ValueError, match="no body") as raised:
             _ = clip.rest_up
         message = str(raised.value)
         assert "'Hips' and 'Hips'" in message
-        assert "`bvh.body_anchor = bvh.orientation_report.body_anchor_candidates[0]`" in message
         assert "read_bvh_file" not in message
-        clip.body_anchor = clip.orientation_report.body_anchor_candidates[0]
+        first = clip.orientation_report.body_anchor_candidates[0]
+        assert self._suggested_node(clip, message) is first
         assert clip.rest_up == "+y"
+
+    def test_shared_names_under_another_mapping_name_one_of_its_candidates(self):
+        # The clip's own report holds no candidate (no mapping, so the root
+        # by default); mirror reads the anchor of the mapping it is given,
+        # whose candidates are the two hips.
+        clip = self._shared_names()
+        clip.lr_mapping = None
+        assert clip.orientation_report.body_anchor_candidates == ()
+        with pytest.raises(ValueError, match="no body") as raised:
+            mirror(clip, lr_mapping={"LeftUpLeg": "RightUpLeg"})
+        hips = [node for node in clip.nodes if node.name == "Hips"]
+        assert self._suggested_node(clip, str(raised.value)) in hips
 
 
 class TestHierarchyLevelReturns:

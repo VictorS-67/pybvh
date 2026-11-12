@@ -2165,9 +2165,9 @@ class Bvh:
 
         **A clip with no body.** When the anchor is ``None``, every
         body-level operation raises ``ValueError``, naming the candidates
-        and the way out, ``bvh.body_anchor = ...`` (by the node, from
-        ``orientation_report.body_anchor_candidates``, when the
-        candidates share a name with another joint): the world-up guess,
+        and the way out, ``bvh.body_anchor = ...`` (the node,
+        ``bvh.nodes[i]``, when the candidates share a name with another
+        joint): the world-up guess,
         :attr:`rest_up`, :attr:`rest_forward` and
         :attr:`has_lr_geometry`, the facing (:meth:`forward_at`,
         :meth:`left_at`, :meth:`facing_frame`), :meth:`root_trajectory`,
@@ -2776,9 +2776,10 @@ class Bvh:
                     f"`bvh.body_anchor = {names[0]!r}`, or pass `body_anchor=` to read_bvh_file"
                 )
             else:
-                # A name several joints carry selects none of them; the
-                # setting and body_anchor= at load take a name.
-                way_out = "`bvh.body_anchor = bvh.orientation_report.body_anchor_candidates[0]`"
+                # A name several joints carry selects none of them, and
+                # body_anchor= at load takes a name; the node, by its
+                # position, selects the candidate whatever mapping found it.
+                way_out = f"`bvh.body_anchor = bvh.nodes[{anchor.candidates[0]}]`"
             raise ValueError(
                 f"This clip has no body: its hierarchy holds several figures of "
                 f"comparable size, whose body anchors would be {listed}. Name the "

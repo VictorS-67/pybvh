@@ -107,7 +107,7 @@ two.body_anchor = "Hips"            # every operation now describes that figure
 two.rest_up                         # '+y'
 ```
 
-When the two figures share their joint names, a name selects neither of them. The error then names the candidate through the report: `two.body_anchor = two.orientation_report.body_anchor_candidates[0]`.
+When the two figures share their joint names, a name selects neither of them. The error then names the candidate's node by its position in `bvh.nodes`, for example `bvh.body_anchor = bvh.nodes[1]`. Run that line on your clip.
 
 ## Auto-detection
 

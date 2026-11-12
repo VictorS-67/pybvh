@@ -1435,11 +1435,13 @@ class OrientationReport:
         that close in size, for instance two figures under one root;
         the anchor is then ``None``. ``"default"``: no pair, so the root.
     body_anchor_candidates : tuple of BvhNode
-        The meeting joints the rule compared, the most joints below them
-        first: the anchor alone when the pairs meet at one joint closest
-        to the root. Under a static root, when the trees below it give no
-        body, the candidate of each tree with at least half the joints of
-        the largest, the largest tree first. Empty for ``"set"`` and
+        The joints that competed for the anchor, the most joints below
+        them first: the meeting joints the rule compared, the anchor alone
+        when the pairs meet at one joint closest to the root. Under a
+        static root, when the trees below it give no body, the candidate
+        of each tree with at least half the joints of the largest, the
+        largest tree first; when the largest tree is kept, the meeting
+        joints compared inside it. Empty for ``"set"`` and
         ``"default"``.
     """
 

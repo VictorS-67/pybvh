@@ -9,7 +9,7 @@ Public functions:
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from fractions import Fraction
 from itertools import chain
 from pathlib import Path
@@ -36,6 +36,7 @@ def read_bvh_file(
     world_up: str = "auto",
     warn_on_world_up_disagreement: bool = True,
     lr_mapping: dict[str, str] | None = None,
+    body_anchor: str | None = None,
 ) -> Bvh:
     """Parse a BVH motion capture file and return a Bvh object.
 
@@ -69,6 +70,14 @@ def read_bvh_file(
         (``{"arm.L": "arm.R", ...}``). If you give one, the name-based
         auto-detection is skipped for this file. Use it for skeletons
         whose naming conventions the heuristic cannot parse.
+    body_anchor : str or None, optional
+        The name of the joint the body's measures start from, set on the
+        clip as :attr:`Bvh.body_anchor` is set, before the world up is
+        guessed. ``None`` (default) leaves the anchor to the rule that
+        :attr:`Bvh.body_anchor` describes. Give it when you know better
+        than the rule, such as on a rig whose chest and hips meet the
+        L/R pairs at the same depth. The clip and every clip derived from
+        it keep it (see :attr:`Bvh.body_anchor`).
 
     Returns
     -------
@@ -83,7 +92,11 @@ def read_bvh_file(
         missing, zero, negative, NaN or infinite, or if a joint declares
         other channels than 3 rotation channels, or 3 position + 3
         rotation channels (the error names the joint). The root declares
-        3 position + 3 rotation channels, or none (``CHANNELS 0``).
+        3 position + 3 rotation channels, or none (``CHANNELS 0``). Also
+        if the file holds several hierarchies (``ROOT`` blocks): a
+        ``Bvh`` is one hierarchy, and the error gives their count. Also
+        if ``body_anchor`` names no joint, an end site, or more than one
+        joint (the error of :meth:`Bvh.index`).
 
     Notes
     -----
@@ -166,7 +179,7 @@ def read_bvh_file(
       reads back as the same float.
 
     Values that pybvh infers or that you set (``world_up``,
-    ``lr_mapping``) have nowhere to live in the BVH format. They are
+    ``lr_mapping``, ``body_anchor``) have nowhere to live in the BVH format. They are
     lost on write. Re-apply them after reading.
     """
     return _bvh_from_parsed(
@@ -175,6 +188,7 @@ def read_bvh_file(
         world_up=world_up,
         warn_on_world_up_disagreement=warn_on_world_up_disagreement,
         lr_mapping=lr_mapping,
+        body_anchor=body_anchor,
     )
 
 
@@ -241,6 +255,7 @@ def _bvh_from_parsed(
     world_up: str = "auto",
     warn_on_world_up_disagreement: bool = True,
     lr_mapping: dict[str, str] | None = None,
+    body_anchor: str | None = None,
 ) -> Bvh:
     """The :class:`Bvh` of a parsed file: :func:`read_bvh_file`'s second
     step, after :func:`_extract_bvh_file_info`.
@@ -272,6 +287,7 @@ def _bvh_from_parsed(
         frame_time=frame_time,
         world_up=world_up,
         lr_mapping=lr_mapping,
+        body_anchor=body_anchor,
         source_path=str(filepath),
         warn_on_world_up_disagreement=warn_on_world_up_disagreement,
     )
@@ -349,6 +365,22 @@ def _rate_with_fewest_decimals(low: Fraction, high: Fraction) -> Fraction | None
     return None
 
 
+def _count_roots_left(lines: Iterable[str]) -> int:
+    """The ``ROOT`` lines left in *lines*, up to ``MOTION`` or their end.
+
+    Reads *lines* on, so the caller stops reading the file after it.
+    """
+    roots = 0
+    for raw_line in lines:
+        words = raw_line.split()
+        if not words:
+            continue
+        if words[0] == "MOTION":
+            break
+        roots += words[0] == "ROOT"
+    return roots
+
+
 def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
     """Extract node hierarchy, frame data, and frame time from a BVH file.
 
@@ -393,9 +425,11 @@ def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
                         f"{token} without a name at line {line_number} in file {filepath}"
                     )
                 if token == "ROOT" and table:
+                    hierarchies = 2 + _count_roots_left(f)
                     raise ValueError(
                         f"Second ROOT '{name}' at line {line_number} in file "
-                        f"{filepath}: pybvh models single-root skeletons only"
+                        f"{filepath}: the file holds {hierarchies} hierarchies "
+                        f"(ROOT blocks), and a Bvh holds one"
                     )
                 if token == "JOINT" and not open_rows:
                     raise ValueError(

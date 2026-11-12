@@ -1,7 +1,8 @@
 """The lifecycle of a clip's derived state (ADR 0003).
 
 A :class:`~pybvh.bvh.Bvh` computes some values from its inputs (its
-skeleton, its motion, its world-up override and its L/R mapping setting)
+skeleton, its motion, its world-up override, its L/R mapping setting and
+its body anchor setting)
 and keeps them until an input changes. This module holds those values and knows when each one is
 stale; ``Bvh`` keeps the code that computes them, fills an empty value on
 read, and reports every change of an input to its :class:`DerivedState`.
@@ -19,7 +20,7 @@ import numpy as np
 import numpy.typing as npt
 
 if TYPE_CHECKING:
-    from ._orientation import OrientationReport, _WorldUpGuess
+    from ._orientation import OrientationReport, _BodyAnchor, _WorldUpGuess
 
 
 class _Change(Enum):
@@ -30,6 +31,7 @@ class _Change(Enum):
     USER_REPLACED_MOTION = auto()
     WORLD_UP_OVERRIDE = auto()
     LR_MAPPING_SETTING = auto()
+    BODY_ANCHOR_SETTING = auto()
 
 
 _SKELETON_OR_MOTION: Final = frozenset(
@@ -44,19 +46,25 @@ _CLEARED_BY: Final[dict[str, frozenset[_Change]]] = {
     "rest_pose_positions": frozenset({_Change.SKELETON}),
     "node_positions": _SKELETON_OR_MOTION,
     # Measured along world up, so cleared when the axis set or guessed may change.
-    "floor_height": _SKELETON_OR_MOTION | {_Change.WORLD_UP_OVERRIDE, _Change.LR_MAPPING_SETTING},
+    "floor_height": _SKELETON_OR_MOTION
+    | {_Change.WORLD_UP_OVERRIDE, _Change.LR_MAPPING_SETTING, _Change.BODY_ANCHOR_SETTING},
     # The guessed world up, inferred here or inherited from the clip this
     # one was derived from, outlives pybvh's own edits: none of them
     # changes which way is up but reorient_world_up, which sets the axis
     # as an override and turns the guess with the frames (ADR 0003,
     # decision 3). The user setting the L/R mapping starts the clip's own
-    # guess again: on a rig with no up marker it is read from rest up,
-    # which is read from the legs of the mapping. A guess from the first
-    # frame or the house default does not read the mapping, so the guess
-    # made again is the same one. The inherited guess stays, as it does
+    # guess again: it is read from the body anchor, which is found from
+    # the pairs of the mapping, and on a rig with no up marker from rest
+    # up, which is read from the legs of the mapping. Where the anchor
+    # stays, a guess from the first frame or the house default is made
+    # again the same. The inherited guess stays, as it does
     # through a skeleton change: copy(nodes=), extract_joints and
     # unpickling set the mapping on a clip that has just inherited it.
-    "inferred_world_up": frozenset({_Change.USER_REPLACED_MOTION, _Change.LR_MAPPING_SETTING}),
+    # Setting the body anchor starts it again for the same reason: the
+    # guess is read from the anchor.
+    "inferred_world_up": frozenset(
+        {_Change.USER_REPLACED_MOTION, _Change.LR_MAPPING_SETTING, _Change.BODY_ANCHOR_SETTING}
+    ),
     "inherited_world_up": frozenset({_Change.USER_REPLACED_MOTION}),
     # The guess inferred here that Bvh.world_up has warned about (it warns
     # once per guess), so it goes with a guess the motion replaced. A
@@ -64,16 +72,24 @@ _CLEARED_BY: Final[dict[str, frozenset[_Change]]] = {
     # where it differs from this one, which a rest-up guess read from the
     # new legs can.
     "world_up_guess_announced": frozenset({_Change.USER_REPLACED_MOTION}),
-    # Read from the rest pose, the L/R mapping in effect and world up, set
-    # or guessed (ADR 0004); pybvh's own motion writes change none of them.
+    # Read from the rest pose, the L/R mapping in effect, world up, set
+    # or guessed (ADR 0004), and the body anchor, set or found; pybvh's own
+    # motion writes change none of them.
     "orientation_report": frozenset(
         {
             _Change.SKELETON,
             _Change.USER_REPLACED_MOTION,
             _Change.WORLD_UP_OVERRIDE,
             _Change.LR_MAPPING_SETTING,
+            _Change.BODY_ANCHOR_SETTING,
         }
     ),
+    # Found by the rule from the hierarchy and the pairs of the L/R mapping
+    # in effect; never from the motion or world up. A body anchor the user
+    # set is read ahead of it (Bvh._found_body_anchor), so the setting does
+    # not clear it. Every value computed from the anchor has
+    # BODY_ANCHOR_SETTING in its row.
+    "body_anchor": frozenset({_Change.SKELETON, _Change.LR_MAPPING_SETTING}),
 }
 
 
@@ -110,6 +126,10 @@ class DerivedState:
     orientation_report : OrientationReport or None
         Each orientation fact of the clip with its source
         (``Bvh.orientation_report``).
+    body_anchor : _BodyAnchor or None
+        The body anchor found by the rule, in ``nodes`` index space, with
+        its source and candidates (``Bvh.body_anchor`` when the user set
+        none).
     """
 
     # Slots make a name in _CLEARED_BY that is not a field raise on the
@@ -125,6 +145,7 @@ class DerivedState:
         "joint_index",
         "names_lr_mapping",
         "orientation_report",
+        "body_anchor",
     )
 
     def __init__(self) -> None:
@@ -138,6 +159,7 @@ class DerivedState:
         self.joint_index: dict[str, int] | None = None
         self.names_lr_mapping: dict[str, str] | None = None
         self.orientation_report: OrientationReport | None = None
+        self.body_anchor: _BodyAnchor | None = None
 
     @property
     def node_positions(self) -> npt.NDArray[np.float64] | None:
@@ -176,6 +198,11 @@ class DerivedState:
     def lr_mapping_changed(self) -> None:
         """The user set or cleared the L/R mapping (``Bvh.lr_mapping``)."""
         self._clear(_Change.LR_MAPPING_SETTING)
+
+    def body_anchor_changed(self) -> None:
+        """The user set the body anchor or returned it to the rule
+        (``Bvh.body_anchor``)."""
+        self._clear(_Change.BODY_ANCHOR_SETTING)
 
     def _clear(self, change: _Change) -> None:
         for name, changes in _CLEARED_BY.items():

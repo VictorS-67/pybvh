@@ -382,9 +382,11 @@ class TestPickleFormat:
 
     def test_a_state_keeps_the_keys_earlier_versions_read(self):
         clip = _clip(_tagged_motion(Bvh._MOTION_ARRAYS))
-        # Earlier versions read their keys and ignore joint_translations.
+        # Earlier versions read their keys and ignore joint_translations and
+        # body_anchor_setting.
         assert set(clip.__getstate__()) == {
             "joint_translations",
+            "body_anchor_setting",
             "nodes",
             "root_pos",
             "joint_angles",

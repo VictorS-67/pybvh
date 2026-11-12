@@ -69,7 +69,7 @@ And `camera="turntable"` orbits a full 360° over the clip's duration. It is the
 bvh.render("orbit.mp4", camera="turntable", centered="skeleton")
 ```
 
-`centered="skeleton"` pins the root, so the orbit is the only motion in frame. Without it, a travelling character also walks across the shot while the camera comes round.
+`centered="skeleton"` pins the body anchor, the hips, so the orbit is the only motion in frame. Without it, a travelling character also walks across the shot while the camera comes round.
 
 One orbit over a 4.4 s clip is 82° per second, too fast to look at anything. `turntable_period` sets the speed instead, in seconds of the video per revolution. A clip shorter than the period loops until the orbit completes. A clip longer than the period gets several orbits:
 

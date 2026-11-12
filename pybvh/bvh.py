@@ -30,23 +30,28 @@ from . import rotations
 from ._derived import DerivedState as _DerivedState
 from ._orientation import (
     OrientationReport,
+    _anchor_contradicts_rest_up,
+    _BodyAnchor,
     _build_orientation_report,
     _detect_lr_mapping_by_names,
     _facing_basis,
     _facing_labels,
+    _find_body,
+    _find_body_anchor,
     _infer_rest_up_and_left,
     _infer_world_up,
     _iter_unique_lr_pairs,
+    _lr_pairs_in_body,
     _LrMappingSource,
     _resolve_lr_pairs,
     _resolve_node_lr_pairs,
     _RestSkeleton,
-    _root_contradicts_rest_up,
+    _size_reference,
     _warn_facing_defaulted_at_frames,
     _warn_facing_defaulted_no_pairs,
     _warn_facing_defaulted_on_pose,
     _warn_rest_forward_defaulted,
-    _warn_rest_up_contradicted_by_root,
+    _warn_rest_up_contradicted_by_anchor,
     _warn_world_up_defaulted,
     _warn_world_up_disagreement,
     _world_up_disagrees,
@@ -415,9 +420,12 @@ def _validated_lr_mapping(mapping: dict[str, str], joint_names: Sequence[str]) -
 
 def _build_rest_pose(bvh: Bvh) -> npt.NDArray[np.float64]:
     """FK of ``bvh``'s skeleton with every angle zero, the root at the origin
-    and each translating joint at its offset, the rest pose (ADR 0010)."""
+    and each translating joint at its offset, the rest pose (ADR 0010).
+
+    Posed from the topology, not the clip: the rest pose is centred on the
+    root, and the rest skeleton that the body anchor is found from holds it."""
     return frames_to_node_positions(
-        bvh,
+        bvh.fk_topology,
         root_pos=np.zeros(3),
         joint_angles=np.zeros((bvh.joint_count, 3), dtype=np.float64),
         centered="skeleton",
@@ -547,6 +555,7 @@ class Bvh:
         source_path: str | None = None,
         warn_on_world_up_disagreement: bool = True,
         joint_translations: npt.ArrayLike | None = None,
+        body_anchor: NodeSelector | None = None,
     ) -> None:
         # The derived state exists before any property setter runs, so the
         # setters can report their change unconditionally. Each value in it
@@ -564,6 +573,10 @@ class Bvh:
         # right), None once they cleared it, or "names" (the default) for
         # the pairs detected from the joint names.
         self._lr_mapping_setting: dict[str, str] | Literal["names"] | None = "names"
+        # The body anchor the user set, as its position in ``nodes``, or
+        # None for the one the rule finds. A position, not a node: pybvh's
+        # own skeleton edits replace the nodes and keep their order.
+        self._body_anchor_setting: int | None = None
 
         if nodes is None:
             nodes = [BvhRoot()]
@@ -603,6 +616,9 @@ class Bvh:
             self._world_up_override = _validate_axis_string(world_up)
         if lr_mapping is not None:
             self._validate_and_set_lr_mapping(lr_mapping)
+        # Before the guess below, which may read the anchor.
+        if body_anchor is not None:
+            self.body_anchor = body_anchor
 
         if world_up == "auto":
             self._settle_world_up()
@@ -1352,8 +1368,8 @@ class Bvh:
 
         The node hierarchy, ``root_pos``, ``joint_angles`` and
         ``joint_translations``, ``frame_time``, ``source_path``, a manual
-        ``world_up``, the warn preference and a user-set L/R mapping are
-        copied. Editing either
+        ``world_up``, the warn preference, a user-set L/R mapping and a
+        set :attr:`body_anchor` are copied. Editing either
         clip afterwards, its arrays or its nodes, never affects the other.
         A guessed world up is inherited (see :attr:`world_up`). Values the
         clip computes from these (forward-kinematics positions, the floor
@@ -1385,6 +1401,9 @@ class Bvh:
             under their new names, so each mapped joint's new name must be
             one no other joint carries (the mapping goes by name); one
             detected from the names is detected again from the new names.
+            A set :attr:`body_anchor` follows its joint by position too,
+            under its new name; on a clip without motion that takes
+            another joint count, the copy drops it and uses the rule.
             World up is inherited, set or guessed: new offsets do not
             change which way is up. To guess it again from the new
             skeleton, ``edited.world_up = edited.world_up_inferred``.
@@ -1497,7 +1516,33 @@ class Bvh:
         edited = self._derive_clip(motion, nodes=new_nodes)
         if isinstance(setting, dict):
             edited._set_lr_mapping_setting(setting)
+        anchor = self._body_anchor_setting
+        if anchor is not None:
+            edited._set_body_anchor_setting(
+                self._anchor_on(new_nodes, joints, new_joints, self.nodes[anchor])
+            )
         return edited
+
+    @staticmethod
+    def _anchor_on(
+        new_nodes: Sequence[BvhNode],
+        joints: Sequence[BvhNode],
+        new_joints: Sequence[BvhNode],
+        anchor: BvhNode,
+    ) -> int | None:
+        """The position in ``new_nodes`` of the set body anchor ``anchor``,
+        carried by ``copy(nodes=)``.
+
+        By position among the joints when the joint count stays, so a
+        renamed anchor is followed. ``None`` when the joint count changes
+        (only a clip without motion allows it): the copy then uses the
+        rule. A name is not followed, since a name can repeat.
+        """
+        if len(new_joints) != len(joints):
+            return None
+        joint = next(j for j, node in enumerate(joints) if node is anchor)
+        carried = new_joints[joint]
+        return next(i for i, node in enumerate(new_nodes) if node is carried)
 
     def _derive_clip(
         self,
@@ -1509,7 +1554,9 @@ class Bvh:
         The one way pybvh derives a clip (ADR 0003): the result carries what
         :meth:`__getstate__` lists, with the given motion and skeleton
         (default: a deep copy of this one's), and none of this clip's
-        derived state. ``motion`` holds every motion array by name
+        derived state. On a skeleton given as ``nodes`` it carries no set
+        body anchor: the caller carries it over with
+        :meth:`_set_body_anchor_setting`. ``motion`` holds every motion array by name
         (``_MOTION_ARRAYS``): an array it leaves out is refused, not taken
         from this clip. The arrays are taken as they are, not copied; the
         caller hands over arrays no other clip holds.
@@ -1525,7 +1572,13 @@ class Bvh:
         for entry in self._MOTION_ARRAYS:
             del state[entry.name]
         state.update(motion)
-        state["nodes"] = copy.deepcopy(self.nodes) if nodes is None else nodes
+        if nodes is None:
+            state["nodes"] = copy.deepcopy(self.nodes)
+        else:
+            # A position in this clip's nodes says nothing of another
+            # skeleton's: the caller carries a set anchor over to it.
+            state["nodes"] = nodes
+            state["body_anchor_setting"] = None
         setting = state["lr_mapping_setting"]
         if isinstance(setting, dict):
             state["lr_mapping_setting"] = dict(setting)
@@ -1537,7 +1590,8 @@ class Bvh:
         """What a pickle and every derived clip carry (ADR 0003).
 
         The primary state (skeleton, motion, frame time, source path), the
-        user's settings (world-up override, warn preference, L/R choice)
+        user's settings (world-up override, warn preference, L/R choice,
+        set body anchor)
         and the world up this clip guessed, which the rebuilt clip
         inherits; never a derived value, which the rebuilt clip computes
         again on first read.
@@ -1559,6 +1613,10 @@ class Bvh:
             "world_up_guess": None if guess is None else tuple(guess),
             "warn_on_world_up_disagreement": self._warn_on_world_up_disagreement,
             "lr_mapping_setting": self._lr_mapping_setting,
+            # The set body anchor's position in "nodes", or None for the
+            # rule: a position, so a name that several nodes carry is
+            # carried too.
+            "body_anchor_setting": self._body_anchor_setting,
         }
 
     def __setstate__(self, state: dict[str, Any]) -> None:
@@ -1581,6 +1639,8 @@ class Bvh:
             self._check_motion_fits_skeleton()
         self._world_up_override = state["world_up_override"]
         self._set_lr_mapping_setting(state["lr_mapping_setting"])
+        # Absent from a pickle made before the anchor could be set.
+        self._set_body_anchor_setting(state.get("body_anchor_setting"))
         guess = state["world_up_guess"]
         self._derived.inherited_world_up = None if guess is None else _WorldUpGuess(*guess)
 
@@ -1593,7 +1653,7 @@ class Bvh:
         root is left to guess on first read: it has no frame to guess
         from, and a lone root warns that it falls back to ``'+y'``.
         """
-        if self.frame_count > 0 and len(self.nodes) > 1:
+        if self.frame_count > 0 and len(self.nodes) > 1 and self._has_body():
             _ = self.world_up
 
     def _rotate_world_up_guess(self, rotation: npt.NDArray[np.float64]) -> None:
@@ -1699,7 +1759,10 @@ class Bvh:
 
         Returned as a signed axis string (``'+y'``, ``'-z'``, etc.).
         Constant per file. Guessed from the first animation frame's
-        head-above-hips direction, with rest-pose topology as fallback.
+        direction from :attr:`body_anchor` to the head, with rest-pose
+        topology as fallback. On a clip with no body
+        (:attr:`body_anchor` ``None``) the guess raises ``ValueError``
+        until you set the axis or name the anchor.
         Issues a ``UserWarning`` if the first frame and rest pose disagree,
         unless the clip (or the clip it derives from) was loaded with
         ``warn_on_world_up_disagreement=False``, and one if nothing says
@@ -1726,6 +1789,9 @@ class Bvh:
           :attr:`rest_up`, which is read from the legs of the mapping, so
           the clip gets the axis that mapping passed at load gives. A guess
           from the first frame comes out the same, and does not warn again.
+          Setting :attr:`body_anchor` guesses it again as well, since the
+          guess measures from the anchor: the clip gets the axis that
+          ``body_anchor=`` passed at load gives.
         - **Inherited**: a clip pybvh derives from this one reports the
           axis guessed here, without guessing from its own frames:
           ``copy()``, slicing, ``a + b`` and ``a += b`` (from ``a``),
@@ -1735,7 +1801,7 @@ class Bvh:
           slice whose first frame is a crouch or a fall would be guessed
           differently on its own. Assigning motion to the derived clip
           guesses again, as for an inferred axis; setting
-          :attr:`lr_mapping` on it does not.
+          :attr:`lr_mapping` or :attr:`body_anchor` on it does not.
 
         :attr:`world_up_inferred` always guesses from this clip's own
         motion: where it differs from ``world_up`` and you set no axis,
@@ -1747,13 +1813,13 @@ class Bvh:
         ``chest`` or ``spine``, in any case and after a ``foo:``
         namespace or a ``.001`` suffix (``mixamorig:Head`` and ``Bip01
         Head`` match, ``Forehead`` does not; end sites are not read),
-        skipping one that sits at the root in the rest pose; "hips" is
-        always the root node whatever it is called; and the frame-0
+        skipping one that sits on :attr:`body_anchor` in the rest pose;
+        and the frame-0
         reading is accepted only when its largest component is at least
         twice the second-largest — a first frame bent or leaning far
         from every axis is treated as ambiguous and defers to
-        :attr:`rest_up`, with a warning when the root's rotation at
-        frame 0 carries :attr:`rest_up` onto another axis, since the
+        :attr:`rest_up`, with a warning when the body anchor's rotation
+        at frame 0 carries :attr:`rest_up` onto another axis, since the
         rest pose may then be authored in another convention than the
         motion. A figure straight and horizontal at frame 0 with its
         head near a horizontal axis (lying flat, a plank) does decide,
@@ -1779,6 +1845,9 @@ class Bvh:
         are lost on write→read round trips and must be re-applied.
         """
         report = self.orientation_report
+        if report.world_up is None:
+            # No body, and nothing set or inherited: the guess refuses.
+            return self._guess_world_up().axis
         derived = self._derived
         # A guess of this clip's own warns on the first read of the axis it
         # gave, once; an inherited guess warned on the clip it was made on.
@@ -1828,8 +1897,9 @@ class Bvh:
 
     def _guess_world_up(self) -> _WorldUpGuess:
         """Guess world up from this clip's own first frame and rest pose."""
+        anchor = self._body_anchor_index()
         frame0 = self.node_positions(frame=0) if self.frame_count > 0 else None
-        return _infer_world_up(self._rest_skeleton(), frame0)
+        return _infer_world_up(self._rest_skeleton(), anchor, frame0)
 
     def _rest_skeleton(self) -> _RestSkeleton:
         """The skeleton in its rest pose, as the orientation module reads it."""
@@ -1839,14 +1909,16 @@ class Bvh:
             self._rest_pose(),
             topology.parent_idx,
             topology.joint_idx < 0,
-            self._facing_lr_pairs(),
+            self._mapping_lr_pairs(),
+            self.root.is_static(),
         )
 
     def _warn_about_world_up_guess(self, guess: _WorldUpGuess, rest_up: str | None) -> None:
         """Warn when *guess* is the house default; and, unless the clip was
         loaded with ``warn_on_world_up_disagreement=False``, when it
         disagrees with *rest_up*, or when it fell back on rest up and the
-        root rotation of frame 0 carries rest up onto another axis."""
+        body anchor's world rotation at frame 0 carries rest up onto
+        another axis."""
         if guess.source == "default":
             _warn_world_up_defaulted()
         elif not self._warn_on_world_up_disagreement:
@@ -1855,10 +1927,10 @@ class Bvh:
             assert rest_up is not None  # a disagreement needs a rest up
             _warn_world_up_disagreement(rest_up, guess.axis)
         else:
-            root_rotation = self._root_rotmats([0])[0] if self.frame_count > 0 else None
-            carried = _root_contradicts_rest_up(guess, root_rotation)
+            anchor_rotation = self._body_anchor_rotmats([0])[0] if self.frame_count > 0 else None
+            carried = _anchor_contradicts_rest_up(guess, anchor_rotation)
             if carried is not None:
-                _warn_rest_up_contradicted_by_root(guess.axis, carried)
+                _warn_rest_up_contradicted_by_anchor(guess.axis, carried)
 
     @property
     def world_up_axis(self) -> Axis:
@@ -1981,7 +2053,8 @@ class Bvh:
         defaulted fact itself is read (:attr:`world_up`, once per guess;
         :attr:`rest_forward`; the facing), and each points here. Computed on first read and
         kept until the skeleton changes, :attr:`world_up` or
-        :attr:`lr_mapping` is assigned, or the motion is assigned
+        :attr:`lr_mapping` or :attr:`body_anchor` is assigned, or the
+        motion is assigned
         (:attr:`root_pos`, :attr:`joint_angles`, ``bvh[i] = other``),
         which guesses world up again.
 
@@ -2004,12 +2077,16 @@ class Bvh:
         """Gather the report's inputs and build it."""
         derived = self._derived
         world_up_inherited = False
-        world_up: str | _WorldUpGuess
+        world_up: str | _WorldUpGuess | None
         if self._world_up_override is not None:
             world_up = self._world_up_override
         elif derived.inherited_world_up is not None:
             world_up = derived.inherited_world_up
             world_up_inherited = True
+        elif not self._has_body():
+            # The guess is body-level: it refuses a clip with no body, and
+            # the report does not.
+            world_up = None
         else:
             # Guessed silently: the guess's warnings are world_up's to give
             # when the axis is read, not this report's.
@@ -2021,6 +2098,8 @@ class Bvh:
             world_up,
             world_up_inherited,
             self._lr_mapping_source(),
+            self._found_body_anchor(),
+            self._nodes,
         )
 
     def _lr_mapping_source(self) -> _LrMappingSource | None:
@@ -2031,28 +2110,176 @@ class Bvh:
         return "names" if setting == "names" and self._lr_mapping is not None else None
 
     @property
+    def body_anchor(self) -> BvhNode | None:
+        """The joint the body's measures start from, a node of the clip,
+        or ``None`` when the clip has no body.
+
+        The joint you set (see *Setting it* below), else the one a rule
+        finds from the hierarchy and the L/R pairs of
+        :attr:`lr_mapping`: each pair meets at the lowest joint that both
+        its joints' chains to the root pass through, and the anchor is
+        the meeting joint closest to the root. The legs meet at the hips,
+        the arms lower, at the chest, so on most rigs the anchor is the
+        hips, also when the root is a reference node above them or has a
+        helper beside them. Of several meeting joints at the same depth,
+        the one with the most joints below it, end sites not counted,
+        when each other one has fewer than half as many. Otherwise the
+        clip has no body, for instance two figures under one root, and
+        the anchor is ``None``; reading it does not raise. Under a static
+        root (``CHANNELS 0``), each child of the root heads a tree, and
+        the trees are compared first, by the same half rule: a second
+        tree with at least half the joints of the largest gives no body,
+        and otherwise only the pairs inside the largest tree are read. Without a pair, the root. The rest positions and the motion are not read.
+        :attr:`orientation_report` says how it was found, in
+        ``body_anchor_source``, and which joints were compared, in
+        ``body_anchor_candidates``.
+
+        The rule's anchor is found on first read and kept until the
+        skeleton changes or :attr:`lr_mapping` is assigned. A clip derived
+        from this one finds its own.
+
+        **Setting it.** Where you know better than the rule, assign a
+        joint: its name or the node itself, one of :attr:`nodes`, resolved
+        as :meth:`index` resolves one with ``space='joint'``. Pass
+        ``body_anchor=`` to :func:`~pybvh.read_bvh_file` to set it at
+        load, by name. The joint you set is the anchor, and
+        :attr:`orientation_report` gives the source ``"set"`` and no
+        candidate. Assign ``None`` to return to the rule, as
+        ``world_up = None`` returns to the guess. Setting it, or returning
+        to the rule, clears the values computed from the anchor (the
+        report, the world up this clip guessed and the floor height),
+        which are computed again on first read; a world up set or
+        inherited stays (see :attr:`world_up`).
+
+        A set anchor is one of your settings, as a set :attr:`lr_mapping`
+        is (ADR 0003). Assigning the motion or :attr:`lr_mapping`, and
+        pybvh's own edits of the skeleton (:meth:`scale`,
+        :meth:`reorient_rest_up`, ...), keep it. Every clip derived from
+        this one carries it: a slice, :meth:`copy`, a concatenation,
+        :meth:`resample`, a transformed clip, and a pickle. ``copy(nodes=)``
+        carries it to the joint at the same position, under its new name;
+        a copy that changes the joint count, which only a clip without
+        motion allows, drops it. :meth:`extract_joints`
+        carries it when the joint is kept. A derived clip that no longer
+        holds the joint drops the setting and uses the rule.
+
+        **A clip with no body.** When the anchor is ``None``, every
+        body-level operation raises ``ValueError``, naming the candidates
+        and the way out, ``bvh.body_anchor = ...`` (the node,
+        ``bvh.nodes[i]``, when the candidates share a name with another
+        joint): the world-up guess,
+        :attr:`rest_up`, :attr:`rest_forward` and
+        :attr:`has_lr_geometry`, the facing (:meth:`forward_at`,
+        :meth:`left_at`, :meth:`facing_frame`), :meth:`root_trajectory`,
+        the ``centered="skeleton"`` and ``"first"`` modes,
+        :meth:`auto_detect_feet`, :meth:`foot_contacts`,
+        :meth:`ground_contacts`, :meth:`skeleton_size`, the gait
+        descriptors and :meth:`mirror`. The operations that treat all nodes alike work as on any clip:
+        reading, writing, forward kinematics, the derivatives, slicing,
+        concatenation, :meth:`resample`, the Euler orders,
+        :meth:`scale`, :meth:`extract_joints` and the bounding volumes.
+        The scene ground (:attr:`floor_height`) and drawing read world
+        up, whose guess is body-level: they work once :attr:`world_up`
+        is set or the anchor named. Reading the anchor,
+        :attr:`orientation_report` and :attr:`lr_mapping` never raises.
+
+        Raises
+        ------
+        TypeError
+            On assignment, if the value is neither a name, a ``BvhNode``
+            nor ``None``. An integer is refused: node ``i`` is
+            ``bvh.nodes[i]``.
+        ValueError
+            On assignment, if the node is not one of :attr:`nodes`, if no
+            joint carries the name or several do, or if it selects an end
+            site.
+
+        Examples
+        --------
+        >>> bvh = Bvh.from_file('bvh_data/synthetic/reference_humanoid_6ch.bvh')
+        >>> bvh.root.name, bvh.body_anchor.name
+        ('Reference', 'Hips')
+        >>> bvh.body_anchor = 'Chest'
+        >>> bvh.orientation_report.body_anchor_source
+        'set'
+        >>> bvh.body_anchor = None
+        >>> bvh.body_anchor.name, bvh.orientation_report.body_anchor_source
+        ('Hips', 'lr_pairs')
+        """
+        node = self._found_body_anchor().node
+        return None if node is None else self._nodes[node]
+
+    @body_anchor.setter
+    def body_anchor(self, value: NodeSelector | None) -> None:
+        if value is None:
+            self._set_body_anchor_setting(None)
+            return
+        joint = self.index(value, space="joint")
+        self._set_body_anchor_setting(self._non_end_site_indices()[joint])
+
+    def _set_body_anchor_setting(self, setting: int | None) -> None:
+        """Store the user's body anchor, a position in ``nodes`` or
+        ``None``, and report the change."""
+        self._body_anchor_setting = setting
+        self._derived.body_anchor_changed()
+
+    def _found_body_anchor(self) -> _BodyAnchor:
+        """The body anchor in effect: the one the user set, else the one
+        the rule finds, kept in the derived state."""
+        if self._body_anchor_setting is not None:
+            return _BodyAnchor(self._body_anchor_setting, "set", ())
+        found = self._derived.body_anchor
+        if found is None:
+            found = _find_body_anchor(self._rest_skeleton())
+            self._derived.body_anchor = found
+        return found
+
+    def _in_body(self) -> npt.NDArray[np.bool_]:
+        """Which nodes are in the body, in node order: the body anchor and
+        every node below it, started higher when a head or a foot name is
+        missing below it (:func:`~pybvh._orientation._find_body`). Raises
+        ``ValueError`` on a clip with no body, as
+        :meth:`_body_anchor_index` does."""
+        return _find_body(self._rest_skeleton(), self._body_anchor_index())
+
+    def _size_reference(self, feet: Sequence[int]) -> int:
+        """The node index the sizes of *feet* (node indices) are read from.
+
+        The lowest joint that has the feet in two or more of its
+        branches, else the body anchor, reached through
+        :meth:`_body_anchor_index`
+        (:func:`~pybvh._orientation._size_reference`). Read by
+        ``skeleton_size`` and by the "feet below hips" check and the
+        threshold scale of ``foot_contacts``.
+        """
+        return _size_reference(self.fk_topology.parent_idx, feet, self._body_anchor_index())
+
+    @property
     def rest_up(self) -> str | None:
         """The skeleton's own up axis, read from the rest pose alone.
 
-        Read-only. The main axis from the root to the first joint, in
-        node order, whose name holds ``head`` as a word, else ``neck``,
-        ``chest`` or ``spine``, in any case and after a ``foo:``
-        namespace or a ``.001`` suffix: ``Head``, ``mixamorig:Head``,
-        ``Bip01 Head`` and ``CC_Base_Head`` are heads, ``Forehead`` is
-        not. A joint that sits at the root is skipped, and end sites,
-        whose names are generated, are not read. Without such a joint,
-        the axis opposite the legs: the first pair of :attr:`lr_pairs`
-        split across two branches of the pelvis (the first node down
-        from the root with more than one child), read from the pelvis
-        to the far ends of those branches. Without such a pair either,
-        the axis along which the rest pose spreads most, a weak reading:
-        a T-pose wider than tall spreads most along its arms.
-        :attr:`orientation_report` says
+        Read-only. The main axis from :attr:`body_anchor` to the first
+        joint of the body, in node order, whose name holds ``head`` as a
+        word, else ``neck``, ``chest`` or ``spine``, in any case and
+        after a ``foo:`` namespace or a ``.001`` suffix: ``Head``,
+        ``mixamorig:Head``, ``Bip01 Head`` and ``CC_Base_Head`` are
+        heads, ``Forehead`` is not. A joint that sits on the anchor is
+        skipped, and end sites, whose names are generated, are not read.
+        The body is the anchor and every node below it; when no joint
+        below the anchor has one of these names, it starts at the
+        closest joint above the anchor that has one below it, so a prop
+        or a helper beside the body is never the head joint.
+        Without such a joint, the axis opposite the legs: the first pair
+        of :attr:`lr_pairs` that meets at the anchor, split across two of
+        its branches, read from the anchor to the far ends of those
+        branches. Without such a pair either, the axis along which the
+        rest pose spreads most, a weak reading: a T-pose wider than tall
+        spreads most along its arms. :attr:`orientation_report` says
         which, in ``rest_up_source``. The animation is never read.
         :attr:`world_up`'s guess reads the same joint.
 
         Contrast with :attr:`world_up`, which is *animation*-derived
-        (inferred from the first frame's head-above-hips direction). On
+        (inferred from the first frame's anchor-to-head direction). On
         clean files the two agree; when they disagree, the BVH was
         authored with the rest pose in one convention and animated in
         another, and :meth:`reorient_rest_up` can fix it in place.
@@ -2064,19 +2291,21 @@ class Bvh:
             when the rest pose is degenerate (single-node skeletons or
             all-zero offsets) and carries no directional information.
         """
-        return self.orientation_report.rest_up
+        return self._body_orientation().rest_up
 
     @property
     def rest_forward(self) -> str:
         """The direction the rest pose faces, in the skeleton's own frame.
 
         Read-only. ``rest left × rest up``, where rest left is the rest
-        pose's L/R geometry (the pairs of :attr:`lr_mapping`) measured
+        pose's L/R geometry (the pairs of :attr:`lr_mapping` whose two
+        joints are in the body, as :attr:`rest_up` reads it) measured
         against :attr:`rest_up`. Read from the rest pose alone, like
         :attr:`rest_up`: never from :attr:`world_up` or the animation.
         The rest pose is the skeleton with every rotation zero, so this
         is a direction in the skeleton's frame, not in the world; the
-        root rotation of a frame carries it into the world, which is
+        world rotation of :attr:`body_anchor` at a frame carries it into
+        the world, which is
         what the heading of :func:`~pybvh.analysis.root_trajectory`
         reads. On a clean file, where rest up is world up, it is also
         what :meth:`forward_at` measures on the rest pose's own
@@ -2101,7 +2330,8 @@ class Bvh:
             Signed axis string (e.g. ``'+z'``, ``'-x'``), perpendicular to
             :attr:`rest_up`.
         """
-        report = self.orientation_report
+        report = self._body_orientation()
+        assert report.rest_forward is not None  # a clip with a body has one
         if report.rest_forward_source == "default":
             _warn_rest_forward_defaulted(report.rest_forward, report.rest_up)
         return report.rest_forward
@@ -2114,13 +2344,17 @@ class Bvh:
         than the clip's own; :attr:`orientation_report` holds the rest
         left of the clip's own mapping. Rest up is read with the same
         pairs, as it would be with *mapping* set: on a rig without a
-        named up joint it comes from them.
+        named up joint it comes from them, and from the body anchor those
+        pairs meet at.
         """
         pairs = _resolve_lr_pairs(mapping, self.node_index)
         skeleton = self._rest_skeleton()._replace(
             lr_pairs=np.asarray(pairs, dtype=np.intp).reshape(-1, 2)
         )
-        _rest_up, rest_left = _infer_rest_up_and_left(skeleton)
+        anchor = self._body_anchor_index(
+            None if self._body_anchor_setting is not None else _find_body_anchor(skeleton)
+        )
+        _rest_up, rest_left = _infer_rest_up_and_left(skeleton, anchor)
         return rest_left
 
     @property
@@ -2270,7 +2504,7 @@ class Bvh:
         rest_forward : The axis whose fallback this reports.
         lr_mapping : The pairs the measurement is derived from.
         """
-        return self.orientation_report.rest_forward_source == "lr_geometry"
+        return self._body_orientation().rest_forward_source == "lr_geometry"
 
     @property
     def lr_pairs(self) -> list[tuple[int, int]] | None:
@@ -2351,19 +2585,31 @@ class Bvh:
             topology.joint_idx < 0,
         )
 
-    def _facing_lr_pairs(self) -> npt.NDArray[np.intp]:
-        """The L/R pairs the rest left and the facing read, in ``nodes`` index space.
+    def _mapping_lr_pairs(self) -> npt.NDArray[np.intp]:
+        """Every joint pair of the L/R mapping in effect, in ``nodes`` index space.
 
         Joint pairs only, as :attr:`lr_mapping` names them, resolved into
         ``nodes`` index space so they index :meth:`node_positions` output.
         End sites are not included: that is :attr:`node_lr_pairs`' job,
         for mirroring positions, not for reading the facing. An ``(P, 2)``
         int array, ``(0, 2)`` without an L/R mapping, so array code needs
-        no ``None`` branch. bvhplot stores it on its ``SkeletonView``, so
-        the follow camera needs no ``Bvh``.
+        no ``None`` branch. The rest skeleton holds them, for the body
+        anchor rule and for rest up and rest left, which keep the body's.
         """
         pairs = _resolve_lr_pairs(self._lr_mapping, self.node_index)
         return np.asarray(pairs, dtype=np.intp).reshape(-1, 2)
+
+    def _facing_lr_pairs(self) -> npt.NDArray[np.intp]:
+        """The L/R pairs the facing reads: those of :meth:`_mapping_lr_pairs`
+        with both joints in the body (:meth:`_in_body`), in their order.
+
+        A second figure or a prop beside the body is not averaged into the
+        body's facing. On a clip whose body holds every pair, they are
+        :meth:`_mapping_lr_pairs`. bvhplot stores them on its
+        ``SkeletonView``, so the follow camera needs no ``Bvh``. Raises
+        ``ValueError`` on a clip with no body, as :meth:`_in_body` does.
+        """
+        return _lr_pairs_in_body(self._mapping_lr_pairs(), self._in_body())
 
     def _validate_and_set_lr_mapping(self, mapping: dict[str, str]) -> None:
         """Validate the user's lr_mapping dict and make it the mapping in effect."""
@@ -2374,7 +2620,7 @@ class Bvh:
 
         Computed from actual joint positions at the given frame — the
         leftward axis is derived by averaging (left − right) across
-        matching L/R joint pairs in world space, then crossed with
+        the L/R joint pairs of the body in world space, then crossed with
         ``world_up`` to produce the forward direction (forward =
         leftward × up). This tracks the character's actual facing as
         they rotate through the animation.
@@ -2383,7 +2629,7 @@ class Bvh:
         vector is quantized to the nearest of the six signed world
         axes. See :meth:`facing_frame` for the continuous per-frame
         basis as unit vectors, and for the fallback when the frame's
-        left/right axis cannot be read (the root's heading at that
+        left/right axis cannot be read (the body's heading at that
         frame, then a house default, which warns).
 
         Parameters
@@ -2465,21 +2711,22 @@ class Bvh:
         """The facing chain on *coords*, whose rows are the clip's *frames*.
 
         Gathers the chain's inputs (the facing L/R pairs, world up and,
-        when rest forward is measured, the root's heading at *frames*),
+        when rest forward is measured, the body anchor's world rotation at
+        *frames*, for the heading),
         runs it, and warns when a row carries the house default. With
         *frames* ``None`` the rows are a pose with no clip frame, and the
         heading stage is skipped. Returns ``(forward, left, up, valid)``.
         """
         world_up = self.world_up
-        report = self.orientation_report
+        report = self._body_orientation()
         lr_pairs = self._facing_lr_pairs()
-        root_rotmats = rest_forward = None
+        anchor_rotmats = rest_forward = None
         if frames is not None and lr_pairs.shape[0] > 0:
             if report.rest_forward_source == "lr_geometry":
                 rest_forward = report.rest_forward
-                root_rotmats = self._root_rotmats(frames)
+                anchor_rotmats = self._body_anchor_rotmats(frames)
         forward, left, up, valid, defaulted = _facing_basis(
-            coords, lr_pairs, world_up, root_rotmats, rest_forward
+            coords, lr_pairs, world_up, anchor_rotmats, rest_forward
         )
         if defaulted.any():
             if lr_pairs.shape[0] == 0:
@@ -2494,13 +2741,109 @@ class Bvh:
     def _root_rotmats(self, frames: Sequence[int] | slice = slice(None)) -> npt.NDArray[np.float64]:
         """The root's rotation matrix at each of *frames*, shape ``(F, 3, 3)``.
 
-        What carries a direction of the skeleton's own frame into the
-        world at a frame (ADR 0004): the root's heading and the facing
-        chain's heading stage read it.
+        The world rotation of the body anchor on a clip whose anchor is
+        its root (:meth:`_body_anchor_rotmats`).
         """
         joint_angles = self._motion()["joint_angles"]
         # The per-joint form, which reads a static root's order '' as the identity.
         return rotations.euler_to_rotmat(joint_angles[frames, :1], [_euler_order(self.root)])[:, 0]
+
+    def _body_anchor_index(self, anchor: _BodyAnchor | None = None) -> int:
+        """The node index of :attr:`body_anchor`, for the readers that describe the body.
+
+        The one way the body-level readers reach the anchor and the body:
+        the world-up guess, rest up, rest left and rest forward (through
+        :meth:`_body_orientation`), the body (:meth:`_in_body`) and so the
+        feet, the sizes (:meth:`_size_reference`), the scale of
+        :meth:`ground_contacts`, the travel
+        (:meth:`_body_anchor_positions`), the heading and the facing
+        (:meth:`_body_anchor_rotmats`) and the ``centered`` modes. Raises
+        ``ValueError`` on a clip with no body, naming the candidates and
+        ``bvh.body_anchor = ...``, so no reader has a check of its own.
+
+        *anchor* is the one to read in place of the clip's
+        (:meth:`_found_body_anchor`): ``mirror`` reads rest left for a
+        mapping that may not be the clip's.
+        """
+        if anchor is None:
+            anchor = self._found_body_anchor()
+        if anchor.node is None:
+            names = [self._nodes[i].name for i in anchor.candidates]
+            listed = ", ".join(repr(name) for name in names[:-1]) + f" and {names[-1]!r}"
+            joint_names = [self._nodes[i].name for i in self._non_end_site_indices()]
+            if all(joint_names.count(name) == 1 for name in names):
+                way_out = (
+                    f"`bvh.body_anchor = {names[0]!r}`, or pass `body_anchor=` to read_bvh_file"
+                )
+            else:
+                # A name several joints carry selects none of them, and
+                # body_anchor= at load takes a name; the node, by its
+                # position, selects the candidate whatever mapping found it.
+                way_out = f"`bvh.body_anchor = bvh.nodes[{anchor.candidates[0]}]`"
+            raise ValueError(
+                f"This clip has no body: its hierarchy holds several figures of "
+                f"comparable size, whose body anchors would be {listed}. Name the "
+                f"one to describe, for example {way_out}."
+            )
+        return anchor.node
+
+    def _has_body(self) -> bool:
+        """Whether the clip has a body: :attr:`body_anchor` is not ``None``.
+
+        For the operations that leave a body-level part out on a clip with
+        no body, where the readers raise: the world-up guess at load.
+        """
+        return self._found_body_anchor().node is not None
+
+    def _body_orientation(self) -> OrientationReport:
+        """:attr:`orientation_report`, for a reader of the body's facts.
+
+        Rest up, rest left and rest forward are read from the body; the
+        report holds ``None`` for them on a clip with no body, where this
+        raises through :meth:`_body_anchor_index`.
+        """
+        self._body_anchor_index()
+        return self.orientation_report
+
+    def _body_anchor_positions(self) -> npt.NDArray[np.float64]:
+        """The body anchor's world position per frame, shape ``(F, 3)``, read-only.
+
+        The body's travel. On a clip whose anchor is its root it is
+        :attr:`root_pos` itself, with no forward kinematics run.
+        """
+        anchor = self._body_anchor_index()
+        if anchor == 0:
+            return self.root_pos
+        return self._world_node_positions()[:, anchor]
+
+    def _body_anchor_rotmats(
+        self, frames: Sequence[int] | slice = slice(None)
+    ) -> npt.NDArray[np.float64]:
+        """The body anchor's world rotation at each of *frames*, shape ``(F, 3, 3)``.
+
+        What carries a direction of the skeleton's own frame into the
+        world at a frame, for the body (ADR 0004): the heading and the
+        facing chain's heading stage read it. The rotations of the chain
+        from the root to the anchor, composed parent first as forward
+        kinematics composes them. On a clip whose anchor is its root it
+        is :meth:`_root_rotmats`.
+        """
+        anchor = self._body_anchor_index()
+        if anchor == 0:
+            return self._root_rotmats(frames)
+        topology = self.fk_topology
+        chain = []
+        node = anchor
+        while node != -1:
+            chain.append(int(topology.joint_idx[node]))
+            node = int(topology.parent_idx[node])
+        chain.reverse()  # root first
+        joint_angles = self._motion()["joint_angles"][frames][:, chain]
+        local = rotations.euler_to_rotmat(joint_angles, [topology.euler_orders[j] for j in chain])
+        world = local[:, 0]
+        for k in range(1, len(chain)):
+            world = world @ local[:, k]
+        return world
 
     def facing_frame(self):
         """Per-frame facing basis as continuous unit vectors.
@@ -2533,6 +2876,7 @@ class Bvh:
         world_up: str = "auto",
         warn_on_world_up_disagreement: bool = True,
         lr_mapping: dict[str, str] | None = None,
+        body_anchor: str | None = None,
     ) -> Bvh:
         """Read a Bvh from a ``.bvh`` file — the constructor counterpart of :meth:`write`.
 
@@ -2546,6 +2890,7 @@ class Bvh:
             world_up=world_up,
             warn_on_world_up_disagreement=warn_on_world_up_disagreement,
             lr_mapping=lr_mapping,
+            body_anchor=body_anchor,
         )
 
     @classmethod
@@ -2603,14 +2948,15 @@ class Bvh:
         """
         _check_centered(centered)
         world = self._world_node_positions()
+        if centered == "world":
+            return world
+        anchor = self._body_anchor_positions()
         if centered == "skeleton":
-            return world - self.root_pos[:, np.newaxis, :]
-        if centered == "first":
-            # with no frames there is nothing to center on
-            if self.frame_count == 0:
-                return world.copy()
-            return world - _ground_plane_offset(self.root_pos[0], self.world_up)
-        return world
+            return world - anchor[:, np.newaxis, :]
+        # with no frames there is nothing to center on
+        if self.frame_count == 0:
+            return world.copy()
+        return world - _ground_plane_offset(anchor[0], self.world_up)
 
     def node_positions(
         self, frame: int | None = None, centered: str = "world"
@@ -2637,21 +2983,21 @@ class Bvh:
             Negative indices count from the end (NumPy semantics), so
             ``-1`` is the **last** frame.
         centered : str
-            ``"world"`` – root at actual position.
-            ``"skeleton"`` – root at origin for all frames.
-            ``"first"`` – ground-plane centering: the first frame's root
-            position is subtracted in the two axes perpendicular to
-            :attr:`world_up`; the up coordinate is untouched, so the
+            ``"world"`` – every node at its world position.
+            ``"skeleton"`` – :attr:`body_anchor` at origin for all frames.
+            ``"first"`` – ground-plane centering: the first frame's body
+            anchor position is subtracted in the two axes perpendicular
+            to :attr:`world_up`; the up coordinate is untouched, so the
             motion starts above the origin at its original height.
 
-            The three modes read the root. On a root that stays in place
-            with the body below it (a static root, ``CHANNELS 0``, or a
-            reference node whose channels do not change), they centre
-            on the reference node, not on the body: under
-            ``"skeleton"`` the body still travels. The body's travel is
-            then the world position of its hips node,
-            ``bvh.node_positions()[:, bvh.node_index["Hips"]]`` for a
-            hips node named ``Hips``.
+            The two centred modes read the body anchor, which is the
+            root on a clip whose anchor is its root. On a root that
+            stays in place with the body below it (a static root,
+            ``CHANNELS 0``, or a reference node whose channels do not
+            change), they centre on the body, not on the reference
+            node: under ``"skeleton"`` the body anchor stays at the origin and
+            the reference node moves. With *frame* given, ``"first"``
+            centres on that frame's anchor, the one frame posed.
         """
         _check_centered(centered)
         if frame is None:
@@ -2665,6 +3011,21 @@ class Bvh:
             )
         actual = frame if frame >= 0 else frame + self.frame_count
         motion = self._motion()
+        anchor = 0 if centered == "world" else self._body_anchor_index()
+        if anchor != 0:
+            # Centred on the anchor's row of the frame's world positions.
+            if self._derived.node_positions is not None:
+                world_frame = self._derived.node_positions[actual]
+            else:
+                world_frame = frames_to_node_positions(
+                    self,
+                    root_pos=motion["root_pos"][actual],
+                    joint_angles=motion["joint_angles"][actual],
+                    joint_translations=motion["joint_translations"][actual],
+                )
+            if centered == "skeleton":
+                return world_frame - world_frame[anchor]
+            return world_frame - _ground_plane_offset(world_frame[anchor], self.world_up)
         if self._derived.node_positions is not None:
             world_frame = self._derived.node_positions[actual]
             if centered == "world":
@@ -4110,8 +4471,10 @@ class Bvh:
         none).
 
         ``source_path``, a manual ``world_up`` override, and a user-set
-        ``lr_mapping`` (filtered to pairs whose joints are both kept) are
-        preserved on the result. A guessed world up is inherited, not
+        ``lr_mapping`` (filtered to pairs whose joints are both kept) and a
+        set :attr:`body_anchor` whose joint is kept are preserved on the
+        result; a set anchor whose joint is removed is dropped, and the
+        result uses the rule. A guessed world up is inherited, not
         guessed again from the kept joints (see :attr:`world_up`).
 
         Parameters
@@ -4269,6 +4632,11 @@ class Bvh:
                 if left in kept_names and right in kept_names
             }
             new_bvh._set_lr_mapping_setting(kept_pairs or "names")
+        # A set body anchor stays when its joint is kept, at the joint's
+        # row of the new table, which is its position in the new nodes.
+        anchor = self._body_anchor_setting
+        if anchor is not None and id(self.nodes[anchor]) in row_of:
+            new_bvh._set_body_anchor_setting(row_of[id(self.nodes[anchor])])
         return new_bvh
 
     def _find_end_site_offset(self, node: BvhNode) -> npt.NDArray[np.float64]:
@@ -4900,10 +5268,12 @@ class Bvh:
         return analysis.velocity_reductions(speed, 1.0 / self.frame_time)
 
     def skeleton_size(self, feet: Sequence[NodeSelector] | None = None) -> float:
-        """Absolute skeleton scale — mean rest-pose root-to-foot distance.
+        """Absolute skeleton scale — mean rest-pose distance from the feet to the joint they branch from.
 
-        Raises ``ValueError`` for a skeleton whose size cannot be
-        measured (no feet found, or all feet on the root) rather than
+        That joint is the lowest one that has the feet in two or more of
+        its branches, else :attr:`body_anchor`. Raises ``ValueError`` for a
+        skeleton whose size cannot be measured (no feet found, or all feet
+        on that joint) rather than
         returning a substitute. See :func:`pybvh.analysis.skeleton_size`."""
         from . import analysis
 

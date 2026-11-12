@@ -2,8 +2,9 @@
 """Independently audit the authored corpus; Python 3.10+, stdlib only, MIT.
 
 This parser consumes serialized files without using the generator's tree or
-pybvh. The anatomical pelvis is an author-supplied field; the audit checks
-that it names a joint of the file.
+pybvh. A root may declare no channel (``CHANNELS 0``, a static root). The expected body anchor is an author-supplied field; the audit
+checks that it names a joint of the file, or is None for a clip with no
+body.
 
 Run: python3 scripts/audit_synthetic_bvh.py bvh_data/synthetic
 """
@@ -75,6 +76,7 @@ def parse_bvh(text):
             require(len(decl) >= 2 and decl[0] == "CHANNELS", "missing CHANNELS")
             channels = decl[2:]
             require(int(decl[1]) == len(channels), "CHANNELS count mismatch")
+        if not end and not (root and not channels):  # CHANNELS 0: a static root
             rotations = [c for c in channels if c.endswith("rotation")]
             positions = [c for c in channels if c.endswith("position")]
             require(
@@ -122,11 +124,14 @@ def parse_bvh(text):
     return nodes, rows, timing[2]
 
 
-def audit(text, expected_pelvis, authored=None):
+def audit(text, expected_body_anchor, authored=None):
     nodes, rows, frame_time = parse_bvh(text)
     joints = [n for n in nodes if not n.end]
     names = [n.name for n in nodes]
-    require(expected_pelvis in [n.name for n in joints], "missing anatomical pelvis")
+    require(
+        expected_body_anchor is None or expected_body_anchor in [n.name for n in joints],
+        "missing body anchor",
+    )
     six, rigid, moving, changing_position, changing_rotation = [], [], [], [], []
     position_samples = {}
     original = {j.name: j for j in authored.root.walk()} if authored else None
@@ -148,7 +153,7 @@ def audit(text, expected_pelvis, authored=None):
             if "Xposition" in n.channels
             else []
         )
-        rotations = [[s[a + "rotation"] for a in "XYZ"] for s in samples]
+        rotations = [[s[a + "rotation"] for a in "XYZ"] for s in samples] if n.channels else []
         if any(r != rotations[0] for r in rotations[1:]):
             changing_rotation.append(n.name)
         if positions:
@@ -188,8 +193,14 @@ def audit(text, expected_pelvis, authored=None):
         rotation_varying_joints=changing_rotation,
         position_samples_xyz=position_samples,
         root_position_channels=[c for c in nodes[0].channels if c.endswith("position")],
-        pelvis_node_index=names.index(expected_pelvis),
-        pelvis_joint_index=[n.name for n in joints].index(expected_pelvis),
+        body_anchor_node_index=(
+            None if expected_body_anchor is None else names.index(expected_body_anchor)
+        ),
+        body_anchor_joint_index=(
+            None
+            if expected_body_anchor is None
+            else [n.name for n in joints].index(expected_body_anchor)
+        ),
         node_identities=[
             {
                 "id": n.name,
@@ -217,7 +228,7 @@ def main():
     for entry in manifest["files"]:
         data = (args.directory / entry["file"]).read_bytes()
         require(hashlib.sha256(data).hexdigest() == entry["sha256"], "SHA-256: " + entry["file"])
-        result = audit(data.decode("utf-8"), entry["expected_pelvis"])
+        result = audit(data.decode("utf-8"), entry["expected_body_anchor"])
         require(
             all(entry[k] == v for k, v in result.items()),
             "manifest annotation mismatch: " + entry["file"],

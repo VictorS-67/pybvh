@@ -1,6 +1,6 @@
 """Contact detection on plain arrays.
 
-The detector behind :func:`pybvh.analysis.foot_contacts` and :func:`pybvh.analysis.ground_contacts`: the tested nodes' positions in, a per-frame contact label per node out. It takes the nodes (for the report), their positions, their rest positions and the root's (the skeleton scale of the default thresholds), the frame time, the up axis and a :class:`_ContactSettings`, and imports no :class:`~pybvh.bvh.Bvh`: the two detectors read those from the clip, resolve the nodes, run the checks whose messages name the clip (its frame time, its ``world_up``) and delegate here. Below the entry point are the kernels it calls: the speed and the clearance signals, the threshold resolution (the skeleton scale, Otsu's split, the stance calibration), the thresholding with hysteresis, the run filters, the confidence and the diagnostics.
+The detector behind :func:`pybvh.analysis.foot_contacts` and :func:`pybvh.analysis.ground_contacts`: the tested nodes' positions in, a per-frame contact label per node out. It takes the nodes (for the report), their positions, their rest positions and that of the joint the skeleton scale of the default thresholds is measured from, the frame time, the up axis and a :class:`_ContactSettings`, and imports no :class:`~pybvh.bvh.Bvh`: the two detectors read those from the clip, resolve the nodes, run the checks whose messages name the clip (its frame time, its ``world_up``) and delegate here. Below the entry point are the kernels it calls: the speed and the clearance signals, the threshold resolution (the skeleton scale, Otsu's split, the stance calibration), the thresholding with hysteresis, the run filters, the confidence and the diagnostics.
 
 The contact reference is estimated here, over the tested nodes, with :func:`pybvh.geometry._floor_level`; the scene ground (``Bvh.floor_height``) is never read (ADR 0002).
 """
@@ -256,9 +256,9 @@ class ContactReport:
     floor_setting : {"auto", "min"} or float, or None
         The ``floor`` setting applied: ``"auto"`` (the default) or ``"min"``, the estimate ``contact_reference`` came from, or the level given. ``None`` under ``method="velocity"``.
     skeleton_scale : float
-        The scale the default thresholds are written in and the foot skate is divided by: the mean rest distance from the root to the tested nodes. Reported whether or not a threshold was derived from it, since the diagnostics always use it.
+        The scale the default thresholds are written in and the foot skate is divided by: the mean rest distance to the tested nodes from the joint they branch from under :func:`~pybvh.analysis.foot_contacts` (the lowest joint that has them in two or more of its branches, else the body anchor), from the body anchor under :func:`~pybvh.analysis.ground_contacts`. Reported whether or not a threshold was derived from it, since the diagnostics always use it.
     skeleton_scale_measured : bool
-        Whether ``skeleton_scale`` was measured: ``False`` where every tested node sits on the root, which leaves no distance to measure, and ``1.0`` stands in (``ground_contacts(["Hips"])`` on a clip rooted at the hips).
+        Whether ``skeleton_scale`` was measured: ``False`` where every tested node sits on the joint the scale is measured from, which leaves no distance to measure, and ``1.0`` stands in (``ground_contacts(["Hips"])`` on a clip whose body anchor is the hips).
     vel_threshold : ndarray, shape (n_nodes,), or None
         The speed threshold applied to each node, in units per second; ``None`` under ``method="height"``.
     vel_threshold_source : tuple of str, or None
@@ -332,7 +332,7 @@ def _contacts_from_positions(
     node_positions: npt.NDArray[np.float64],
     nodes: Sequence[BvhNode],
     node_rest: npt.NDArray[np.float64],
-    root_rest: npt.NDArray[np.float64],
+    scale_reference_rest: npt.NDArray[np.float64],
     *,
     frame_time: float,
     up_idx: int,
@@ -342,7 +342,7 @@ def _contacts_from_positions(
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], ContactReport]:
     """Per-frame contact labels of the tested nodes, from their positions.
 
-    ``node_positions`` is ``(F, n_nodes, 3)``, in world coordinates; ``nodes`` are those nodes, in the same order, for the report; ``node_rest`` is their rest positions ``(n_nodes, 3)`` and ``root_rest`` the root's ``(3,)``, which give the skeleton scale the default thresholds are written in. The up axis is ``up_idx`` signed by ``up_sign``. Returns the ``(F, n_nodes)`` labels (1.0 in contact), with the :class:`ContactReport` when ``return_info``.
+    ``node_positions`` is ``(F, n_nodes, 3)``, in world coordinates; ``nodes`` are those nodes, in the same order, for the report; ``node_rest`` is their rest positions ``(n_nodes, 3)`` and ``scale_reference_rest`` the rest position ``(3,)`` of the joint the scale is measured from (the size reference of the feet, or the body anchor), which give the skeleton scale the default thresholds are written in. The up axis is ``up_idx`` signed by ``up_sign``. Returns the ``(F, n_nodes)`` labels (1.0 in contact), with the :class:`ContactReport` when ``return_info``.
 
     The caller has checked the inputs whose messages name the clip: at least one node, and a ``frame_time`` above zero whenever the method reads the speed or a duration filter is on.
     """
@@ -351,7 +351,7 @@ def _contacts_from_positions(
 
     # The scale the default thresholds are written in and the report's foot
     # skate is divided by.
-    scale, scale_measured = _skeleton_scale(node_rest, root_rest)
+    scale, scale_measured = _skeleton_scale(node_rest, scale_reference_rest)
 
     # ---- Signals (F, n_nodes), threshold resolution ----
     speed = None
@@ -523,13 +523,13 @@ def _optional_read_only(array: npt.NDArray[_A] | None) -> npt.NDArray[_A] | None
 
 def _skeleton_scale(
     node_rest: npt.NDArray[np.float64],
-    root_rest: npt.NDArray[np.float64],
+    scale_reference_rest: npt.NDArray[np.float64],
 ) -> tuple[float, bool]:
     """Scale reference for the contact detectors' default thresholds, and whether it was measured.
 
-    The mean rest-pose distance from the root to the tested nodes, :func:`pybvh.analysis.skeleton_size`'s measurement, with ``True``. Where it measures nothing (every node sits on the root) the scale is ``1.0``, with ``False``, so the thresholds don't collapse to zero: the public ``skeleton_size`` raises instead of fabricating, but a threshold scale must exist even where a measurement does not, and the report says it stood in.
+    The mean rest-pose distance from ``scale_reference_rest`` (the joint the caller measures from) to the tested nodes, :func:`pybvh.analysis.skeleton_size`'s measurement, with ``True``. Where it measures nothing (every node sits on ``scale_reference_rest``) the scale is ``1.0``, with ``False``, so the thresholds don't collapse to zero: the public ``skeleton_size`` raises instead of fabricating, but a threshold scale must exist even where a measurement does not, and the report says it stood in.
     """
-    distance = geometry._mean_distance_to_root(node_rest, root_rest)
+    distance = geometry._mean_distance_to(node_rest, scale_reference_rest)
     return (1.0, False) if distance is None else (distance, True)
 
 

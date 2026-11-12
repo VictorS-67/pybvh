@@ -916,6 +916,12 @@ def mirror(
         passed ``lr_mapping`` names joints that don't exist, or if one
         joint of an L/R pair translates and the other does not.
     """
+    # Mirroring reflects the body across its lateral plane, so it refuses a
+    # clip with no body whatever its arguments: an explicit `lateral` skips
+    # rest left, and pairs of one figure alone would find a body in
+    # `_rest_left_of`, where the clip's own pairs find none.
+    bvh._body_anchor_index()
+
     target = bvh if inplace else bvh.copy()
 
     # --- Detect L/R pairs (first, so we can fail fast with a clear error) ---

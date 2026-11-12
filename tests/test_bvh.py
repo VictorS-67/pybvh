@@ -425,25 +425,34 @@ class TestReaderSyntaxErrors:
         bvh = read_bvh_file(self._write(tmp_path, self._hips_block()))
         assert [n.name for n in bvh.nodes] == ["Hips", "Spine", "EndSiteSpine"]
 
+    @staticmethod
+    def _other_root(name):
+        return [
+            f"ROOT {name}",
+            "{",
+            "  OFFSET 0 0 0",
+            "  CHANNELS 6 Xposition Yposition Zposition Zrotation Yrotation Xrotation",
+            "}",
+        ]
+
     def test_second_root(self, tmp_path):
-        path = self._write(
-            tmp_path,
-            [
-                *self._hips_block(),
-                "ROOT Other",
-                "{",
-                "  OFFSET 0 0 0",
-                "  CHANNELS 6 Xposition Yposition Zposition Zrotation Yrotation Xrotation",
-                "}",
-            ],
-        )
+        path = self._write(tmp_path, [*self._hips_block(), *self._other_root("Other")])
         with pytest.raises(
             ValueError,
             match=re.escape(
-                f"Second ROOT 'Other' at line 16 in file {path}: "
-                f"pybvh models single-root skeletons only"
+                f"Second ROOT 'Other' at line 16 in file {path}: the file holds 2 "
+                f"hierarchies (ROOT blocks), and a Bvh holds one"
             ),
         ):
+            read_bvh_file(path)
+
+    def test_second_root_counts_every_hierarchy_of_the_file(self, tmp_path):
+        """The count covers the ROOT blocks after the second one too."""
+        path = self._write(
+            tmp_path,
+            [*self._hips_block(), *self._other_root("Other"), *self._other_root("Third")],
+        )
+        with pytest.raises(ValueError, match=re.escape("the file holds 3 hierarchies")):
             read_bvh_file(path)
 
     def test_joint_outside_root(self, tmp_path):
@@ -8469,11 +8478,11 @@ class TestFacingOnAFrameLyingOnItsSide:
             assert lying.forward_at(0) == expected
 
     def test_the_default_warning_names_the_frame(self):
-        # A root rotation that stands rest forward (+y) along world up -x
-        # makes the heading unreadable. The spine turns back, so the arms
-        # keep the rest pose's left/right axis, vertical; the legs turn with
-        # the root, so only the arms are paired. Frame 0 takes the house
-        # default.
+        # Only the arms are paired, so the body anchor is Spine3, where they
+        # meet. Its rotation stands rest forward (+y) along world up -x and
+        # makes the heading unreadable. The shoulders turn back, so the arms
+        # keep the rest pose's left/right axis, vertical. Frame 0 takes the
+        # house default.
         bvh = read_bvh_file(BVH_DATA_DIR / "bvh_test1.bvh")
         bvh.lr_mapping = {
             side + part: other + part
@@ -8481,8 +8490,11 @@ class TestFacingOnAFrameLyingOnItsSide:
             for part in ("Shoulder", "Arm", "ForeArm", "Hand")
         }
         tilt = np.array([[0.0, 1, 0], [-1, 0, 0], [0, 0, 1]])  # turns +y onto -x
-        self._pose_frame_zero(bvh, {"Hips": tilt, "Spine": tilt.T})
+        self._pose_frame_zero(
+            bvh, {"Spine3": tilt, "LeftShoulder": tilt.T, "RightShoulder": tilt.T}
+        )
         bvh.world_up = "-x"
+        assert bvh.body_anchor.name == "Spine3"
         assert bvh.rest_forward == "+y"
         with pytest.warns(UserWarning, match="At frame 0, the facing direction cannot"):
             forward = bvh.forward_at(0)
@@ -9125,8 +9137,9 @@ class TestOrientationReport:
 
     def test_a_rest_pose_authored_in_another_convention(self):
         # bvh_test3: the rest pose stands along +y with its left along +x,
-        # while its first frame stands along +z.
-        report = _read_quietly(_TEST3).orientation_report
+        # while its first frame stands along +z. Its legs meet at its root.
+        clip = _read_quietly(_TEST3)
+        report = clip.orientation_report
         assert report == OrientationReport(
             rest_up="+y",
             rest_up_source="named_joint",
@@ -9137,6 +9150,9 @@ class TestOrientationReport:
             world_up_source="first_frame",
             world_up_inherited=False,
             lr_mapping_source="names",
+            body_anchor=clip.root,
+            body_anchor_source="lr_pairs",
+            body_anchor_candidates=(clip.root,),
         )
 
     def test_is_frozen(self, bvh_example):
@@ -9278,17 +9294,24 @@ class TestRestUpAcrossRigConventions:
         assert (report.rest_up, report.rest_left, report.rest_forward) == frame
         assert report.rest_up_source == "leg_pair"
 
-    def test_a_mapping_of_the_arms_alone_is_not_read_as_the_legs(self):
-        # Both arms hang below the spine, one branch of the hips: rest up
-        # falls back to the largest spread, as 0.9.0 read it, labelled.
+    def test_a_mapping_of_the_arms_alone_reads_the_arms_as_legs(self):
+        # A known limit (#205): the arms alone meet at Spine3, which becomes
+        # the body anchor, and the leg-pair reading reads the pair that
+        # meets at the anchor, so the arms, hanging below it, are read as
+        # legs and rest up is -z. Naming the hips joint, by its name in the
+        # file (here J0) or by its node, is the way out.
         clip = _read_quietly(_TEST1)
+        spine3 = clip.node_index["Spine3"]
         clip.world_up = "+z"
         clip.lr_mapping = {"LeftArm": "RightArm"}
         names = iter(range(len(clip.nodes)))
         clip = _renamed(clip, lambda name: f"J{next(names)}")
         report = clip.orientation_report
-        assert (report.rest_up, report.rest_up_source) == ("+z", "largest_spread")
-        assert report.rest_forward == "+y"
+        assert report.body_anchor is clip.nodes[spine3]
+        assert report.body_anchor_source == "lr_pairs"
+        assert (report.rest_up, report.rest_up_source) == ("-z", "leg_pair")
+        clip.body_anchor = clip.nodes[0]
+        assert clip.rest_up == "+z"
 
     def test_a_mapping_passed_to_mirror_reads_rest_up_as_the_set_one_does(self):
         # Every name made meaningless, so the clip finds no pairs of its own
@@ -9349,7 +9372,12 @@ class TestSettingTheMappingGuessesWorldUpAgain:
 
         given_at_load = _read_quietly(path, lr_mapping=pairs)
         assert given_at_load.world_up == "+y"
-        assert clip.orientation_report == given_at_load.orientation_report
+        # The same facts, the body anchor a node of each clip.
+        assert clip.orientation_report == dataclasses.replace(
+            given_at_load.orientation_report,
+            body_anchor=clip.root,
+            body_anchor_candidates=(clip.root,),
+        )
         assert clip.world_up == "+y"
         assert clip.floor_height == given_at_load.floor_height
 

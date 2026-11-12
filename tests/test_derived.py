@@ -1,11 +1,12 @@
 """Tests for the lifecycle of a clip's derived state (`pybvh._derived`).
 
 The module holds every value a `Bvh` computes from its skeleton, motion,
-world up or L/R mapping setting, and one method per change to those inputs. Each change must clear
+world up, L/R mapping setting or body anchor setting, and one method per change to those inputs. Each change must clear
 exactly the values computed from what changed, and nothing else: a value left
 in place after its input changed is stale, and a value cleared needlessly is a
 recomputation every caller pays for. The expected rows below are ADR 0003's
-table, with ADR 0004's row for the orientation report.
+table, with ADR 0004's row for the orientation report and #205's row for
+the body anchor.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ ALL_VALUES = {
     "joint_index",
     "names_lr_mapping",
     "orientation_report",
+    "body_anchor",
 }
 MOTION_DEPENDENTS = {"node_positions", "floor_height"}
 # The guessed world up, inferred on the clip or inherited from the clip it
@@ -41,12 +43,23 @@ GUESSED_HERE = {"inferred_world_up", "floor_height"}
 # setting, and none of pybvh's own motion writes (ADR 0004).
 REPORT = {"orientation_report"}
 
+# The body anchor the rule finds reads the hierarchy and the L/R mapping in
+# effect, never the motion or world up.
+BODY_ANCHOR = {"body_anchor"}
+
 CLEARED_BY = {
     "skeleton_changed": ALL_VALUES - GUESSED_WORLD_UP,
     "motion_changed": MOTION_DEPENDENTS,
     "user_replaced_motion": MOTION_DEPENDENTS | GUESSED_WORLD_UP | REPORT,
     "world_up_changed": {"floor_height"} | REPORT,
-    "lr_mapping_changed": GUESSED_HERE | REPORT,
+    "lr_mapping_changed": GUESSED_HERE | REPORT | BODY_ANCHOR,
+    # The user set the body anchor or returned it to the rule: what is
+    # computed from the anchor goes, the clip's own world-up guess (read
+    # from the anchor) and the floor measured along it included, as for a
+    # mapping change. The anchor the rule finds stays: it reads the
+    # hierarchy and the L/R mapping only, and the setting is read ahead of
+    # it.
+    "body_anchor_changed": {"inferred_world_up", "floor_height", "orientation_report"},
 }
 
 
@@ -62,6 +75,7 @@ def _filled() -> DerivedState:
     derived.joint_index = {"Hips": 0, "Spine": 1}
     derived.names_lr_mapping = {"LeftArm": "RightArm"}
     derived.orientation_report = object()  # type: ignore[assignment]
+    derived.body_anchor = object()  # type: ignore[assignment]
     return derived
 
 

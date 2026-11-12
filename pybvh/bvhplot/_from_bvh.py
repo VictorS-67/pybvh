@@ -195,8 +195,12 @@ def make_scene(
         )
         up = parse_axis(b.world_up)
         bones = get_skeleton_lines(b)
+        # Drawing needs no body; on a clip with none, the body's parts are
+        # left out: the heading, the L/R pairs the follow camera turns
+        # with, rest up and the legs' colours.
+        has_body = b._has_body()
 
-        if clip_frames is None:
+        if clip_frames is None or not has_body:
             root_heading = None
         else:
             heading = root_trajectory(b)[:, 2:4]
@@ -230,12 +234,13 @@ def make_scene(
                 frame_time=float(b.frame_time),
                 node_names=b._node_names(),
                 rest_coords=b._rest_pose(),
-                rest_up=b.rest_up,
-                lr_pairs=b._facing_lr_pairs(),
+                rest_up=b.rest_up if has_body else None,
+                lr_pairs=b._facing_lr_pairs() if has_body else np.empty((0, 2), dtype=np.intp),
                 initial_forward=initial_forward,
                 bone_chains=_chain_per_bone(get_bone_chains(b), len(bones)),
                 root_heading=root_heading,
                 coords_in_rest_unit=clip_frames is not None,
+                body=b._in_body() if has_body else None,
             )
         )
     return Scene(views=views)
@@ -354,14 +359,15 @@ def _camera_angles_and_forward(
     (leftward parallel to up, or no L/R pairs), the root's heading at
     *clip_frame*, the clip frame *ref_frame* is; then a fixed per-up-axis
     default. A pose that names no clip frame (*clip_frame* ``None``)
-    has no root heading, and goes from the joints to the default. The
-    string is always one of the six axes, never the continuous
+    has no root heading, and goes from the joints to the default. A
+    clip with no body (:attr:`Bvh.body_anchor` ``None``) has no facing,
+    and gets the default. The string is always one of the six axes, never the continuous
     direction. It is the fact the ``"front"`` preset turns into an
     azimuth; :func:`make_scene` keeps it on the view, as
     ``initial_forward``, so lateral spacing and the camera never
     disagree about which way the skeleton faces.
     """
-    from .._orientation import _facing_labels
+    from .._orientation import _facing_basis, _facing_labels
 
     # World up comes from the Bvh property (auto-detected with manual
     # override). Forward is computed from the given reference frame's
@@ -369,7 +375,12 @@ def _camera_angles_and_forward(
     # as the animation plays (not just the rest-pose topology).
     up_ax = bvh.world_up
     frames = None if clip_frame is None else [clip_frame]
-    forward_row, _, _, _ = bvh._facing_at(ref_frame[np.newaxis], frames)
+    if bvh._has_body():
+        forward_row = bvh._facing_at(ref_frame[np.newaxis], frames)[0]
+    else:
+        # No body, so no facing: the default for up, as without L/R pairs.
+        no_pairs = np.empty((0, 2), dtype=np.intp)
+        forward_row = _facing_basis(ref_frame[np.newaxis], no_pairs, up_ax, None, None)[0]
     forward_ax, _ = _facing_labels(forward_row[0], up_ax)
     up_char = up_ax[1]  # 'y'
     up_positive = extract_sign(up_ax)
@@ -459,7 +470,9 @@ def get_bone_chains(bvh: Bvh) -> dict[str, list[int]]:
     every bone lands in ``"spine"`` — the caller should draw a single
     color. With pairs but no detectable feet, every paired-to-paired
     bone is classified as an arm: side coloring survives, the arm/leg
-    shade distinction does not.
+    shade distinction does not. A clip with no body
+    (:attr:`Bvh.body_anchor` ``None``) has no feet to look for, so
+    the same.
     """
     bones = get_skeleton_lines(bvh)
     pairs = bvh.node_lr_pairs
@@ -478,7 +491,7 @@ def get_bone_chains(bvh: Bvh) -> dict[str, list[int]]:
     # paired ancestors above it (stopping at the first unpaired node,
     # i.e. where the leg meets the torso).
     leg_nodes: set[int] = set()
-    for foot in bvh.auto_detect_feet():
+    for foot in bvh.auto_detect_feet() if bvh._has_body() else []:
         foot_idx = bvh.index(foot, space="node")
         stack = [foot_idx]
         while stack:

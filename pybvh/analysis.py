@@ -18,7 +18,7 @@ import numpy as np
 import numpy.typing as npt
 
 from . import _contacts, geometry, rotations
-from ._orientation import _root_heading_units
+from ._orientation import _heading_units
 from ._warnings import user_stacklevel
 from .bvh import Bvh
 from .bvhnode import BvhNode, NodeSelector
@@ -551,29 +551,33 @@ def root_trajectory(
 ) -> npt.NDArray[np.float64]:
     """Extract root trajectory features commonly used in motion ML.
 
-    Returns the root's ground-plane position and heading angle (as
-    ``sin``/``cos`` pair).  Optionally appends ground-plane and
-    heading velocities.
+    Returns the ground-plane position and heading angle (as
+    ``sin``/``cos`` pair) of :attr:`~pybvh.bvh.Bvh.body_anchor`, the joint
+    the body's measures start from. On a clip whose anchor is its root,
+    the most common case, that is the root's. Optionally appends
+    ground-plane and heading velocities.
 
     The heading reference is :attr:`~pybvh.bvh.Bvh.rest_forward`, the
     direction the rest pose faces in the skeleton's own frame (rest left
-    × rest up, read from the rest pose alone). The root rotation of each
-    frame carries it into the world, and the heading is its projection
-    on the ground. At a frame whose root rotation is identity the
-    heading is therefore rest forward's own ground direction, whatever
+    × rest up, read from the rest pose alone). The body anchor's world
+    rotation at each frame (its own rotation composed with those of the
+    joints above it) carries it into the world, and the heading is its
+    projection on the ground. At a frame whose anchor's world rotation
+    is identity the heading is therefore rest forward's own ground
+    direction, whatever
     rotation the clip starts with. When rest forward is the house
     default (no usable left/right geometry; reading it warns), the
     heading is still built on it, and both the heading and its rate of
     turn (``heading_vel``) depend on that guessed reference whenever
-    the root pitches or rolls: a tilted root's forward projects on the
-    ground at an angle, and turns there at a rate, that differ with the
-    forward it starts from. On a defaulted rest forward they are
-    reliable only for a root that turns about world up alone.
+    the anchor pitches or rolls: a tilted anchor's forward projects on
+    the ground at an angle, and turns there at a rate, that differ with
+    the forward it starts from. On a defaulted rest forward they are
+    reliable only for an anchor that turns about world up alone.
     :func:`facing_frame` chooses otherwise for its fallback, which takes
     no heading from a defaulted rest forward.
 
-    The heading is **orientation-derived** — the root bone's rotation
-    applied to the rest forward, projected to the ground plane — not
+    The heading is **orientation-derived** — the body anchor's world
+    rotation applied to the rest forward, projected to the ground plane — not
     the direction of travel (a side-stepping character keeps its
     heading). It therefore inherits pelvis twist, and its ground-plane
     projection shrinks when the character bends far forward;
@@ -592,12 +596,11 @@ def root_trajectory(
     it); the heading is unwrapped over the readable frames only, so no
     other sample is affected. The ground columns are always finite.
 
-    The trajectory is the root's. On a root that stays in place with the
+    The function keeps its name, but the trajectory is the body
+    anchor's, not the root's. On a root that stays in place with the
     body below it (a static root, ``CHANNELS 0``, or a reference node
-    whose channels do not change), it describes the reference node, not
-    the body: the ground position stays still and the heading does not
-    turn. The body's travel is then the world position of its hips node
-    (see :meth:`Bvh.node_positions <pybvh.bvh.Bvh.node_positions>`).
+    whose channels do not change), it therefore describes the body: the
+    body anchor travels and turns while the root stays still.
 
     Parameters
     ----------
@@ -643,12 +646,12 @@ def root_trajectory(
     up_idx = {"x": 0, "y": 1, "z": 2}[up_str[1]]
     ground_axes = [i for i in range(3) if i != up_idx]
 
-    # Rest forward, in the skeleton's own frame: the root rotation is what
-    # carries it into the world, frame by frame.
+    # Rest forward, in the skeleton's own frame: the body anchor's world
+    # rotation is what carries it into the world, frame by frame.
     # (F, 3), NaN rows
-    fwd_ground = _root_heading_units(bvh._root_rotmats(), bvh.rest_forward, up_str)
+    fwd_ground = _heading_units(bvh._body_anchor_rotmats(), bvh.rest_forward, up_str)
 
-    ground_pos = bvh.root_pos[:, ground_axes]  # (F, 2)
+    ground_pos = bvh._body_anchor_positions()[:, ground_axes]  # (F, 2)
     heading = np.arctan2(fwd_ground[:, ground_axes[1]], fwd_ground[:, ground_axes[0]])  # (F,)
 
     base = np.column_stack(
@@ -716,7 +719,7 @@ def facing_frame(bvh: Bvh) -> FacingFrame:
     orientation (no roll or pitch; a character bending forward keeps
     their facing frame level). It is also distinct from
     :func:`root_trajectory`'s heading, which is a *second facing
-    estimate built differently* — the root bone's rotation applied to
+    estimate built differently* — the body anchor's world rotation applied to
     the rest forward — not a direction of motion: that heading inherits
     pelvis twist and collapses toward numerical ambiguity when the
     character bends far forward, while this basis measures the
@@ -727,7 +730,9 @@ def facing_frame(bvh: Bvh) -> FacingFrame:
 
     Construction (per frame, all in world space): the leftward
     direction is the average of ``(left_pos - right_pos)`` over the
-    L/R joint pairs in :attr:`Bvh.lr_mapping`, projected onto the
+    L/R joint pairs in :attr:`Bvh.lr_mapping` whose two joints are in
+    the body that :attr:`Bvh.body_anchor` heads, so a prop or a second
+    figure beside it is not read, projected onto the
     horizontal plane and normalized; ``forward = leftward × up``;
     ``left = up × forward`` (re-orthogonalized). The triple satisfies
     ``forward × left = up``.
@@ -735,7 +740,7 @@ def facing_frame(bvh: Bvh) -> FacingFrame:
     Fallback policy (shared by :meth:`Bvh.forward_at` and
     :meth:`Bvh.left_at`): a frame whose horizontal ``(left - right)``
     average nearly vanishes or lies along ``world_up`` (norm below
-    ``1e-6``, the body on its side) takes the root's heading at that
+    ``1e-6``, the body on its side) takes the body's heading at that
     frame (the one :func:`root_trajectory` returns) as its forward, when
     :attr:`Bvh.rest_forward` is measured and that heading is readable
     (:func:`root_trajectory` builds a heading on a defaulted rest
@@ -772,7 +777,7 @@ def facing_frame(bvh: Bvh) -> FacingFrame:
     --------
     Bvh.forward_at, Bvh.left_at : The categorical (snapped axis label)
         form of the same construction.
-    root_trajectory : Root-bone-orientation heading (a different facing
+    root_trajectory : Body-anchor-orientation heading (a different facing
         estimate — see Notes above; not a travel direction).
     """
     forward, left, up, valid = bvh._facing_at(bvh._all_node_positions(), slice(None))
@@ -859,6 +864,8 @@ def foot_contacts(
     ``method="velocity"`` and ``method="height"`` remain available as
     single-signal escape hatches.
 
+    The sizes are read from the joint the feet branch from: the lowest joint that has the feet in two or more of its branches (the hips of a biped, where the hind and the front chains part on a quadruped), else, for one foot or feet along one leg, :attr:`~pybvh.Bvh.body_anchor`. The skeleton scale of the default thresholds is the feet's mean rest distance to that joint, as in :func:`skeleton_size`, and the "feet below hips" check compares the feet's rest height with its. A root above or beside the body is passed over.
+
     The positions tested are the clip's world-frame forward kinematics, which the clip caches (:meth:`Bvh.node_positions`). Positions the caller holds (smoothed, predicted or edited) take the array path: the node's row is ``bvh.index(name, space="node")``, and :mod:`pybvh.geometry` and :mod:`pybvh.signal` measure it.
 
     Each method reads its own settings, and a setting given that the chosen method does not read raises a ``ValueError`` instead of being ignored: ``method="velocity"`` reads ``vel_threshold`` and ``vel_smooth_duration``; ``method="height"`` reads ``height_threshold`` and ``floor``; ``method="combined"`` reads all four, and ``height_reference`` when ``height_threshold`` is not given. Every method reads ``min_contact_duration``, ``min_gap_duration`` and ``hysteresis``, and ``adaptive`` where it leaves a threshold to derive. The settings some method does not read default to ``None``, which stands for the default named under each.
@@ -886,7 +893,7 @@ def foot_contacts(
         the contacts' columns, such as a :class:`~pybvh.ContactReport`'s
         ``vel_threshold`` passed back.  ``None`` (default) derives it:
         ``0.12 × skeleton_scale`` u/s where ``skeleton_scale`` is the
-        mean rest-pose distance from the root to the feet
+        mean rest-pose distance from the joint the feet branch from to the feet
         (equivalent to the pre-v0.8 ``0.004 × skeleton_scale`` per
         frame at 30 fps).  Scale-invariant across cm- and m-scale
         skeletons, and unaffected by finger/spine subdivision (unlike
@@ -1025,7 +1032,8 @@ def foot_contacts(
           ``bvh.nodes``; or the same node selected twice.
         - If a duration (``vel_smooth_duration``, ``min_contact_duration``, ``min_gap_duration``) is negative or not finite, ``hysteresis`` is outside ``[0, 1)``, or a threshold given is not finite and above zero.
         - When the height signal is involved and ``bvh.world_up`` is
-          inconsistent with rest-pose geometry (feet above hips).
+          inconsistent with rest-pose geometry: the feet's mean rest height
+          is above that of the joint they branch from (feet above hips).
         - If ``frame_time == 0`` and the velocity signal (units/second)
           or a nonzero duration filter needs a time base.
     TypeError
@@ -1059,6 +1067,7 @@ def foot_contacts(
         settings,
         return_info=return_info,
         check_rest_height=True,
+        scale_reference=bvh._size_reference(node_indices),
         caller="foot_contacts()",
     )
 
@@ -1148,7 +1157,7 @@ def ground_contacts(
     method : {"combined", "velocity", "height"}, optional
         Same meaning as in :func:`foot_contacts`.
     vel_threshold, vel_smooth_duration, height_threshold, floor, min_contact_duration, min_gap_duration, hysteresis, adaptive : keyword-only, optional
-        Same meaning and defaults as in :func:`foot_contacts`, read by the same methods (a setting given that the method does not read raises). A threshold given per node has one value per entry of ``nodes``. The auto thresholds scale by the mean rest-pose distance from the root to the **given** nodes (the same skeleton-scale rule, applied to this node set) — so the defaults stay proportionate for short chains like hands. Mind the ``floor="auto"`` warning above.
+        Same meaning and defaults as in :func:`foot_contacts`, read by the same methods (a setting given that the method does not read raises). A threshold given per node has one value per entry of ``nodes``. The auto thresholds scale by the mean rest-pose distance from :attr:`Bvh.body_anchor <pybvh.Bvh.body_anchor>` to the **given** nodes (the same skeleton-scale rule, applied to this node set) — so the defaults stay proportionate for short chains like hands. :func:`foot_contacts` measures from the joint the feet branch from instead; the two differ where the anchor is not that joint, as on a clip whose anchor is the chest beside the hips: naming the hips joint with ``bvh.body_anchor = ...`` (its name in the file, or its node) makes it the joint to measure from. Mind the ``floor="auto"`` warning above.
     height_reference : {"floor", "velocity"} or None, keyword-only, optional
         ``None`` (default) means ``"floor"``: the fixed ``0.013 × skeleton_scale`` margin above the floor. ``"velocity"`` enables :func:`foot_contacts`' per-node stance calibration; only use it when the nodes ground regularly enough to have stance statistics.
     return_info : bool, keyword-only, optional
@@ -1169,6 +1178,7 @@ def ground_contacts(
         - If an entry of ``nodes`` is a name that no node carries, or that several nodes share; a ``BvhNode`` that is not one of ``bvh.nodes``; or the same node selected twice.
         - If a duration (``vel_smooth_duration``, ``min_contact_duration``, ``min_gap_duration``) is negative or not finite, ``hysteresis`` is outside ``[0, 1)``, or a threshold given is not finite and above zero.
         - If ``frame_time == 0`` and the velocity signal (units/second) or a nonzero duration filter needs a time base.
+        - If the clip has no body (:attr:`Bvh.body_anchor <pybvh.Bvh.body_anchor>` is ``None``), whether or not ``world_up`` is set: the scale reads the body anchor.
     TypeError
         If ``nodes`` is a bare ``str`` or ``BvhNode`` instead of a sequence of them, or an entry is neither: an integer does not say which index space it counts in, and node ``i`` is ``bvh.nodes[i]``.
 
@@ -1197,6 +1207,7 @@ def ground_contacts(
         settings,
         return_info=return_info,
         check_rest_height=False,
+        scale_reference=bvh._body_anchor_index(),
         caller="ground_contacts()",
     )
 
@@ -1208,11 +1219,12 @@ def _contacts_on_clip(
     *,
     return_info: bool,
     check_rest_height: bool,
+    scale_reference: int,
     caller: str,
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]:
     """The clip's part of :func:`foot_contacts` and :func:`ground_contacts`, around the detector on plain arrays.
 
-    Both entry points resolve their selection with :func:`_selected_node_indices` into ``node_indices``, gather their settings into a :class:`~pybvh._contacts._ContactSettings`, and delegate here. This reads from the clip what the detector takes (the nodes and their positions, the rest pose, the frame time, the up axis), runs the checks whose messages name the clip (the frame time, the rest height), and hands the arrays to :func:`pybvh._contacts._contacts_from_positions`. ``check_rest_height`` enables the rest-pose "feet below hips" sanity check, which presumes the nodes are feet. ``caller`` names the public function in the messages (``"foot_contacts()"``).
+    Both entry points resolve their selection with :func:`_selected_node_indices` into ``node_indices``, gather their settings into a :class:`~pybvh._contacts._ContactSettings`, and delegate here. This reads from the clip what the detector takes (the nodes and their positions, the rest pose, the frame time, the up axis), runs the checks whose messages name the clip (the frame time, the rest height), and hands the arrays to :func:`pybvh._contacts._contacts_from_positions`. ``check_rest_height`` enables the rest-pose "feet below hips" sanity check, which presumes the nodes are feet. ``scale_reference`` is the node index that check and the skeleton scale of the default thresholds measure from: the size reference of the feet (:meth:`Bvh._size_reference`) for :func:`foot_contacts`, the body anchor for :func:`ground_contacts`. ``caller`` names the public function in the messages (``"foot_contacts()"``).
     """
     if settings.reads_velocity:
         _require_rate(bvh.frame_time, f"{caller} with method={settings.method!r}")
@@ -1229,12 +1241,13 @@ def _contacts_on_clip(
     # ---- Sanity check for the height signal (feet-presuming entry only) ----
     if settings.reads_height and check_rest_height:
         rest_foot_height = rest_coords[node_indices, up_idx].mean() * up_sign
-        rest_hip_height = rest_coords[0, up_idx] * up_sign
+        rest_hip_height = rest_coords[scale_reference, up_idx] * up_sign
         if rest_foot_height > rest_hip_height:
             raise ValueError(
                 f"world_up={bvh.world_up!r} is inconsistent with rest-pose "
                 f"geometry: feet are above hips along the declared up axis "
-                f"({rest_foot_height:.3f} vs {rest_hip_height:.3f}). "
+                f"({rest_foot_height:.3f} vs {rest_hip_height:.3f} at "
+                f"{bvh.nodes[scale_reference].name!r}). "
                 f"`bvh.world_up` was likely auto-detected incorrectly; set "
                 f"it manually with `bvh.world_up = '<axis>'`."
             )
@@ -1244,7 +1257,7 @@ def _contacts_on_clip(
         bvh._world_node_positions()[:, node_indices, :],
         [bvh.nodes[i] for i in node_indices],
         rest_coords[node_indices],
-        rest_coords[0],
+        rest_coords[scale_reference],
         frame_time=bvh.frame_time,
         up_idx=up_idx,
         up_sign=up_sign,
@@ -1258,8 +1271,15 @@ def auto_detect_feet(bvh: Bvh) -> list[BvhNode]:
 
     Algorithm:
 
-    1. Substring match: candidates are joints whose names contain
-       ``"foot"`` or ``"toe"`` (case-insensitive).
+    1. Substring match: candidates are the joints of the body whose
+       names contain ``"foot"`` or ``"toe"`` (case-insensitive). The
+       body is :attr:`~pybvh.Bvh.body_anchor` and every node below it,
+       started at the closest joint above the anchor that has one below
+       it when no joint below the anchor has a head name (``head``,
+       ``neck``, ``chest``, ``spine``) or a foot name (``leg``,
+       ``foot``, ``toe``, ``toes``), each read as a word of the name. So
+       a 3ds Max ``Footsteps`` node beside the hips, or a prop beside the
+       body, is no candidate.
     2. Tip-descendant filter: keep only candidates that have an end
        site or a toe-named child.  This drops IK helpers, which
        typically have no children.
@@ -1304,11 +1324,12 @@ def auto_detect_feet(bvh: Bvh) -> list[BvhNode]:
     """
     up_idx, up_sign, _ = bvh.world_up_axis
 
-    # Step 1: substring match
+    # Step 1: substring match, in the body
+    in_body = bvh._in_body()
     matched = [
         n
-        for n in bvh.nodes
-        if not n.is_end_site() and any(kw in n.name.lower() for kw in ("foot", "toe"))
+        for n, inside in zip(bvh.nodes, in_body, strict=True)
+        if inside and not n.is_end_site() and any(kw in n.name.lower() for kw in ("foot", "toe"))
     ]
     if not matched:
         return []
@@ -1396,7 +1417,14 @@ def _selected_node_indices(
 
 
 def skeleton_size(bvh: Bvh, feet: Sequence[NodeSelector] | None = None) -> float:
-    """Absolute skeleton scale — mean rest-pose root-to-foot distance.
+    """Absolute skeleton scale — mean rest-pose distance from the feet to the joint they branch from.
+
+    That joint is the lowest one that has the feet in two or more of its
+    branches: the hips of a biped, where the hind and the front chains
+    part on a quadruped. For one foot, or feet along one leg, it is
+    :attr:`~pybvh.Bvh.body_anchor`. So a root above or beside the body
+    leaves the size alone, and on a rig whose anchor is its chest the
+    size is still measured from the hips.
 
     A size proxy that scales linearly with the whole skeleton (≈ half the
     standing height for a humanoid). Only the leg chain contributes, so
@@ -1406,7 +1434,7 @@ def skeleton_size(bvh: Bvh, feet: Sequence[NodeSelector] | None = None) -> float
     see :func:`relative_scale_factor`.
 
     A skeleton whose size cannot be measured — auto-detection finds no
-    feet, or every foot sits exactly on the root — raises rather than
+    feet, or every foot sits exactly on that joint — raises rather than
     returning a substitute: any fabricated number (``1.0`` reads as a
     plausible metre-scale humanoid, ``nan`` poisons everything scaled by
     it) would be indistinguishable from, or worse than, a measurement.
@@ -1429,14 +1457,16 @@ def skeleton_size(bvh: Bvh, feet: Sequence[NodeSelector] | None = None) -> float
     Returns
     -------
     float
-        Mean rest-pose distance from the root to the feet
+        Mean rest-pose distance from the joint the feet branch from to
+        the feet
         (always ``> 0``).
 
     Raises
     ------
     ValueError
         Where :func:`foot_contacts` raises it for ``feet``, or if all feet
-        coincide with the root in the rest pose (no measurable size).
+        coincide with the joint they branch from in the rest pose (no
+        measurable size).
     TypeError
         Where :func:`foot_contacts` raises it for ``feet``.
 
@@ -1446,11 +1476,13 @@ def skeleton_size(bvh: Bvh, feet: Sequence[NodeSelector] | None = None) -> float
     """
     foot_indices = _feet_indices(bvh, feet, "skeleton_size()")
     rest_coords = bvh._rest_pose()
-    distance = geometry._mean_distance_to_root(rest_coords[foot_indices], rest_coords[0])
+    reference = bvh._size_reference(foot_indices)
+    distance = geometry._mean_distance_to(rest_coords[foot_indices], rest_coords[reference])
     if distance is None:
         raise ValueError(
-            "skeleton_size: every foot coincides with the root in the "
-            "rest pose, so this skeleton has no measurable size. Pass "
+            "skeleton_size: every foot coincides with the size reference "
+            f"{bvh.nodes[reference].name!r} in the rest pose, so this "
+            "skeleton has no measurable size. Pass "
             "different feet=, or catch this error and choose your own "
             "scale."
         )
@@ -2477,12 +2509,12 @@ def kinetic_energy(
     return 0.5 * np.sum(m * speed_sq, axis=-1)
 
 
-def _root_horizontal_distance(bvh: Bvh) -> float:
-    """Path length of the root projected onto the ground plane."""
+def _anchor_horizontal_distance(bvh: Bvh) -> float:
+    """Path length of the body anchor projected onto the ground plane."""
     up = _axis_to_vector(bvh.world_up)
-    root = bvh.root_pos
-    height = root @ up
-    horizontal = root - height[:, None] * up
+    anchor = bvh._body_anchor_positions()
+    height = anchor @ up
+    horizontal = anchor - height[:, None] * up
     return float(geometry.path_length(horizontal))
 
 
@@ -2613,18 +2645,19 @@ def stride_length(
 
 
 def walking_pace(bvh: Bvh) -> float:
-    """Mean horizontal speed — root ground-path length per second.
+    """Mean horizontal speed — the body anchor's ground-path length per second.
 
     Same definition as the ``walking_pace`` field of
-    :func:`gait_parameters`, but computed directly from the root path so
+    :func:`gait_parameters`, but computed directly from the path of
+    :attr:`~pybvh.bvh.Bvh.body_anchor` (the root's, on a clip whose
+    anchor is its root) so
     it needs no feet or contact detection.  Note it only
     *approximates* ``stride_length × cadence / 2`` (exact for straight,
     steady, symmetric gait; it diverges on curved or irregular walking
-    because the root path and the foot landings measure different
+    because the anchor's path and the foot landings measure different
     things). On a root that stays in place with the body below it (a
     static root, or a reference node whose channels do not change), the
-    root path is the reference node's, so the pace is zero; the body's
-    travel is then the world position of its hips node.
+    pace is still the body's, read from the body anchor, not the root.
 
     Parameters
     ----------
@@ -2647,10 +2680,12 @@ def walking_pace(bvh: Bvh) -> float:
     Source: Crane & Gross, Gross et al. 2012.
     """
     _require_rate(bvh.frame_time, "walking_pace()")
+    # Before the early return: a clip with no body is refused at any length.
+    bvh._body_anchor_index()
     duration = (bvh.frame_count - 1) * bvh.frame_time
     if duration <= 0:
         return float("nan")
-    return _root_horizontal_distance(bvh) / duration
+    return _anchor_horizontal_distance(bvh) / duration
 
 
 GaitParameters = namedtuple(
@@ -2763,7 +2798,7 @@ def gait_parameters(
     """Spatiotemporal gait parameters in one pass.
 
     Bundles the foot-measured gait analysis: ``cadence`` (onsets/s),
-    ``walking_pace`` (root ground speed), ``stride_length`` and its
+    ``walking_pace`` (body anchor ground speed), ``stride_length`` and its
     coefficient of variation ``stride_cv`` (landing→next-same-foot-landing),
     ``step_length`` (forward advance between successive any-foot landings,
     measured along the direction of travel so step *width* is excluded),
@@ -2794,7 +2829,7 @@ def gait_parameters(
       multiply by 100 for SI magnitude; the direction of the asymmetry is
       not recoverable from this field.
     - ``step_length`` projects onto a **single whole-clip progression
-      chord** (the root's first→last horizontal displacement), not a
+      chord** (the body anchor's first→last horizontal displacement), not a
       per-step heading. On a curved walk this systematically shortens the
       value, and a closed loop has no net travel and returns ``nan``.
       ``stride_length`` by contrast is the full **Euclidean** distance
@@ -2802,12 +2837,12 @@ def gait_parameters(
       while ``step_length`` excludes it — the two are not the 2:1 pair a
       clinical report would use on curved or wide-stance gait.
     - ``walking_pace`` and the progression chord of ``step_length`` read
-      the **root**. On a root that stays in place with the body below it
-      (a static root, or a reference node whose channels do not change),
-      they describe the reference node, not the body: the pace is zero
-      and ``step_length`` is ``nan``, as on a clip with no net travel.
-      The body's travel is then the world position of its hips node. The
-      foot-measured fields do not read the root.
+      the **body anchor** (:attr:`~pybvh.bvh.Bvh.body_anchor`), which is
+      the root on a clip whose anchor is its root. On a root that stays
+      in place with the body below it (a static root, or a reference
+      node whose channels do not change), they describe the body, read
+      from the body anchor, not the root. The foot-measured fields do not read
+      the anchor.
 
     Parameters
     ----------
@@ -2884,16 +2919,16 @@ def _gait_parameters_unchecked(
     foot_xyz = bvh._world_node_positions()[:, foot_indices, :]  # (F, n_feet, 3)
     foot_h = foot_xyz - (foot_xyz @ up)[..., None] * up  # project to ground
 
-    root = bvh.root_pos
-    root_h = root - (root @ up)[:, None] * up  # (F, 3) on the ground
-    progression = root_h[-1] - root_h[0]  # net travel direction
+    anchor = bvh._body_anchor_positions()
+    anchor_h = anchor - (anchor @ up)[:, None] * up  # (F, 3) on the ground
+    progression = anchor_h[-1] - anchor_h[0]  # net travel direction
 
     return _compute_gait_parameters(
         contacts,
         foot_h,
         [foot.name for foot in foot_nodes],
         bvh.frame_time,
-        _root_horizontal_distance(bvh),
+        _anchor_horizontal_distance(bvh),
         progression,
     )
 

@@ -21,7 +21,8 @@ with ``NodeSelector``, on a row whose parameter is gone, on a parameter typed
 with ``int`` that ``_INTEGERS_NOT_NODES`` does not list, and on a parameter
 named ``coords``. It calls each row with an end site: a parameter named
 ``joint`` or ``joints`` must refuse it, and every other must accept it,
-``Bvh.index`` excepted, whose caller gives the space.
+``Bvh.index`` excepted, whose caller gives the space, and the parameters of
+``_END_SITES_REFUSED``, which #205 names after what they select.
 """
 
 from __future__ import annotations
@@ -322,7 +323,28 @@ ENTRIES = [
         True,
         lambda bvh, s: bvh.extract_joints(_with_root(bvh, s)).node_positions(),
     ),
+    # A clip on the nodes of ``bvh``, which it shares (they are frozen), so
+    # that a node of ``bvh`` is one of its nodes too.
+    Entry(
+        "Bvh.__init__",
+        "body_anchor",
+        "joint",
+        False,
+        lambda bvh, s: _anchored(bvh, s).index(_anchored(bvh, s).body_anchor, space="node"),
+    ),
 ]
+
+
+def _anchored(bvh: Bvh, anchor: Any) -> Bvh:
+    """A clip on the skeleton and motion of ``bvh`` whose body anchor is set to ``anchor``."""
+    return Bvh(
+        bvh.nodes,
+        bvh.root_pos,
+        bvh.joint_angles,
+        frame_time=bvh.frame_time,
+        world_up="+y",
+        body_anchor=anchor,
+    )
 
 
 def _rows(predicate: Callable[[Entry], bool] = lambda entry: True) -> list[Any]:
@@ -701,7 +723,19 @@ def test_every_selecting_parameter_has_its_rows_in_entries():
     assert listed - selecting == set(), "rows of ENTRIES whose parameter is gone"
 
 
-@pytest.mark.parametrize("entry", _rows(lambda entry: entry.parameter in ("joint", "joints")))
+# Parameters that refuse an end site under a name of their own: the body
+# anchor is a joint (#205), and its name is the term of the GLOSSARY.
+_END_SITES_REFUSED = {("Bvh.__init__", "body_anchor")}
+
+
+def _refuses_end_sites(entry: Entry) -> bool:
+    return (
+        entry.parameter in ("joint", "joints")
+        or (entry.function, entry.parameter) in _END_SITES_REFUSED
+    )
+
+
+@pytest.mark.parametrize("entry", _rows(_refuses_end_sites))
 def test_a_parameter_named_joint_refuses_an_end_site(entry):
     clip = _rig()
     with pytest.raises(ValueError, match=r"is an end site"):
@@ -711,9 +745,7 @@ def test_a_parameter_named_joint_refuses_an_end_site(entry):
 # Bvh.index takes its space from its caller, so its name says nothing of it.
 @pytest.mark.parametrize(
     "entry",
-    _rows(
-        lambda entry: entry.parameter not in ("joint", "joints") and entry.function != "Bvh.index"
-    ),
+    _rows(lambda entry: not _refuses_end_sites(entry) and entry.function != "Bvh.index"),
 )
 def test_a_parameter_not_named_joint_accepts_an_end_site(entry):
     clip = _rig()

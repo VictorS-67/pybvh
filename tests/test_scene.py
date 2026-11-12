@@ -984,6 +984,32 @@ class TestBodySize:
         standing_height = float(np.ptp(frame0[0, :, 2]))
         assert view.body_size == pytest.approx(standing_height, rel=0.05)
 
+    def test_is_the_height_of_the_body_alone(self):
+        """A node beside the body, a prop under the root, is no part of
+        the body's height: the stick person stands 1.8 tall with a prop
+        10 above its head, outside its body."""
+        view = make_array_view()
+        rest = np.vstack([view.rest_coords, [0.0, 11.8, 0.0]])
+        coords = np.concatenate([view.coords, view.coords[:, :1] + [0.0, 11.8, 0.0]], axis=1)
+        body = np.append(np.ones(len(view.rest_coords), dtype=bool), False)
+        with_prop = dataclasses.replace(
+            view,
+            coords=coords,
+            rest_coords=rest,
+            node_names=[*view.node_names, "Prop"],
+            body=body,
+        )
+        assert with_prop.body_size == pytest.approx(1.8)
+
+    def test_a_clip_is_measured_on_its_body(self):
+        """The 3ds Max Footsteps node, beside the hips under the root,
+        lies 43 below the feet in the rest pose; the body, which it is
+        not part of, stands 164 tall."""
+        clip = read_bvh_file("bvh_data/synthetic/footsteps_humanoid_offset_6ch.bvh")
+        frame0 = clip.node_positions()[:1]
+        view = make_scene([clip], [frame0], "front", None).views[0]
+        assert view.body_size == pytest.approx(164.0)
+
     def test_zero_length_bones_do_not_hide_the_coords_unit(self):
         """A rig can carry zero-length bones (end sites or helper joints
         placed on their parent). Most of this one's bones have no rest

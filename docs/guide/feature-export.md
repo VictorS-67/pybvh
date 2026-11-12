@@ -90,14 +90,14 @@ On the velocity-like functions, the defaults are `stencil="central", pad="edge"`
 | **Joint velocities** | How fast each joint moves in 3D space (finite differences of FK positions) | Motion dynamics, action recognition |
 | **Joint accelerations** | Rate of velocity change per joint | Smoothness constraints, jerk detection |
 | **Angular velocities** | Per-joint rotation speed via rotation matrix log map | Rotation dynamics, independent of skeleton scale |
-| **Root trajectory** | Ground-plane position (2D) + heading as sin/cos (2D) | Locomotion conditioning, path prediction |
+| **Root trajectory** | Ground-plane position (2D) of the body anchor + heading as sin/cos (2D) | Locomotion conditioning, path prediction |
 | **Foot contacts** | Binary per-frame indicators (combined velocity + height by default; see `method=`) | Contact-aware generation, foot skating loss |
 
 The figure shows what the contact detector actually thresholds: foot speed and clearance above the floor, ANDed. The green spans are the detected stance:
 
 ![Foot speed and clearance signals over a walking clip with their thresholds. Green spans mark the detected stance phases where both signals sit below threshold](../gallery/img/foot-contacts.png)
 
-For root-relative positions, use `bvh.node_positions(centered='skeleton')`.
+For positions relative to the body anchor (the hips on most rigs), use `bvh.node_positions(centered='skeleton')`.
 
 ## One-stop feature export
 
@@ -114,6 +114,8 @@ features = bvh.to_feature_array(
 `bvh.feature_array_layout(...)` gives `{block_name: slice}`. Use it to unpack the flat array back into `root_pos` / `rotations` / `velocities` / `foot_contacts` blocks. The figure shows the column layout of the exact call above:
 
 ![Column-band diagram of the feature array: root_pos, rotations, velocities, and foot_contacts blocks with their widths](../gallery/img/feature-layout.png)
+
+The `root_pos` block is the root's row of `bvh.node_positions(centered=...)`. With the rotations (and the `joint_translations` block on a rig with translating joints), it gives back `node_positions(centered=...)` by forward kinematics. On a clip whose root lies above the body, such as a reference root above the hips, the block is the root's position relative to the body anchor: under `centered="skeleton"` it is not zero, and under `centered="first"` it is the root's centred row, not the anchor's. For the body's travel, add the `joint_translations` block or use `bvh.root_trajectory()`.
 
 A clip with translating joints (joints other than the root that declare position channels) holds their per-frame positions in `bvh.joint_translations`. The feature array leaves them out by default. Pass `include_joint_translations=True` to `to_feature_array`, `feature_array_layout` and `batch_to_numpy` to add them as a `joint_translations` block of `3 * P` columns after `root_pos`. With the block on, `batch_to_numpy` requires every clip to have the same translating joints.
 

@@ -129,7 +129,7 @@ ghost_gif = gp.ghost_trace_gif(walk[:240])
 # ![two seconds of the walk clip rendered with ghost=3 and trajectory=True](https://raw.githubusercontent.com/VictorS-67/pybvh/main/gallery/feature_gallery_ghost.gif)
 
 # %% [markdown]
-# **`render(camera="turntable")`** — a full 360° orbit over the clip's duration. It is the standard way to show a motion from every side in one clip. Here it runs with `centered="skeleton"`, which pins the root so that the orbit is the only motion in frame. Export knobs that no still can show:
+# **`render(camera="turntable")`** — a full 360° orbit over the clip's duration. It is the standard way to show a motion from every side in one clip. Here it runs with `centered="anchor"`, which pins the root so that the orbit is the only motion in frame. Export knobs that no still can show:
 #
 # - `supersample`: 2× anti-aliasing by default on the OpenCV backend.
 # - `codec="h264"`, for mp4s that play in a browser.
@@ -150,8 +150,8 @@ turntable_gif = gp.turntable_gif(walk)
 # **`node_positions(centered=…)`** — the three coordinate modes for forward-kinematics output. Shown on the **walking clip** loaded in section 1. Travel makes the modes unmistakable. Same clip, same frame. The blue trail is the root's path over the whole clip.
 #
 # - `"world"` keeps absolute file coordinates.
-# - `"first"` shifts the first frame's root over the origin. The character still travels.
-# - `"skeleton"` pins the root at the origin every frame. The trail collapses to a point: pose only, no travel.
+# - `"first_ground"` shifts the first frame's root over the origin. The character still travels.
+# - `"anchor"` pins the root at the origin every frame. The trail collapses to a point: pose only, no travel.
 
 # %%
 gp.fig_centered_modes(walk, walk.frame_count // 2)

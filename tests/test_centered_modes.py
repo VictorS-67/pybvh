@@ -10,6 +10,7 @@ refused with no alias (#214).
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import matplotlib
@@ -185,12 +186,9 @@ def _ground(clip, position):
     return ground
 
 
-def _offset(clip, value, frame=None):
-    """What *value* subtracts from a world position: ``(F, 3)``, or ``(3,)`` with *frame*."""
+def _offset(clip, value):
+    """What *value* subtracts from a world position, ``(F, 3)``."""
     anchor = _anchor_world(clip)
-    if frame is not None:
-        # One frame posed: both ground modes subtract that frame's anchor.
-        return anchor[frame] if value == "anchor" else _ground(clip, anchor[frame])
     if value == "anchor":
         return anchor
     if value == "anchor_ground":
@@ -255,9 +253,8 @@ def _world_positions(clip, value):
 # For each name in COMPUTING, its expected output under a centred value.
 EXPECTED = {
     "Bvh.node_positions": _world_positions,
-    "Bvh.node_positions(frame=)": lambda b, c: (
-        b.node_positions(frame=FRAME, centered="world") - _offset(b, c, frame=FRAME)
-    ),
+    # One frame posed is that frame's row of the whole clip (#215).
+    "Bvh.node_positions(frame=)": lambda b, c: _world_positions(b, c)[FRAME],
     "Bvh.joint_positions": lambda b, c: _world_positions(b, c)[:, _joints(b)],
     "Bvh.to_df_dict": _to_df_dict,
     "Bvh.node_velocities": lambda b, c: _node_derivative(b, c, 1),
@@ -421,3 +418,61 @@ def test_a_mode_that_keeps_the_height_draws_the_clip_s_floor(value, monkeypatch)
     (scene,) = scenes
     assert scene.views[0].floor_height == clip.floor_height
     assert clip.floor_height != scene.views[0].coords[..., 1].min()
+
+
+# ---------------------------------------------------------------------------
+# One frame posed is that frame's row of the whole clip (#215)
+# ---------------------------------------------------------------------------
+
+BUNDLED_CLIPS = sorted(BVH_DATA.rglob("*.bvh"))
+
+
+@pytest.mark.parametrize("cache", CACHE_STATES)
+@pytest.mark.parametrize("path", BUNDLED_CLIPS, ids=lambda p: p.name)
+def test_a_frame_posed_alone_is_its_row_of_the_whole_clip(path, cache):
+    clip = _read_quietly(path)
+    if clip.frame_count == 0:
+        pytest.skip("a clip with no frames has no row to pose")
+    frames = (0, clip.frame_count // 2, clip.frame_count - 1, -1)
+    if cache == "world positions cached":
+        clip.node_positions()
+    for value in NEW_VALUES:
+        # A clip whose world positions are not cached yet poses one frame
+        # with no whole-clip FK: read the rows from a copy.
+        try:
+            whole = clip.copy().node_positions(centered=value)
+        except ValueError as refusal:
+            # A clip with no body refuses a centred mode: one frame too.
+            for frame in frames:
+                with pytest.raises(ValueError, match=re.escape(str(refusal))):
+                    clip.node_positions(frame=frame, centered=value)
+            continue
+        for frame in frames:
+            np.testing.assert_allclose(
+                clip.node_positions(frame=frame, centered=value),
+                whole[frame],
+                rtol=1e-9,
+                atol=1e-9,
+                err_msg=f"centered={value!r}, frame={frame}",
+            )
+
+
+def test_frame_draws_row_k_of_the_whole_clip_under_first_ground(monkeypatch):
+    # The hips of rotation_only_control travel along +z: on its last frame,
+    # "first_ground" keeps them at their travel from frame 0.
+    import pybvh.bvhplot._matplotlib as mpl_backend
+
+    scenes = []
+    monkeypatch.setattr(
+        mpl_backend,
+        "frame_mpl",
+        lambda scene, style, **kwargs: scenes.append(scene) or (None, None),
+    )
+    clip = _read_quietly(SYNTHETIC / "rotation_only_control.bvh")
+    last = clip.frame_count - 1
+    bvhplot.frame(clip, last, centered="first_ground")
+    (scene,) = scenes
+    drawn = scene.views[0].coords
+    np.testing.assert_allclose(drawn, clip.node_positions(centered="first_ground")[last : last + 1])
+    hips = clip.nodes.index(clip.body_anchor)
+    assert drawn[0, hips, 2] != pytest.approx(0.0)

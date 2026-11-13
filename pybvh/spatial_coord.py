@@ -430,7 +430,9 @@ def frames_to_node_positions(
         ``"first_ground"`` – ground-plane centering: the first frame's centre
         node position is subtracted in the two axes other than
         ``world_up`` only, so the motion starts above the origin at its
-        original height.
+        original height. Given one frame, it is the first frame: this
+        function sees no other. For that frame's row of the whole clip,
+        call :meth:`Bvh.node_positions` with ``frame=``.
         ``"anchor_ground"`` – each frame's centre node position is
         subtracted in the two axes other than ``world_up`` only, so the
         travel is removed and the height kept.

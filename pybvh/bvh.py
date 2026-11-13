@@ -2995,8 +2995,12 @@ class Bvh:
             ``CHANNELS 0``, or a reference node whose channels do not
             change), they centre on the body, not on the reference
             node: under ``"anchor"`` the body anchor stays at the origin and
-            the reference node moves. With *frame* given, ``"first_ground"``
-            centres on that frame's anchor, the one frame posed.
+            the reference node moves.
+
+            With *frame* given, every mode gives that frame's row of the
+            whole clip: ``node_positions(frame=k, centered=c)`` equals
+            ``node_positions(centered=c)[k]``. For one pose at the
+            origin of the ground plane, pass ``"anchor_ground"``.
         """
         _check_centered(centered)
         if frame is None:
@@ -3011,17 +3015,14 @@ class Bvh:
         actual = frame if frame >= 0 else frame + self.frame_count
         motion = self._motion()
         anchor = 0 if centered == "world" else self._body_anchor_index()
+        if centered == "first_ground":
+            # The frame's row of the whole clip: frame 0's anchor is
+            # subtracted, not this frame's.
+            start = motion["root_pos"][0] if anchor == 0 else self._frame_world_positions(0)[anchor]
+            return self._frame_world_positions(actual) - _ground_plane_offset(start, self.world_up)
         if anchor != 0:
             # Centred on the anchor's row of the frame's world positions.
-            if self._derived.node_positions is not None:
-                world_frame = self._derived.node_positions[actual]
-            else:
-                world_frame = frames_to_node_positions(
-                    self,
-                    root_pos=motion["root_pos"][actual],
-                    joint_angles=motion["joint_angles"][actual],
-                    joint_translations=motion["joint_translations"][actual],
-                )
+            world_frame = self._frame_world_positions(actual)
             if centered == "anchor":
                 return world_frame - world_frame[anchor]
             return world_frame - _ground_plane_offset(world_frame[anchor], self.world_up)
@@ -3032,21 +3033,29 @@ class Bvh:
             if centered == "anchor":
                 return world_frame - motion["root_pos"][actual]
             return world_frame - _ground_plane_offset(motion["root_pos"][actual], self.world_up)
-        if centered in ("first_ground", "anchor_ground"):
-            return frames_to_node_positions(
-                self,
-                root_pos=motion["root_pos"][actual],
-                joint_angles=motion["joint_angles"][actual],
-                centered=centered,
-                world_up=self.world_up,
-                joint_translations=motion["joint_translations"][actual],
-            )
         return frames_to_node_positions(
             self,
             root_pos=motion["root_pos"][actual],
             joint_angles=motion["joint_angles"][actual],
             centered=centered,
             joint_translations=motion["joint_translations"][actual],
+        )
+
+    def _frame_world_positions(self, frame: int) -> npt.NDArray[np.float64]:
+        """The world positions of the nodes at *frame* (``0 <= frame < F``), ``(N, 3)``.
+
+        A row of the cached world positions when the clip holds them, so
+        do not write into it; else one frame of forward kinematics, with
+        no whole-clip run.
+        """
+        if self._derived.node_positions is not None:
+            return self._derived.node_positions[frame]
+        motion = self._motion()
+        return frames_to_node_positions(
+            self,
+            root_pos=motion["root_pos"][frame],
+            joint_angles=motion["joint_angles"][frame],
+            joint_translations=motion["joint_translations"][frame],
         )
 
     def joint_positions(

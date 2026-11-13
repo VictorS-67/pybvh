@@ -100,7 +100,15 @@ class TestAReferenceRootGivesTheControlsTravel:
                 centered=centered,
                 joint_translations=reference.joint_translations[2],
             )[1:],
-            control.node_positions(2, centered=centered),
+            # Given one frame, frames_to_node_positions takes it as its
+            # first under "first_ground", on both clips (#215).
+            frames_to_node_positions(
+                control,
+                control.root_pos[2],
+                control.joint_angles[2],
+                centered=centered,
+                joint_translations=control.joint_translations[2],
+            ),
             atol=1e-9,
         )
 

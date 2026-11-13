@@ -586,14 +586,12 @@ def frame(
         each one's own last frame, where the viewer stops at the
         shortest, or holds it under ``sync="pad"``, and resamples under
         ``match_fps``).
-        The other modes differ by centering alone: under ``"first_ground"``
-        the still is centred on the frame it draws, so each skeleton
-        stands back from the viewer's place by its clip's travel on the
-        ground since the first frame (times its *match_size* factor);
-        under ``"anchor_ground"`` the viewer is centred on each frame
-        too, so the still draws every skeleton where the viewer and the
-        video draw it at that frame, as under ``"world"``;
-        under ``"anchor"`` its floor is the pose's, not the clip's,
+        Under ``"first_ground"`` and ``"anchor_ground"`` the still
+        draws every skeleton where the viewer and the video draw it at
+        that frame, as under ``"world"``: the frame drawn is that
+        frame's row of the whole clip (:meth:`Bvh.node_positions`).
+        Under ``"anchor"`` the still differs by its floor alone: its
+        floor is the pose's, not the clip's,
         and a matched skeleton is scaled about that floor. Measured on
         the frame, the spread would also differ when the first skeleton
         sweeps wider over the clip (walking sideways, say) than at that

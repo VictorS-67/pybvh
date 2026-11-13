@@ -3110,26 +3110,25 @@ class TestSpreadInOneScene:
         for played_view, still_view in zip(played.views, still.views, strict=True):
             np.testing.assert_allclose(still_view.coords[0], played_view.coords[f], atol=1e-9)
 
-    def test_a_matched_still_centred_first_ground_is_the_viewers_frame_recentred(
+    def test_a_matched_still_centred_first_ground_is_the_viewers_frame(
         self, walk_and_hundredfold, reached, tmp_path
     ):
-        """Under centered="first_ground" a still is centred on the frame it
-        draws, so each skeleton sits where the viewer draws it at that
-        frame, less the clip's own travel on the ground since its first
-        frame, drawn at the skeleton's factor."""
+        """Under centered="first_ground" the still at frame f is the
+        viewer at frame f, as under "world": one frame posed is its row
+        of the whole clip, so the clip's travel since its first frame
+        stays (#215)."""
         pytest.importorskip("vedo")
         f = 60
         played, still = self._matched_pair(
             walk_and_hundredfold, reached, tmp_path, "first_ground", f
         )
-        for clip, factor, played_view, still_view in zip(
-            walk_and_hundredfold, [1.0, 0.01], played.views, still.views, strict=True
+        for clip, played_view, still_view in zip(
+            walk_and_hundredfold, played.views, still.views, strict=True
         ):
             travel = clip.root_pos[f] - clip.root_pos[0]
             travel[played_view.up_index] = 0.0
-            np.testing.assert_allclose(
-                still_view.coords[0], played_view.coords[f] - factor * travel, atol=1e-9
-            )
+            assert np.linalg.norm(travel) > 0.0
+            np.testing.assert_allclose(still_view.coords[0], played_view.coords[f], atol=1e-9)
 
     @pytest.fixture
     def whole_clip_positions(self, monkeypatch):

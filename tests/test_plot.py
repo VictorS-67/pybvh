@@ -556,7 +556,7 @@ class TestFrame:
         import matplotlib
 
         matplotlib.use("Agg")
-        for mode in ("world", "anchor", "first_ground"):
+        for mode in ("world", "anchor", "first_ground", "anchor_ground"):
             fig, ax = bvhplot.frame(bvh_example, 0, centered=mode, show=False)
             assert fig is not None
 

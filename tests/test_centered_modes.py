@@ -402,3 +402,22 @@ def test_anchor_ground_on_a_topology_needs_a_world_up():
         frames_to_node_positions(
             clip.fk_topology, clip.root_pos, clip.joint_angles, centered="anchor_ground"
         )
+
+
+@pytest.mark.parametrize("value", ["world", "first_ground", "anchor_ground"])
+def test_a_mode_that_keeps_the_height_draws_the_clip_s_floor(value, monkeypatch):
+    # The heights stay world heights, so the drawn floor is the clip's own
+    # (Bvh.floor_height), not the lowest point of the pose drawn.
+    import pybvh.bvhplot._matplotlib as mpl_backend
+
+    scenes = []
+    monkeypatch.setattr(
+        mpl_backend,
+        "frame_mpl",
+        lambda scene, style, **kwargs: scenes.append(scene) or (None, None),
+    )
+    clip = _read_quietly(SYNTHETIC / "rotation_only_control.bvh")
+    bvhplot.frame(clip, 1, centered=value)
+    (scene,) = scenes
+    assert scene.views[0].floor_height == clip.floor_height
+    assert clip.floor_height != scene.views[0].coords[..., 1].min()

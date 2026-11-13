@@ -254,14 +254,14 @@ plt.show()
 # All visualization functions accept a `centered` parameter — the same centering modes as `node_positions()` (see Tutorial 2 for a full explanation):
 #
 # - `'world'` (default): absolute positions from the BVH file.
-# - `'first'`: first frame's root over the origin (horizontal axes only, original height kept), motion continues from there.
-# - `'skeleton'`: root at the origin in every frame (pose only, no global movement).
+# - `'first_ground'`: first frame's root over the origin (horizontal axes only, original height kept), motion continues from there.
+# - `'anchor'`: root at the origin in every frame (pose only, no global movement).
 
 # %%
 # Side-by-side frame plots — axis tick values reveal the centering difference
 fig, axes = plt.subplots(1, 3, figsize=(16, 5), subplot_kw={"projection": "3d"})
 
-for ax, mode in zip(axes, ["world", "first", "skeleton"], strict=True):
+for ax, mode in zip(axes, ["world", "first_ground", "anchor"], strict=True):
     bvh.plot_frame(frame=30, centered=mode, ax=ax)
     ax.set_title(f'centered="{mode}"')
 
@@ -288,7 +288,7 @@ plt.show()
 
 # %%
 # Relative to first frame
-fig, ax = bvh.plot_trajectory(centered="first")
+fig, ax = bvh.plot_trajectory(centered="first_ground")
 ax.set_title("Trajectory relative to frame 0")
 plt.show()
 
@@ -296,7 +296,7 @@ plt.show()
 # Compare multiple trajectories
 bvh2 = pybvh.read_bvh_file(bvh_folder / "bvh_test2.bvh")
 
-fig, ax = bvhplot.trajectory([bvh, bvh2], labels=["Motion 1", "Motion 2"], centered="first")
+fig, ax = bvhplot.trajectory([bvh, bvh2], labels=["Motion 1", "Motion 2"], centered="first_ground")
 ax.set_title("Trajectory comparison")
 plt.show()
 
@@ -442,7 +442,7 @@ bvh.play()
 # %% tags=["skip-execution"]
 # Play multiple skeletons side by side
 bvh2 = pybvh.read_bvh_file(bvh_folder / "bvh_test2.bvh")
-bvhplot.play([bvh, bvh2], labels=["Motion 1", "Motion 2"], centered="first", sync="pad")
+bvhplot.play([bvh, bvh2], labels=["Motion 1", "Motion 2"], centered="first_ground", sync="pad")
 
 # %% [markdown]
 # The previous cell triggers two warnings: the clips have different frame rates (30 fps vs 120 fps) and different world_up conventions (`+z` for Motion 1, `+y` for Motion 2). The cell below addresses both: `reorient_world_up()` aligns the coordinate systems, `match_fps` resamples to a common frame rate, and `sync="pad"` extends the shorter clip rather than truncating the longer one.
@@ -453,7 +453,7 @@ bvh2_zup = bvh2.reorient_world_up("+z")
 bvhplot.play(
     [bvh, bvh2_zup],
     labels=["Motion 1", "Motion 2"],
-    centered="first",
+    centered="first_ground",
     match_fps="highest",
     sync="pad",
 )

@@ -97,8 +97,8 @@ plt.show()
 # The `centered` parameter controls this:
 #
 # - **`"world"`** (default): absolute positions from the BVH file. The skeleton is wherever it was recorded.
-# - **`"first"`**: ground-plane centering — the first frame's root is shifted over the origin in the two horizontal axes, keeping its original height above the ground. The skeleton still moves from there.
-# - **`"skeleton"`**: the root is at `[0, 0, 0]` in **every** frame. Only the pose changes, not the global position.
+# - **`"first_ground"`**: ground-plane centering — the first frame's root is shifted over the origin in the two horizontal axes, keeping its original height above the ground. The skeleton still moves from there.
+# - **`"anchor"`**: the root is at `[0, 0, 0]` in **every** frame. Only the pose changes, not the global position.
 #
 # The best way to understand this is visually:
 
@@ -106,29 +106,29 @@ plt.show()
 # Interactive playback — run locally to compare the three modes side by side
 # (opens a player window/widget, so no output is stored in the notebook)
 bvh.play(centered="world", labels=["world"])
-bvh.play(centered="first", labels=["first"])
-bvh.play(centered="skeleton", labels=["skeleton"])
+bvh.play(centered="first_ground", labels=["first_ground"])
+bvh.play(centered="anchor", labels=["anchor"])
 
 # %%
-for mode in ["world", "first", "skeleton"]:
+for mode in ["world", "first_ground", "anchor"]:
     fig, ax = bvh.plot_frame(frame=15, centered=mode)
     ax.set_title(f'centered="{mode}"')
     plt.show()
 
 # %% [markdown]
-# We can also verify numerically: with `"skeleton"` centering, the root is always at the origin.
+# We can also verify numerically: with `"anchor"` centering, the root is always at the origin.
 
 # %%
-coords_skel = bvh.node_positions(centered="skeleton")
+coords_anchor = bvh.node_positions(centered="anchor")
 
-print("Root position with 'skeleton' centering (first 5 frames):")
-print(coords_skel[:5, 0])  # all zeros
+print("Root position with 'anchor' centering (first 5 frames):")
+print(coords_anchor[:5, 0])  # all zeros
 
 # %% [markdown]
 # **When to use each mode:**
 # - `"world"` — when you need the original recording positions (e.g., analyzing room-scale trajectories).
-# - `"first"` — when you want the motion to start over the origin (at its natural height) but still move naturally (common for ML training data).
-# - `"skeleton"` — when you only care about the body pose, not the global position (e.g., pose classification).
+# - `"first_ground"` — when you want the motion to start over the origin (at its natural height) but still move naturally (common for ML training data).
+# - `"anchor"` — when you only care about the body pose, not the global position (e.g., pose classification).
 
 # %% [markdown]
 # If your dataset mixes files with different up-axis conventions (some Y-up, some Z-up), you can unify them with `bvh.reorient_world_up('+y')` — this rotates the entire animation into a new coordinate system without changing how the character looks. See the [World Up guide](https://victors-67.github.io/pybvh/guide/world-up/) for details.

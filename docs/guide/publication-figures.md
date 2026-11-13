@@ -43,7 +43,7 @@ fig.savefig("motion.pdf", bbox_inches="tight")
 The layout is the one real choice. It depends on the motion:
 
 - `"offset"` draws each pose at its world position, so locomotion reads left to right across the figure.
-- `"overlay"` superimposes root-centred poses, which is what in-place motion needs. If you overlay a walk, the legs tangle unreadably.
+- `"overlay"` superimposes the poses, each centred on the body anchor, which is what in-place motion needs. If you overlay a walk, the legs tangle unreadably.
 
 When only part of the clip is the point, `frames=(start, stop)` restricts the sampled range. `trajectory=False` drops the floor trace.
 

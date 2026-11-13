@@ -224,7 +224,7 @@ plt.show()
 # The `layout` parameter picks how poses are arranged:
 #
 # - `'offset'` (default) — poses stay at their world positions, so locomotion spreads left to right, with the root's path dashed on the floor. The right mode for travelling motion.
-# - `'overlay'` — poses are superimposed (root-centered). The right mode for in-place motion, where offset poses would pile on top of each other anyway.
+# - `'overlay'` — poses are superimposed, each centred on the body anchor in the ground plane. The right mode for in-place motion, where offset poses would pile on top of each other anyway.
 
 # %%
 # A walking clip makes the offset layout shine (CMU mocap, subject 12)

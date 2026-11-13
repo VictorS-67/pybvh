@@ -699,10 +699,15 @@ def sequence(
         the side with equal-scale non-cubic bounds so the travel fills
         the frame, whatever the style's projection (a
         ``projection="persp"`` set in the Style raises, see *style*).
-        ``"overlay"``: poses superimposed (per-pose
-        horizontal root-centering), seen from the front in the style's
-        projection (perspective unless the style asks otherwise) — the
-        right mode for in-place motion; on locomotion the legs tangle.
+        ``"overlay"``: poses superimposed, each centred on the body
+        anchor (:attr:`~pybvh.bvh.Bvh.body_anchor`) in the ground plane:
+        each pose is shifted so that the anchor stands above the origin,
+        at the height *centered* gives it. Seen from the front in the
+        style's projection (perspective unless the style asks
+        otherwise) — the right mode for in-place motion; on locomotion
+        the legs tangle. A clip with no body (``body_anchor`` ``None``)
+        raises ``ValueError`` naming the candidates, as
+        ``centered="anchor"`` does; the offset layout still draws it.
     style : Style or str, optional
         Visual styling preset or instance. Default ``"paper"``. The
         joint fields are drawn on the last pose, the others on every

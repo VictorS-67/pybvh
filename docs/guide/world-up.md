@@ -356,7 +356,7 @@ angles = bvh.joint_angles.copy()
 angles[:, 0] = rotations.rotmat_to_euler(
     np.broadcast_to(tilt, (bvh.frame_count, 3, 3)), bvh.nodes[0].rot_channels)
 bvh.joint_angles = angles
-bvh.root_trajectory()[:3, 2:4]   # NaN: the root faces straight up
+bvh.root_trajectory()[:3, 2:4]   # NaN: the body anchor faces straight up
 ```
 
 When `rest_forward` is the house default (no usable L/R geometry, and reading it warns), `root_trajectory()` still builds the heading on it. Then both the heading and its rate of turn (`heading_vel`) depend on that guessed reference whenever the anchor pitches or rolls. A tilted anchor's forward projects on the ground at an angle, and turns there at a rate, that differ with the forward it starts from. On a defaulted `rest_forward`, the heading and `heading_vel` are reliable only for an anchor that turns about world up alone. The facing chain takes no heading from such a `rest_forward` (step 2 above). So a facing never offers a guessed direction as a measured one.

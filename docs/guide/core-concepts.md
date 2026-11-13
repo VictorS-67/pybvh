@@ -52,7 +52,7 @@ The body anchor is the joint that the body's measures start from: the hips on mo
 
 One look makes the difference obvious. The figure shows the same walking clip and the same frame in three coordinate frames. The blue trail is the root's path over the whole clip:
 
-![The three centered modes on a walking clip: world keeps file coordinates, first_ground starts the path at the origin, anchor pins the root so the trail collapses to a point](../gallery/img/centered-modes.png)
+![The three centered modes on a walking clip: world keeps file coordinates, first_ground starts the path at the origin, anchor pins the body anchor, which is the root on this clip, so the root's trail collapses to a point](../gallery/img/centered-modes.png)
 
 *More one-figure-per-feature visuals: the [Gallery](../gallery/index.md).*
 

@@ -85,7 +85,7 @@ def make_array_view(
     # root_trajectory's [sin, cos] heading for a character facing +z
     # with y up or down: the ground basis is (x, z) either way, cos
     # along x, sin along z.
-    root_heading = np.tile([1.0, 0.0], (n_frames, 1))
+    anchor_heading = np.tile([1.0, 0.0], (n_frames, 1))
 
     return SkeletonView(
         coords=coords,
@@ -102,7 +102,7 @@ def make_array_view(
         lr_pairs=LR_PAIRS.copy(),
         initial_forward="+z",
         bone_chains=list(BONE_CHAINS),
-        root_heading=root_heading,
+        anchor_heading=anchor_heading,
     )
 
 
@@ -146,5 +146,5 @@ def make_bare_view(
         lr_pairs=np.zeros((0, 2), dtype=np.intp),
         initial_forward="+z",
         bone_chains=["spine"] * len(bones),
-        root_heading=np.tile([1.0, 0.0], (n_frames, 1)),
+        anchor_heading=np.tile([1.0, 0.0], (n_frames, 1)),
     )

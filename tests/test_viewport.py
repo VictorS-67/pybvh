@@ -212,7 +212,7 @@ class TestSchedule:
         no_pairs = dataclasses.replace(view, lr_pairs=np.empty((0, 2), dtype=np.intp))
         assert make_viewport([no_pairs], schedule="follow").azimuths is None
         one_frame = dataclasses.replace(
-            view, coords=view.coords[:1], root_heading=view.root_heading[:1]
+            view, coords=view.coords[:1], anchor_heading=view.anchor_heading[:1]
         )
         viewport = make_viewport([one_frame], schedule="turntable")
         assert viewport.azimuths is None
@@ -369,7 +369,7 @@ def _turned_in_place(view, degrees):
     coords[..., 0] = cos * rest[:, 0] + sin * rest[:, 2]
     coords[..., 1] = rest[:, 1]
     coords[..., 2] = -sin * rest[:, 0] + cos * rest[:, 2]
-    return dataclasses.replace(view, coords=coords, root_heading=None)
+    return dataclasses.replace(view, coords=coords, anchor_heading=None)
 
 
 def _turning_view(view):

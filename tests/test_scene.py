@@ -220,48 +220,48 @@ class TestViewCarriesSkeletonFacts:
             if i not in claimed:
                 assert view.bone_chains[i] == "spine"
 
-    def test_root_heading_is_root_trajectory_heading(self, bvh, coords):
+    def test_anchor_heading_is_root_trajectory_heading(self, bvh, coords):
         view = make_scene([bvh], [coords], "front", None, clip_frames=slice(None)).views[0]
-        np.testing.assert_allclose(view.root_heading, root_trajectory(bvh)[:, 2:4])
+        np.testing.assert_allclose(view.anchor_heading, root_trajectory(bvh)[:, 2:4])
 
-    def test_root_heading_follows_truncated_coords(self, bvh, coords):
+    def test_anchor_heading_follows_truncated_coords(self, bvh, coords):
         short = coords[:40]
         view = make_scene([bvh], [short], "front", None, clip_frames=slice(None)).views[0]
-        assert view.root_heading.shape == (40, 2)
-        np.testing.assert_allclose(view.root_heading, root_trajectory(bvh)[:40, 2:4])
+        assert view.anchor_heading.shape == (40, 2)
+        np.testing.assert_allclose(view.anchor_heading, root_trajectory(bvh)[:40, 2:4])
 
-    def test_root_heading_follows_padded_coords(self, bvh, coords):
+    def test_anchor_heading_follows_padded_coords(self, bvh, coords):
         extra = 7
         padded = np.concatenate([coords, np.repeat(coords[-1:], extra, axis=0)], axis=0)
         view = make_scene([bvh], [padded], "front", None, clip_frames=slice(None)).views[0]
         heading = root_trajectory(bvh)[:, 2:4]
-        assert view.root_heading.shape == (coords.shape[0] + extra, 2)
-        np.testing.assert_allclose(view.root_heading[:-extra], heading)
+        assert view.anchor_heading.shape == (coords.shape[0] + extra, 2)
+        np.testing.assert_allclose(view.anchor_heading[:-extra], heading)
         np.testing.assert_allclose(
-            view.root_heading[-extra:], np.repeat(heading[-1:], extra, axis=0)
+            view.anchor_heading[-extra:], np.repeat(heading[-1:], extra, axis=0)
         )
 
-    def test_root_heading_for_a_single_frame(self, bvh, coords):
+    def test_anchor_heading_for_a_single_frame(self, bvh, coords):
         one = coords[-1:]
         view = make_scene([bvh], [one], "front", None, clip_frames=-1).views[0]
-        assert view.root_heading.shape == (1, 2)
-        np.testing.assert_allclose(view.root_heading[0], root_trajectory(bvh)[-1, 2:4])
+        assert view.anchor_heading.shape == (1, 2)
+        np.testing.assert_allclose(view.anchor_heading[0], root_trajectory(bvh)[-1, 2:4])
 
-    def test_root_heading_follows_a_slice_of_the_clip(self, bvh, coords):
+    def test_anchor_heading_follows_a_slice_of_the_clip(self, bvh, coords):
         view = make_scene(
             [bvh], [coords[10:50:2]], "front", None, clip_frames=slice(10, 50, 2)
         ).views[0]
-        np.testing.assert_allclose(view.root_heading, root_trajectory(bvh)[10:50:2, 2:4])
+        np.testing.assert_allclose(view.anchor_heading, root_trajectory(bvh)[10:50:2, 2:4])
 
     def test_one_clip_frame_needs_one_row_coords(self, bvh, coords):
         with pytest.raises(ValueError, match="names one clip frame"):
             make_scene([bvh], [coords], "front", None, clip_frames=3)
 
-    def test_root_heading_none_unless_the_coords_are_the_clips(self, bvh, coords):
+    def test_anchor_heading_none_unless_the_coords_are_the_clips(self, bvh, coords):
         """The default attaches no clip fact: the caller must say which
         clip frames the coords are before a heading is aligned to them."""
         view = make_scene([bvh], [coords], "front", None).views[0]
-        assert view.root_heading is None
+        assert view.anchor_heading is None
 
     def test_router_says_which_clip_frames_the_coords_are(self, bvh, coords, handed):
         heading = root_trajectory(bvh)[:, 2:4]
@@ -270,9 +270,9 @@ class TestViewCarriesSkeletonFacts:
         bvhplot.frame(bvh, coords=coords[:5])
         whole, one, supplied = (scene.views[0] for scene in handed)
 
-        np.testing.assert_allclose(whole.root_heading, heading)
-        np.testing.assert_allclose(one.root_heading, heading[7:8])
-        assert supplied.root_heading is None
+        np.testing.assert_allclose(whole.anchor_heading, heading)
+        np.testing.assert_allclose(one.anchor_heading, heading[7:8])
+        assert supplied.anchor_heading is None
 
     def test_rest_pose_scene_carries_no_clip_heading(self, bvh, monkeypatch):
         """A rest pose is not a clip frame: attaching frame 0's heading
@@ -289,7 +289,7 @@ class TestViewCarriesSkeletonFacts:
         monkeypatch.setattr(mpl_backend, "frame_mpl", fake_frame_mpl)
         bvhplot.rest_pose(bvh, show=False)
         view = captured[0].views[0]
-        assert view.root_heading is None
+        assert view.anchor_heading is None
         np.testing.assert_allclose(view.coords[0], bvh.rest_pose_positions())
 
     def test_scene_frame_time_is_the_first_views(self, bvh, coords):
@@ -328,7 +328,7 @@ def _without_lr_pairs(clip):
 
 class TestInitialForwardOnAFrameLyingOnItsSide:
     """The first shown row's facing reads the facing chain as forward_at
-    does: on a clip frame whose left/right axis is vertical, the root's
+    does: on a clip frame whose left/right axis is vertical, the anchor's
     heading at that frame; a pose with no clip frame has none to read."""
 
     @pytest.fixture
@@ -346,7 +346,7 @@ class TestInitialForwardOnAFrameLyingOnItsSide:
         [lambda clip: bvhplot.frame(clip, 3), _play_every_frame],
         ids=["frame 3", "every frame"],
     )
-    def test_a_clip_frame_takes_the_root_heading(self, lying, draw, handed):
+    def test_a_clip_frame_takes_the_anchor_heading(self, lying, draw, handed):
         # The root turns rest forward +y onto +z, on the ground of -x; the
         # house default for an x up would be +y.
         with warnings.catch_warnings():
@@ -377,7 +377,7 @@ class TestSceneMethods:
         sub = scene.subsampled(step)
         view, original = sub.views[0], scene.views[0]
         np.testing.assert_array_equal(view.coords, coords[::step])
-        np.testing.assert_array_equal(view.root_heading, original.root_heading[::step])
+        np.testing.assert_array_equal(view.anchor_heading, original.anchor_heading[::step])
         assert view.frame_time == pytest.approx(original.frame_time * step)
         assert sub.frame_time == view.frame_time
         # untouched by subsampling
@@ -401,7 +401,7 @@ class TestSceneMethods:
         np.testing.assert_allclose(moved.coords, coords + off)
         assert moved.floor_height == pytest.approx(view.floor_height + 2.5)
         # translation-invariant facts are kept
-        np.testing.assert_array_equal(moved.root_heading, view.root_heading)
+        np.testing.assert_array_equal(moved.anchor_heading, view.anchor_heading)
         assert moved.frame_time == view.frame_time
 
     def test_lateral_offset_leaves_the_floor(self, bvh, coords):
@@ -607,9 +607,9 @@ class TestSceneMethods:
             scene.views[0].frame_time = 1.0  # type: ignore[misc]
 
     def test_subsampled_keeps_a_missing_heading_missing(self):
-        view = dataclasses.replace(make_array_view(12), root_heading=None)
+        view = dataclasses.replace(make_array_view(12), anchor_heading=None)
         sub = Scene(views=[view]).subsampled(3).views[0]
-        assert sub.root_heading is None
+        assert sub.anchor_heading is None
         np.testing.assert_array_equal(sub.coords, view.coords[[0, 3, 6, 9]])
         assert sub.frame_time == pytest.approx(3 / 30)
 
@@ -619,7 +619,7 @@ class TestSceneMethods:
         view = make_array_view(1)
         sub = Scene(views=[view]).subsampled(4).views[0]
         np.testing.assert_array_equal(sub.coords, view.coords)
-        np.testing.assert_array_equal(sub.root_heading, view.root_heading)
+        np.testing.assert_array_equal(sub.anchor_heading, view.anchor_heading)
         assert sub.frame_time == pytest.approx(4 / 30)
 
     def test_offset_on_a_negative_up_view_moves_the_floor_with_the_feet(self):
@@ -739,7 +739,7 @@ class TestSizeMatched:
 
         def last_frame(view):
             return dataclasses.replace(
-                view, coords=view.coords[-1:], root_heading=view.root_heading[-1:]
+                view, coords=view.coords[-1:], anchor_heading=view.anchor_heading[-1:]
             )
 
         still = Scene(views=[last_frame(small), last_frame(big)])
@@ -881,7 +881,7 @@ class TestLoopedScene:
         shown = [0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 0, 1]
         for view, original in zip(looped.views, scene.views, strict=True):
             np.testing.assert_array_equal(view.coords, original.coords[shown])
-            np.testing.assert_array_equal(view.root_heading, original.root_heading[shown])
+            np.testing.assert_array_equal(view.anchor_heading, original.anchor_heading[shown])
             assert view.frame_time == original.frame_time
             assert view.floor_height == original.floor_height
             assert view.label == original.label
@@ -1114,7 +1114,7 @@ class TestViewIsCheckedAtConstruction:
         [
             (dict(coords=np.zeros((9, 3))), "coords must have shape"),
             (dict(coords=np.zeros((4, 9, 2))), "coords must have shape"),
-            (dict(coords=np.zeros((0, 9, 3)), root_heading=None), "at least one frame"),
+            (dict(coords=np.zeros((0, 9, 3)), anchor_heading=None), "at least one frame"),
             (
                 dict(coords=np.zeros((4, 0, 3)), node_names=[], rest_coords=np.zeros((0, 3))),
                 "at least one frame",
@@ -1137,8 +1137,8 @@ class TestViewIsCheckedAtConstruction:
             (dict(lr_pairs=np.array([[0.0, np.nan]])), "lr_pairs must hold integer node indices"),
             (dict(bones=[(0, 1.5)], bone_chains=["spine"]), "bones must hold integer node indices"),
             (dict(bones=[(0, 1, 2)], bone_chains=["spine"]), "bones must be"),
-            (dict(root_heading=np.zeros((3, 2))), "root_heading must have shape"),
-            (dict(root_heading=np.zeros((12, 3))), "root_heading must have shape"),
+            (dict(anchor_heading=np.zeros((3, 2))), "anchor_heading must have shape"),
+            (dict(anchor_heading=np.zeros((12, 3))), "anchor_heading must have shape"),
             (dict(frame_time=-0.01), "frame_time must be a number of seconds"),
             (dict(frame_time=float("nan")), "frame_time must be a number of seconds"),
             (dict(frame_time=float("inf")), "frame_time must be a number of seconds"),
@@ -1151,9 +1151,9 @@ class TestViewIsCheckedAtConstruction:
 
     def test_a_view_without_pairs_or_heading_builds(self):
         view = dataclasses.replace(
-            make_array_view(), root_heading=None, lr_pairs=np.empty((0, 2), dtype=np.intp)
+            make_array_view(), anchor_heading=None, lr_pairs=np.empty((0, 2), dtype=np.intp)
         )
-        assert view.root_heading is None
+        assert view.anchor_heading is None
         assert view.lr_pairs.shape == (0, 2)
 
     def test_a_view_with_one_node_and_no_bones_builds(self):
@@ -1193,7 +1193,7 @@ class TestViewArraysAreReadOnly:
     shared between a Scene and the ones derived from it, so a write
     would change several Scenes at once."""
 
-    ARRAYS = ["coords", "rest_coords", "lr_pairs", "root_heading"]
+    ARRAYS = ["coords", "rest_coords", "lr_pairs", "anchor_heading"]
 
     @pytest.mark.parametrize("name", ARRAYS)
     def test_writing_into_a_views_array_raises(self, name):
@@ -1248,8 +1248,8 @@ class TestViewArraysAreReadOnly:
                 assert not getattr(view, name).flags.writeable
 
     def test_a_missing_heading_stays_none(self):
-        view = dataclasses.replace(make_array_view(), root_heading=None)
-        assert view.root_heading is None
+        view = dataclasses.replace(make_array_view(), anchor_heading=None)
+        assert view.anchor_heading is None
 
     def test_array_likes_are_accepted(self):
         view = dataclasses.replace(

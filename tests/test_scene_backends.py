@@ -136,7 +136,7 @@ class TestMatplotlib:
                 [1.0, 0.0],
             ]
         )
-        turning = dataclasses.replace(view, root_heading=quarter_turns)
+        turning = dataclasses.replace(view, anchor_heading=quarter_turns)
         fig, ax = trajectory_mpl(Scene(views=[turning]), Style("paper"), facing_arrows=True)
         try:
             (arrows,) = [c for c in ax.collections if isinstance(c, Quiver)]
@@ -163,7 +163,7 @@ class TestMatplotlib:
         view = synthetic_scene.make_array_view(n_frames=4)
         heading = np.tile([1.0, 0.0], (4, 1))
         heading[2] = np.nan
-        unreadable = dataclasses.replace(view, root_heading=heading)
+        unreadable = dataclasses.replace(view, anchor_heading=heading)
         fig, ax = trajectory_mpl(Scene(views=[unreadable]), Style("paper"), facing_arrows=True)
         try:
             (arrows,) = [c for c in ax.collections if isinstance(c, Quiver)]
@@ -1246,7 +1246,7 @@ def _travelling_view(body_lengths=5.0, n_frames=24):
 
 
 def _still_of(view):
-    return dataclasses.replace(view, coords=view.coords[:1], root_heading=view.root_heading[:1])
+    return dataclasses.replace(view, coords=view.coords[:1], anchor_heading=view.anchor_heading[:1])
 
 
 def _scaled(view, factor, lateral_shift):

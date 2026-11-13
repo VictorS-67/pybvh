@@ -45,14 +45,14 @@ A parameter that selects a node takes the node's name or the node itself, one of
 Several functions accept a `centered` parameter:
 
 - `"world"` — positions as stored in the BVH file
-- `"skeleton"` — the body anchor forced to `(0, 0, 0)` every frame
-- `"first"` — ground-plane centering. pybvh subtracts the first frame's body anchor position in the two horizontal axes only. The `world_up` coordinate stays as it is. So the motion starts above the origin at its original height.
+- `"first_ground"` — ground-plane centering. pybvh subtracts the first frame's body anchor position in the two horizontal axes only. The `world_up` coordinate stays as it is. So the motion starts above the origin at its original height.
+- `"anchor"` — the body anchor forced to `(0, 0, 0)` every frame
 
 The body anchor is the joint that the body's measures start from: the hips on most rigs, and the root on a clip whose root is the hips. Under a reference root that never moves, the two centred modes follow the hips, not the root. See [The body anchor](world-up.md#the-body-anchor).
 
 One look makes the difference obvious. The figure shows the same walking clip and the same frame in three coordinate frames. The blue trail is the root's path over the whole clip:
 
-![The three centered modes on a walking clip: world keeps file coordinates, first starts the path at the origin, skeleton pins the root so the trail collapses to a point](../gallery/img/centered-modes.png)
+![The three centered modes on a walking clip: world keeps file coordinates, first_ground starts the path at the origin, anchor pins the root so the trail collapses to a point](../gallery/img/centered-modes.png)
 
 *More one-figure-per-feature visuals: the [Gallery](../gallery/index.md).*
 

@@ -106,6 +106,18 @@ class TestMatplotlib:
         assert len(ax.lines) >= 2
         plt.close(fig)
 
+    def test_facing_arrows_refuse_a_view_with_no_heading(self):
+        """Coordinates that are no clip's frames carry no heading, so
+        there is nothing to draw an arrow from."""
+        import dataclasses
+
+        from pybvh.bvhplot._matplotlib import trajectory_mpl
+        from pybvh.bvhplot._scene import Scene
+
+        view = dataclasses.replace(synthetic_scene.make_array_view(n_frames=4), anchor_heading=None)
+        with pytest.raises(ValueError, match=r"coordinates carry no heading\.$"):
+            trajectory_mpl(Scene(views=[view]), Style("paper"), facing_arrows=True)
+
     def test_each_facing_arrow_points_where_the_heading_says(self):
         """A y-up view is drawn on the (x, z) plane, and its heading is
         [sin, cos] with cos along x and sin along z. Over four frames

@@ -1272,7 +1272,7 @@ def trajectory_mpl(
             if view.anchor_heading is None:
                 raise ValueError(
                     "facing_arrows needs a Scene built from clip frames; "
-                    "caller-supplied coordinates carry no root heading."
+                    "caller-supplied coordinates carry no heading."
                 )
             facing_sin = view.anchor_heading[:, 0]  # y-component (h1)
             facing_cos = view.anchor_heading[:, 1]  # x-component (h0)

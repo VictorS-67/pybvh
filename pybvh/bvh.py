@@ -2944,6 +2944,8 @@ class Bvh:
         anchor = self._body_anchor_positions()
         if centered == "anchor":
             return world - anchor[:, np.newaxis, :]
+        if centered == "anchor_ground":
+            return world - _ground_plane_offset(anchor, self.world_up)[:, np.newaxis, :]
         # with no frames there is nothing to center on
         if self.frame_count == 0:
             return world.copy()
@@ -3024,12 +3026,12 @@ class Bvh:
             if centered == "anchor":
                 return world_frame - motion["root_pos"][actual]
             return world_frame - _ground_plane_offset(motion["root_pos"][actual], self.world_up)
-        if centered == "first_ground":
+        if centered in ("first_ground", "anchor_ground"):
             return frames_to_node_positions(
                 self,
                 root_pos=motion["root_pos"][actual],
                 joint_angles=motion["joint_angles"][actual],
-                centered="first_ground",
+                centered=centered,
                 world_up=self.world_up,
                 joint_translations=motion["joint_translations"][actual],
             )

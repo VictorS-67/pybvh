@@ -2,8 +2,9 @@
 
 ``"world"`` keeps the positions as forward kinematics gives them,
 ``"first_ground"`` subtracts the first frame's body-anchor position in
-the ground plane, and ``"anchor"`` puts the body anchor at the origin on
-every frame. The 0.9.0 names, ``"first"`` and ``"skeleton"``, are
+the ground plane, ``"anchor"`` puts the body anchor at the origin on
+every frame, and ``"anchor_ground"`` subtracts each frame's body-anchor
+position in the ground plane (#215). The 0.9.0 names, ``"first"`` and ``"skeleton"``, are
 refused with no alias (#214).
 """
 
@@ -21,10 +22,10 @@ from pybvh.spatial_coord import frames_to_node_positions
 
 matplotlib.use("Agg")
 
-NEW_VALUES = ("world", "first_ground", "anchor")
+NEW_VALUES = ("world", "first_ground", "anchor", "anchor_ground")
 OLD_VALUES = ("skeleton", "first")
 # The message lists the accepted values, in this order.
-ACCEPTED = r"\['world', 'first_ground', 'anchor'\]"
+ACCEPTED = r"\['world', 'first_ground', 'anchor', 'anchor_ground'\]"
 
 BVH_DATA = Path(__file__).parent.parent / "bvh_data"
 
@@ -140,12 +141,14 @@ def test_first_ground_keeps_the_height_and_zeroes_the_ground_plane(clip):
 #
 # - positions: "anchor" subtracts the anchor's position on every frame, all
 #   three axes; "first_ground" subtracts its first-frame position in the two
-#   ground axes only;
+#   ground axes only; "anchor_ground" subtracts its position on every frame
+#   in the two ground axes only;
 # - vector derivatives: "first_ground" equals "world", since a constant offset
-#   vanishes; "anchor" subtracts the anchor's own derivative of the same order;
+#   vanishes; "anchor" subtracts the anchor's own derivative of the same order,
+#   and "anchor_ground" that derivative in the two ground axes only;
 # - speed derivatives and kinetic energy: "first_ground" equals "world", for
-#   the same reason; under "anchor" the expected value is computed from the
-#   expected velocities.
+#   the same reason; under "anchor" and "anchor_ground" the expected value is
+#   computed from the expected velocities.
 
 # A clip whose body anchor is its root, and one whose anchor (Hips) sits
 # below a reference root and starts away from the origin, so that every
@@ -154,7 +157,7 @@ RELATION_CLIPS = {
     "anchor is the root": BVH_DATA / "bvh_test1.bvh",
     "anchor below a reference root": BVH_DATA / "synthetic" / "reference_props_humanoid_6ch.bvh",
 }
-CENTRED_VALUES = ("first_ground", "anchor")
+CENTRED_VALUES = ("first_ground", "anchor", "anchor_ground")
 # The frame the single-frame entry of COMPUTING poses.
 FRAME = 3
 
@@ -186,9 +189,12 @@ def _offset(clip, value, frame=None):
     """What *value* subtracts from a world position: ``(F, 3)``, or ``(3,)`` with *frame*."""
     anchor = _anchor_world(clip)
     if frame is not None:
+        # One frame posed: both ground modes subtract that frame's anchor.
         return anchor[frame] if value == "anchor" else _ground(clip, anchor[frame])
     if value == "anchor":
         return anchor
+    if value == "anchor_ground":
+        return _ground(clip, anchor)
     return np.broadcast_to(_ground(clip, anchor[0]), anchor.shape)
 
 
@@ -208,7 +214,10 @@ def _node_derivative(clip, value, order):
     )
     if value == "first_ground":
         return world
-    return world - _anchor_derivative(clip, order)[:, np.newaxis]
+    anchor = _anchor_derivative(clip, order)
+    if value == "anchor_ground":
+        anchor = _ground(clip, anchor)
+    return world - anchor[:, np.newaxis]
 
 
 def _node_speed_derivative(clip, value):
@@ -298,3 +307,98 @@ def test_a_computing_callable_gives_what_its_mode_defines(relation_clip_path, na
         # match it.
         assert np.all(np.isfinite(want))
         np.testing.assert_allclose(got, want, rtol=1e-9, atol=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# "anchor_ground": the travel removed, the height kept (#215)
+# ---------------------------------------------------------------------------
+
+SYNTHETIC = BVH_DATA / "synthetic"
+
+
+def _read_quietly(path):
+    """The clip, read without the world-up warnings some corpus clips give."""
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        return read_bvh_file(path)
+
+
+# rotation_only_control: the hips travel along +z and bob around a height of
+# 95 along +y, its world up.
+CONTROL_HIPS_HEIGHT = np.array([95.0, 96.2, 95.0, 93.8, 95.0])
+
+
+def test_anchor_ground_keeps_the_hips_above_the_origin_at_their_height():
+    clip = _read_quietly(SYNTHETIC / "rotation_only_control.bvh")
+    hips = clip.nodes.index(clip.body_anchor)
+    expected = np.zeros((clip.frame_count, 3))
+    expected[:, 1] = CONTROL_HIPS_HEIGHT
+    np.testing.assert_allclose(
+        clip.node_positions(centered="anchor_ground")[:, hips], expected, atol=1e-9
+    )
+    for frame in range(clip.frame_count):
+        np.testing.assert_allclose(
+            clip.node_positions(frame=frame, centered="anchor_ground")[hips],
+            expected[frame],
+            atol=1e-9,
+        )
+
+
+def test_anchor_ground_kinetic_energy_keeps_a_jump_and_drops_the_travel():
+    walk = _read_quietly(SYNTHETIC / "rotation_only_control.bvh")
+    # The same clip with the hips held above one point: a jump in place.
+    jump = walk.copy()
+    root_pos = jump.root_pos.copy()
+    root_pos[:, [0, 2]] = root_pos[0, [0, 2]]
+    jump.root_pos = root_pos
+    np.testing.assert_allclose(
+        jump.kinetic_energy(centered="anchor_ground"),
+        jump.kinetic_energy(centered="world"),
+        rtol=1e-9,
+        atol=1e-9,
+    )
+    # "anchor" drops the jump along with the travel.
+    assert not np.allclose(
+        jump.kinetic_energy(centered="anchor"), jump.kinetic_energy(centered="world")
+    )
+    # On the walk, "anchor_ground" drops the travel: it gives the jump's energy.
+    np.testing.assert_allclose(
+        walk.kinetic_energy(centered="anchor_ground"),
+        jump.kinetic_energy(centered="world"),
+        rtol=1e-9,
+        atol=1e-9,
+    )
+
+
+def test_anchor_ground_on_a_topology_centres_on_the_root():
+    # An FkTopology carries no L/R mapping to find a body from, so the mode
+    # centres on the root, also on a clip whose body is below its root, and
+    # on one that has no body.
+    for name in ("reference_props_humanoid_6ch.bvh", "two_figures_moving_root.bvh"):
+        clip = _read_quietly(SYNTHETIC / name)
+        world = frames_to_node_positions(
+            clip.fk_topology,
+            clip.root_pos,
+            clip.joint_angles,
+            joint_translations=clip.joint_translations,
+        )
+        positions = frames_to_node_positions(
+            clip.fk_topology,
+            clip.root_pos,
+            clip.joint_angles,
+            centered="anchor_ground",
+            world_up="+y",
+            joint_translations=clip.joint_translations,
+        )
+        expected = world - np.asarray(clip.root_pos * [1.0, 0.0, 1.0])[:, np.newaxis]
+        np.testing.assert_allclose(positions, expected, atol=1e-9)
+
+
+def test_anchor_ground_on_a_topology_needs_a_world_up():
+    clip = read_bvh_file(BVH_DATA / "bvh_test1.bvh")
+    with pytest.raises(ValueError, match="centered='anchor_ground' needs an up axis"):
+        frames_to_node_positions(
+            clip.fk_topology, clip.root_pos, clip.joint_angles, centered="anchor_ground"
+        )

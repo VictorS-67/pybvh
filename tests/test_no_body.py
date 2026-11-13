@@ -77,7 +77,22 @@ BODY_LEVEL = {
     "node_positions(frame=0, centered='anchor')": lambda b: b.node_positions(
         frame=0, centered="anchor"
     ),
+    "node_positions(centered='anchor_ground')": lambda b: b.node_positions(
+        centered="anchor_ground"
+    ),
+    "node_positions(frame=0, centered='anchor_ground')": lambda b: b.node_positions(
+        frame=0, centered="anchor_ground"
+    ),
     "joint_positions(centered='anchor')": lambda b: b.joint_positions(centered="anchor"),
+    "node_velocities(centered='anchor_ground')": lambda b: b.node_velocities(
+        centered="anchor_ground"
+    ),
+    "frames_to_node_positions(centered='anchor_ground')": lambda b: frames_to_node_positions(
+        b, centered="anchor_ground"
+    ),
+    "to_feature_array(centered='anchor_ground')": lambda b: to_feature_array(
+        b, centered="anchor_ground"
+    ),
     "node_velocities(centered='anchor')": lambda b: b.node_velocities(centered="anchor"),
     "frames_to_node_positions(centered='anchor')": lambda b: frames_to_node_positions(
         b, b.root_pos, b.joint_angles, centered="anchor", joint_translations=b.joint_translations

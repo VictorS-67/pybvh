@@ -25,7 +25,9 @@ if TYPE_CHECKING:
     from .bvh import Bvh
 
 # The values of ``centered``, the one list every callable that takes it reads.
-_CENTERED_MODES = ("world", "first_ground", "anchor")
+_CENTERED_MODES = ("world", "first_ground", "anchor", "anchor_ground")
+# The modes that keep the up coordinate, and so read a world up.
+_GROUND_MODES = ("first_ground", "anchor_ground")
 
 
 def _check_centered(centered: str) -> None:
@@ -570,11 +572,11 @@ def frames_to_node_positions(
             f"on axis 1, but the skeleton declares {num_translating}."
         )
 
-    if centered == "first_ground":
+    if centered in _GROUND_MODES:
         if world_up is None:
             if source_bvh is None:
                 raise ValueError(
-                    "centered='first_ground' needs an up axis to know which "
+                    f"centered={centered!r} needs an up axis to know which "
                     "coordinate to leave untouched, and a skeleton passed as "
                     "a node list or an FkTopology carries no gravity "
                     "direction. Pass `world_up=` explicitly (e.g. "
@@ -603,6 +605,13 @@ def frames_to_node_positions(
         assert world_up is not None  # mypy: set above whenever centered == "first_ground"
         start = root_pos_arr[0] if anchor == 0 else positions[0, anchor].copy()
         positions -= _ground_plane_offset(start, world_up)
+
+    # "anchor_ground" centering: subtract each frame's anchor position in the
+    # two non-up axes only.
+    if centered == "anchor_ground":
+        assert world_up is not None  # mypy: set above whenever centered == "anchor_ground"
+        each = root_pos_arr if anchor == 0 else positions[:, anchor].copy()
+        positions -= _ground_plane_offset(each, world_up)[:, np.newaxis]
 
     # Return (N, 3) for single frame, (F, N, 3) for multiple
     if single_frame:
@@ -673,16 +682,16 @@ def _ground_plane_offset(
     root_position: npt.NDArray[np.float64],
     up: str,
 ) -> npt.NDArray[np.float64]:
-    """A ``(3,)`` copy of *root_position* with its ``up`` component zeroed.
+    """A copy of *root_position*, ``(3,)`` or ``(F, 3)``, with its ``up`` component zeroed.
 
     Subtracting this vector centers positions on the origin in the ground
     plane while leaving the height above the ground untouched — the
-    ``centered="first_ground"`` convention shared by
-    :func:`frames_to_node_positions` and :meth:`Bvh.node_positions`.
+    ``centered="first_ground"`` and ``"anchor_ground"`` convention shared
+    by :func:`frames_to_node_positions` and :meth:`Bvh.node_positions`.
     """
     up_idx = {"x": 0, "y": 1, "z": 2}[up[-1].lower()]
     offset = np.array(root_position, dtype=np.float64)
-    offset[up_idx] = 0.0
+    offset[..., up_idx] = 0.0
     return offset
 
 

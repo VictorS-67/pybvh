@@ -129,7 +129,7 @@ ghost_gif = gp.ghost_trace_gif(walk[:240])
 # ![two seconds of the walk clip rendered with ghost=3 and trajectory=True](https://raw.githubusercontent.com/VictorS-67/pybvh/main/gallery/feature_gallery_ghost.gif)
 
 # %% [markdown]
-# **`render(camera="turntable")`** — a full 360° orbit over the clip's duration. It is the standard way to show a motion from every side in one clip. Here it runs with `centered="anchor"`, which pins the root so that the orbit is the only motion in frame. Export knobs that no still can show:
+# **`render(camera="turntable")`** — a full 360° orbit over the clip's duration. It is the standard way to show a motion from every side in one clip. Here it runs with `centered="anchor"`, which pins the body anchor so that the orbit is the only motion in frame. Export knobs that no still can show:
 #
 # - `supersample`: 2× anti-aliasing by default on the OpenCV backend.
 # - `codec="h264"`, for mp4s that play in a browser.
@@ -147,11 +147,11 @@ turntable_gif = gp.turntable_gif(walk)
 # The ideas every pybvh user needs, one figure each. Full prose: the [Core Concepts](https://victors-67.github.io/pybvh/guide/core-concepts/) and [World Up](https://victors-67.github.io/pybvh/guide/world-up/) guides.
 
 # %% [markdown]
-# **`node_positions(centered=…)`** — the three coordinate modes for forward-kinematics output. Shown on the **walking clip** loaded in section 1. Travel makes the modes unmistakable. Same clip, same frame. The blue trail is the root's path over the whole clip.
+# **`node_positions(centered=…)`** — the three coordinate modes for forward-kinematics output. Shown on the **walking clip** loaded in section 1. Travel makes the modes unmistakable. Same clip, same frame. The blue trail is the root's path over the whole clip. On this clip the body anchor is the root, the hips, so the trail shows the body anchor.
 #
 # - `"world"` keeps absolute file coordinates.
-# - `"first_ground"` shifts the first frame's root over the origin. The character still travels.
-# - `"anchor"` pins the root at the origin every frame. The trail collapses to a point: pose only, no travel.
+# - `"first_ground"` shifts the first frame's body anchor over the origin. The character still travels.
+# - `"anchor"` pins the body anchor at the origin every frame. The trail collapses to a point: pose only, no travel.
 
 # %%
 gp.fig_centered_modes(walk, walk.frame_count // 2)
@@ -356,7 +356,7 @@ feet = [foot.name for foot in analysis.auto_detect_feet(walk)]
 gp.fig_foot_contacts_signals(walk, feet)
 
 # %% [markdown]
-# **`root_trajectory`** — the root's ground-plane position plus its heading as a (sin, cos) pair. It is the standard root parameterization in motion-generation pipelines. `bvhplot.trajectory(..., facing_arrows=True)` draws the heading along the path.
+# **`root_trajectory`** — the body anchor's ground-plane position plus its heading as a (sin, cos) pair. It is the standard root parameterization in motion-generation pipelines. `bvhplot.trajectory(..., facing_arrows=True)` draws the heading along the path.
 
 # %%
 traj_feats = walk.root_trajectory()  # (F, 4): ground a/b + heading sin/cos
@@ -653,7 +653,7 @@ L = analysis.lagged_covariance(bvh.joint_velocities().reshape(F, -1), lag=1)
 gp.fig_covariance(C, L)
 
 # %% [markdown]
-# **`skeleton_size`** — the absolute scale proxy: the mean rest-pose distance from the root to the feet (red lines). It scales linearly with the whole skeleton.
+# **`skeleton_size`** — the absolute scale proxy: the mean rest-pose distance from the joint the feet branch from, the hips, to the feet (red lines). It scales linearly with the whole skeleton.
 
 # %%
 bvh_feet = [foot.name for foot in analysis.auto_detect_feet(bvh)]

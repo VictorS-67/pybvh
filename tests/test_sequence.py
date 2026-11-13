@@ -500,3 +500,46 @@ class TestTheOverlayCentresOnTheBodyAnchor:
         theirs, _ = _overlay_poses(control)
         # The reference root is node 0; the body follows it in node order.
         np.testing.assert_allclose(ours[:, 1:], theirs, atol=1e-9)
+
+    @pytest.mark.parametrize("name", ["reference_humanoid_6ch.bvh", "rotation_only_control.bvh"])
+    @pytest.mark.parametrize("centered", ["world", "first_ground", "anchor_ground"])
+    def test_a_mode_that_keeps_the_height_overlays_as_anchor_ground(self, name, centered):
+        clip = _read_quietly(SYNTHETIC / name)
+        poses, samples = _overlay_poses(clip, centered=centered)
+        np.testing.assert_allclose(
+            poses, clip.node_positions(centered="anchor_ground")[samples], atol=1e-9
+        )
+
+    @pytest.mark.parametrize("name", ["reference_humanoid_6ch.bvh", "rotation_only_control.bvh"])
+    def test_anchor_overlays_unchanged(self, name):
+        # The anchor already stands at the origin, at height 0.
+        clip = _read_quietly(SYNTHETIC / name)
+        poses, samples = _overlay_poses(clip, centered="anchor")
+        np.testing.assert_allclose(
+            poses, clip.node_positions(centered="anchor")[samples], atol=1e-9
+        )
+
+    @pytest.mark.parametrize(
+        "path",
+        sorted(SYNTHETIC.glob("*.bvh")) + sorted(SYNTHETIC.parent.glob("*.bvh")),
+        ids=lambda path: path.name,
+    )
+    def test_a_clip_whose_anchor_is_its_root_overlays_as_before(self, path):
+        clip = _read_quietly(path)
+        if clip.body_anchor is not clip.root:
+            pytest.skip("the body anchor is not the root")
+        poses, samples = _overlay_poses(clip)
+        # Before #215: each pose less node 0's position in the ground plane.
+        world = clip.node_positions()[samples]
+        shifts = world[:, :1].copy()
+        shifts[..., "xyz".index(clip.world_up[1])] = 0.0
+        np.testing.assert_allclose(poses, world - shifts, atol=1e-9)
+
+    def test_a_clip_with_no_body_raises_and_the_offset_layout_draws(self):
+        clip = _read_quietly(SYNTHETIC / "two_figures_moving_root.bvh", world_up="+y")
+        with pytest.raises(ValueError, match="no body") as raised:
+            bvhplot.sequence(clip, layout="overlay", n_poses=2)
+        assert "'Hips'" in str(raised.value)
+        assert "'Hips_2'" in str(raised.value)
+        fig, _ax = bvhplot.sequence(clip, n_poses=2)
+        plt.close(fig)

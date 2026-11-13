@@ -738,10 +738,10 @@ class TestSpatialCoordinates:
         np.testing.assert_allclose(spatial[:4], expected_first_4, atol=1e-4)
 
     def test_single_frame_anchor_centered(self, bvh_example):
-        """Verify spatial coordinates for single frame, skeleton centered."""
+        """Verify spatial coordinates for single frame, anchor centered."""
         spatial = bvh_example.node_positions(frame=0, centered="anchor")
 
-        # Root should be at origin
+        # The body anchor is at the origin; on this clip it is the root, node 0.
         np.testing.assert_allclose(spatial[0], [0.0, 0.0, 0.0], atol=1e-10)
 
         # Other joints should be offset from origin
@@ -1621,12 +1621,13 @@ class TestVectorizedFK:
             assert coords.shape == (100, len(bvh.nodes), 3)
             assert not np.any(np.isnan(coords))
 
-        # Skeleton centering: root should be at origin
+        # Anchor centering: the body anchor is at the origin on every frame;
+        # on this clip it is the root, node 0.
         coords_anchor = bvh.node_positions(centered="anchor")
         np.testing.assert_allclose(coords_anchor[:, 0, :], 0.0, atol=1e-10)
 
-        # First centering (ground-plane): frame 0 root over the origin,
-        # up coordinate preserved.
+        # First-ground centering: frame 0's body anchor (the root, node 0,
+        # on this clip) over the origin, up coordinate preserved.
         coords_first = bvh.node_positions(centered="first_ground")
         up_idx = {"x": 0, "y": 1, "z": 2}[bvh.world_up[1]]
         horizontal = [i for i in range(3) if i != up_idx]

@@ -226,7 +226,7 @@ def ghost_trace_gif(bvh, path="feature_gallery_ghost.gif", fps=20):
 
 
 def turntable_gif(bvh, path="feature_gallery_turntable.gif", fps=20):
-    # centered="skeleton" pins the root, so the orbit is the only motion in the
+    # centered="anchor" pins the body anchor, so the orbit is the only motion in the
     # frame; under world centering the character would also walk out of view
     # while the camera came round.
     clip = bvh.resample(fps)
@@ -236,7 +236,7 @@ def turntable_gif(bvh, path="feature_gallery_turntable.gif", fps=20):
             backend="matplotlib",
             camera="turntable",
             fps=fps,
-            centered="skeleton",
+            centered="anchor",
             resolution=CLIP_RESOLUTION,
         )
     )
@@ -284,14 +284,18 @@ def trajectory_trace_gif(bvh, joint, path="feature_gallery_hand_traj.gif", fps=2
 
 
 def fig_centered_modes(bvh, frame):
-    """The three `centered` coordinate modes, same clip, with root trails."""
+    """The three `centered` coordinate modes, same clip, with root trails.
+
+    The modes move the body anchor; on the gallery's walk it is the root,
+    so the root trail shows it.
+    """
     fig = plt.figure(figsize=(15, 5))
     notes = {
         "world": "absolute file coordinates",
-        "first": "first-frame root over the origin",
-        "skeleton": "root pinned at the origin every frame",
+        "first_ground": "first-frame body anchor over the origin",
+        "anchor": "body anchor pinned at the origin every frame",
     }
-    for k, mode in enumerate(("world", "first", "skeleton")):
+    for k, mode in enumerate(("world", "first_ground", "anchor")):
         ax = fig.add_subplot(1, 3, k + 1, projection="3d")
         coords = bvh.node_positions(centered=mode)
         draw_skeleton(ax, bvh, coords[frame])
@@ -1115,9 +1119,11 @@ def fig_covariance(C, L):
 
 
 def fig_skeleton_size(bvh, feet, value):
-    fig, ax = new3d("skeleton_size: mean root→foot distance (rest pose)")
+    fig, ax = new3d("skeleton_size: mean hips→foot distance (rest pose)")
     rest = bvh.rest_pose_positions()
     draw_skeleton(ax, bvh, rest, joints=True)
+    # skeleton_size measures from the joint the feet branch from; on the
+    # gallery's clip that is the hips, which is also the root, row 0.
     root = rest[0]
     for fname in feet:
         ax.plot(*zip(root, rest[idx(bvh, fname)], strict=True), "-o", color="tab:red", lw=2)

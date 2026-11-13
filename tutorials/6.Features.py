@@ -299,7 +299,7 @@ print(f"Foot contacts block: {contacts_block.shape}")
 #
 # Every velocity-like function defaults to `stencil="central", pad="edge"` — central differences in the interior, one-sided at the boundaries, output shape matching the input. Pass `stencil="forward"` for strict one-step forward differences, and `pad="none"` to drop the boundary frames instead of padding them (`(F-1, ...)` for forward, `(F-2, ...)` for central).
 #
-# For pose-only positions with the global movement removed, use `bvh.node_positions(centered='skeleton')` (see Tutorial 2).
+# For pose-only positions with the global movement removed, use `bvh.node_positions(centered='anchor')` (see Tutorial 2).
 
 # %% [markdown]
 # # What's next

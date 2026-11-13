@@ -72,17 +72,19 @@ BODY_LEVEL = {
     "left_at": lambda b: b.left_at(0),
     "facing_frame": lambda b: b.facing_frame(),
     "root_trajectory": lambda b: root_trajectory(b),
-    "node_positions(centered='skeleton')": lambda b: b.node_positions(centered="skeleton"),
-    "node_positions(centered='first')": lambda b: b.node_positions(centered="first"),
-    "node_positions(frame=0, centered='skeleton')": lambda b: b.node_positions(
-        frame=0, centered="skeleton"
+    "node_positions(centered='anchor')": lambda b: b.node_positions(centered="anchor"),
+    "node_positions(centered='first_ground')": lambda b: b.node_positions(centered="first_ground"),
+    "node_positions(frame=0, centered='anchor')": lambda b: b.node_positions(
+        frame=0, centered="anchor"
     ),
-    "joint_positions(centered='skeleton')": lambda b: b.joint_positions(centered="skeleton"),
-    "node_velocities(centered='skeleton')": lambda b: b.node_velocities(centered="skeleton"),
-    "frames_to_node_positions(centered='skeleton')": lambda b: frames_to_node_positions(
-        b, b.root_pos, b.joint_angles, centered="skeleton", joint_translations=b.joint_translations
+    "joint_positions(centered='anchor')": lambda b: b.joint_positions(centered="anchor"),
+    "node_velocities(centered='anchor')": lambda b: b.node_velocities(centered="anchor"),
+    "frames_to_node_positions(centered='anchor')": lambda b: frames_to_node_positions(
+        b, b.root_pos, b.joint_angles, centered="anchor", joint_translations=b.joint_translations
     ),
-    "to_feature_array(centered='first')": lambda b: to_feature_array(b, centered="first"),
+    "to_feature_array(centered='first_ground')": lambda b: to_feature_array(
+        b, centered="first_ground"
+    ),
     "auto_detect_feet": lambda b: b.auto_detect_feet(),
     "foot_contacts, the feet given": lambda b: foot_contacts(b, TOES),
     "foot_contacts, the feet detected": lambda b: foot_contacts(b),
@@ -315,7 +317,7 @@ def _body_facts(clip):
         "contacts": foot_contacts(clip, feet, method="height").tolist(),
         "walking_pace": round(walking_pace(clip), 9),
         "heading": np.round(root_trajectory(clip)[:, 2:4], 9).tolist(),
-        "centred": np.round(clip.node_positions(centered="skeleton")[:, torso], 9).tolist(),
+        "centred": np.round(clip.node_positions(centered="anchor")[:, torso], 9).tolist(),
         "facing": np.round(np.stack(clip.facing_frame()[:3]), 9).tolist(),
         "forward_at": clip.forward_at(0),
         "left_at": clip.left_at(0),

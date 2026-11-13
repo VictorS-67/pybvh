@@ -29,6 +29,8 @@ Migration: grep for the old name in the left column, replace with the right colu
 | `Bvh.extract_joints(joint_names=)` | `joints=` | Each entry is a name or a `BvhNode` (`pybvh.NodeSelector`) and must select one joint, end sites excluded, so the parameter is `joints`. Pass the node to keep one of two joints that share a name. |
 | `root_pos, q = bvh.to_quat()`, and the same for `to_rotmat`, `to_6d`, `to_axisangle` | `q = bvh.to_quat()` | Each `to_*` returns the rotation array only; the root position stays on `bvh.root_pos`. |
 | `bvh.from_quat(root_pos, q)`, and the same for `from_rotmat`, `from_6d`, `from_axisangle` | `bvh.from_quat(q)` | Each `from_*` writes `joint_angles` only and keeps `root_pos` and `joint_translations`. Set `bvh.root_pos` first, or build a new clip with `Bvh(...)`. The old call raises `TypeError` naming the new signature. |
+| `centered="skeleton"`, wherever `centered=` is taken (`node_positions`, `joint_positions`, the derivatives, `to_feature_array`, `frames_to_node_positions`, the bvhplot functions and the others) | `centered="anchor"` | The body anchor at the origin on every frame, in all three axes. 0.9.0's `"skeleton"` put the root there: the same positions on a clip whose body anchor is its root (see the CHANGELOG). The old value raises `ValueError` naming the accepted values. |
+| `centered="first"`, wherever `centered=` is taken | `centered="first_ground"` | The first frame's body anchor position subtracted in the two ground axes only. 0.9.0's `"first"` subtracted the root's: the same positions on a clip whose body anchor is its root. The old value raises `ValueError` naming the accepted values. |
 
 ---
 
@@ -244,7 +246,7 @@ Unchanged: `translate_root()`. The v0.8.0 radians/parameter changes (see the *tr
 | `get_joint_velocities(...)` | `joint_velocities(...)` | |
 | `get_joint_accelerations(...)` | `joint_accelerations(...)` | |
 | `get_angular_velocities(...)` | `angular_velocities(...)` | |
-| `get_root_relative_positions(...)` | *(removed)* | Use `node_positions(centered='skeleton')` — mathematically identical. *(named `spatial_coords` in v0.6.x)* |
+| `get_root_relative_positions(...)` | *(removed)* | Use `node_positions(centered='anchor')`, relative to the body anchor: the same positions where the body anchor is the root, as on a clip whose root is the hips. *(named `spatial_coords` in v0.6.x)* |
 | `root_relative_positions(...)` | *(removed)* | Same. Was soft-deprecated in drafts; removed before release. |
 | `get_root_trajectory(...)` | `root_trajectory(...)` | |
 | `get_foot_contacts(...)` | `foot_contacts(...)` | |
@@ -281,8 +283,8 @@ These bare-name renames happened in v0.6.0, while the functions still lived in t
 | `get_joint_velocities(bvh, ...)` | `joint_velocities(bvh, ...)` |
 | `get_joint_accelerations(bvh, ...)` | `joint_accelerations(bvh, ...)` |
 | `get_angular_velocities(bvh, ...)` | `angular_velocities(bvh, ...)` |
-| `get_root_relative_positions(bvh, ...)` | *(removed)* — use `bvh.node_positions(centered='skeleton')` |
-| `root_relative_positions(bvh, ...)` | *(removed)* — use `bvh.node_positions(centered='skeleton')` |
+| `get_root_relative_positions(bvh, ...)` | *(removed)* — use `bvh.node_positions(centered='anchor')`, relative to the body anchor (see the `Bvh` features table) |
+| `root_relative_positions(bvh, ...)` | *(removed)* — use `bvh.node_positions(centered='anchor')`, relative to the body anchor (see the `Bvh` features table) |
 | `get_root_trajectory(bvh, ...)` | `root_trajectory(bvh, ...)` |
 | `get_foot_contacts(bvh, ...)` | `foot_contacts(bvh, ...)` |
 

@@ -24,6 +24,17 @@ from .tools import _validate_axis_string
 if TYPE_CHECKING:
     from .bvh import Bvh
 
+# The values of ``centered``, the one list every callable that takes it reads.
+_CENTERED_MODES = ("world", "first_ground", "anchor")
+
+
+def _check_centered(centered: str) -> None:
+    """Raise ``ValueError`` unless *centered* is a centering mode."""
+    if centered not in _CENTERED_MODES:
+        raise ValueError(
+            f"Unknown centered mode {centered!r}. Choose from: {list(_CENTERED_MODES)}"
+        )
+
 
 class _FkTopologyFields(NamedTuple):
     offsets: npt.NDArray[np.float64]
@@ -413,8 +424,8 @@ def frames_to_node_positions(
         :mod:`pybvh.rotations`.
     centered : str
         ``"world"``  – root at its actual position.
-        ``"skeleton"`` – the centre node at origin in every frame.
-        ``"first"`` – ground-plane centering: the first frame's centre
+        ``"anchor"`` – the centre node at origin in every frame.
+        ``"first_ground"`` – ground-plane centering: the first frame's centre
         node position is subtracted in the two axes other than
         ``world_up`` only, so the motion starts above the origin at its
         original height.
@@ -424,7 +435,7 @@ def frames_to_node_positions(
         from (see :meth:`Bvh.node_positions`).
     world_up : str or None, optional
         Signed world-up axis string (e.g. ``'+y'``) — only read by
-        ``centered="first"``, to decide which coordinate is left
+        ``centered="first_ground"``, to decide which coordinate is left
         untouched. Defaults to the skeleton's own ``world_up`` when
         *skeleton* is a :class:`~pybvh.Bvh`. There is no default for the
         other two input forms: a node list and an ``FkTopology`` carry no
@@ -454,7 +465,7 @@ def frames_to_node_positions(
         if they disagree on frame count or on the joint count the skeleton
         declares; if *joint_translations* is omitted on a skeleton with a
         translating joint, or does not fit its translating joints or
-        frame count; or if ``centered="first"`` is requested without a
+        frame count; or if ``centered="first_ground"`` is requested without a
         ``world_up`` and the skeleton cannot supply one.
 
     Notes
@@ -476,18 +487,16 @@ def frames_to_node_positions(
     channels being its position. Centering then translates every node
     of a frame alike: by that frame's ``root_pos`` under ``"world"``, by
     ``root_pos`` less the first frame's ground-plane position under
-    ``"first"``, and not at all under ``"skeleton"``. On a Bvh whose
-    body anchor is not its root, ``"skeleton"`` then subtracts each
-    frame's anchor position, and ``"first"`` subtracts the first
+    ``"first_ground"``, and not at all under ``"anchor"``. On a Bvh whose
+    body anchor is not its root, ``"anchor"`` then subtracts each
+    frame's anchor position, and ``"first_ground"`` subtracts the first
     frame's anchor ground-plane position from the world positions in
     place of the root's. A reader that adds
     the root's offset to ``root_pos`` instead places every node off by
     that offset, which differs only for a file whose root offset is not
     zero.
     """
-    accepted_centered = ["skeleton", "first", "world"]
-    if centered not in accepted_centered:
-        raise ValueError(f"centered argument must be one of {accepted_centered}.")
+    _check_centered(centered)
 
     # Resolve every accepted input form to the array topology the FK loop
     # actually reads. `source_bvh` is the only thing that can supply motion
@@ -561,11 +570,11 @@ def frames_to_node_positions(
             f"on axis 1, but the skeleton declares {num_translating}."
         )
 
-    if centered == "first":
+    if centered == "first_ground":
         if world_up is None:
             if source_bvh is None:
                 raise ValueError(
-                    "centered='first' needs an up axis to know which "
+                    "centered='first_ground' needs an up axis to know which "
                     "coordinate to leave untouched, and a skeleton passed as "
                     "a node list or an FkTopology carries no gravity "
                     "direction. Pass `world_up=` explicitly (e.g. "
@@ -580,18 +589,18 @@ def frames_to_node_positions(
         root_pos_arr,
         joint_angles_arr,
         translations_arr,
-        skel_centered=(centered == "skeleton"),
+        root_at_origin=(centered == "anchor"),
     )
 
     # The node the modes centre on: a Bvh's body anchor, else the root.
     anchor = 0 if source_bvh is None or centered == "world" else source_bvh._body_anchor_index()
-    if centered == "skeleton" and anchor != 0:
+    if centered == "anchor" and anchor != 0:
         positions -= positions[:, anchor : anchor + 1]
 
-    # "first" centering: subtract the first frame's anchor position in the
+    # "first_ground" centering: subtract the first frame's anchor position in the
     # two non-up axes only — the up coordinate stays in world units.
-    if centered == "first" and positions.shape[0] > 0:
-        assert world_up is not None  # mypy: set above whenever centered == "first"
+    if centered == "first_ground" and positions.shape[0] > 0:
+        assert world_up is not None  # mypy: set above whenever centered == "first_ground"
         start = root_pos_arr[0] if anchor == 0 else positions[0, anchor].copy()
         positions -= _ground_plane_offset(start, world_up)
 
@@ -606,7 +615,7 @@ def _run_forward_kinematics(
     root_pos: npt.NDArray[np.float64],
     joint_angles: npt.NDArray[np.float64],
     joint_translations: npt.NDArray[np.float64],
-    skel_centered: bool,
+    root_at_origin: bool,
 ) -> npt.NDArray[np.float64]:
     """Vectorized FK over all frames, from arrays only.
 
@@ -654,8 +663,7 @@ def _run_forward_kinematics(
             # An end site has no own rotation.
             acc_rotmats[:, i] = acc_rotmats[:, p_idx] @ local_rotmats[:, j_idx]
 
-    # Add root position if not skeleton-centered
-    if not skel_centered:
+    if not root_at_origin:
         positions += root_pos[:, np.newaxis, :]  # (F,1,3) broadcasts over (F,N,3)
 
     return positions
@@ -669,7 +677,7 @@ def _ground_plane_offset(
 
     Subtracting this vector centers positions on the origin in the ground
     plane while leaving the height above the ground untouched — the
-    ``centered="first"`` convention shared by
+    ``centered="first_ground"`` convention shared by
     :func:`frames_to_node_positions` and :meth:`Bvh.node_positions`.
     """
     up_idx = {"x": 0, "y": 1, "z": 2}[up[-1].lower()]

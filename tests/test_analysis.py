@@ -561,7 +561,7 @@ class TestToFeatureArrayCentered:
         ],
     )
     def test_unknown_centered_raises(self, bvh_example, blocks):
-        with pytest.raises(ValueError, match="skelton is not recognized for the centered"):
+        with pytest.raises(ValueError, match="Unknown centered mode 'skelton'"):
             bvh_example.to_feature_array(centered="skelton", **blocks)
 
 

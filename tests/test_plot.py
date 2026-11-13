@@ -556,7 +556,7 @@ class TestFrame:
         import matplotlib
 
         matplotlib.use("Agg")
-        for mode in ("world", "skeleton", "first"):
+        for mode in ("world", "anchor", "first_ground"):
             fig, ax = bvhplot.frame(bvh_example, 0, centered=mode, show=False)
             assert fig is not None
 
@@ -2599,10 +2599,10 @@ class TestSceneSpacing:
 
     @pytest.fixture
     def two_coords(self, two_bvhs):
-        """Spatial coords for the two skeletons, centered='first'."""
+        """Spatial coords for the two skeletons, centered='first_ground'."""
         b1, b2 = two_bvhs
-        c1 = b1.node_positions(centered="first")
-        c2 = b2.node_positions(centered="first")
+        c1 = b1.node_positions(centered="first_ground")
+        c2 = b2.node_positions(centered="first_ground")
         return [c1, c2]
 
     @staticmethod
@@ -2935,7 +2935,7 @@ class TestSpreadInOneScene:
         return [make_pos_z_up_bvh(), make_pos_z_up_bvh()]
 
     @pytest.mark.parametrize("entry_point, backend, module, function", SINGLE_SCENE)
-    @pytest.mark.parametrize("centered", ["first", "skeleton"])
+    @pytest.mark.parametrize("centered", ["first_ground", "anchor"])
     def test_a_spacing_puts_the_second_skeleton_on_the_first_ones_left(
         self, twins, reached, tmp_path, centered, entry_point, backend, module, function
     ):
@@ -2951,7 +2951,7 @@ class TestSpreadInOneScene:
         )
 
     @pytest.mark.parametrize("entry_point, backend, module, function", SINGLE_SCENE)
-    @pytest.mark.parametrize("centered", ["first", "skeleton"])
+    @pytest.mark.parametrize("centered", ["first_ground", "anchor"])
     def test_auto_spacing_keeps_the_skeletons_apart(
         self, twins, reached, tmp_path, centered, entry_point, backend, module, function
     ):
@@ -2966,7 +2966,7 @@ class TestSpreadInOneScene:
         second_right_edge = (second.coords @ self.LEFT).min(axis=1)
         assert np.all(second_right_edge > first_left_edge)
 
-    @pytest.mark.parametrize("centered", ["first", "skeleton"])
+    @pytest.mark.parametrize("centered", ["first_ground", "anchor"])
     def test_a_video_arranges_the_skeletons_as_the_viewer_does(
         self, twins, reached, tmp_path, centered
     ):
@@ -3004,8 +3004,8 @@ class TestSpreadInOneScene:
         if backend == "opencv":
             pytest.importorskip("cv2")
         scenes = reached(importlib.import_module(f"pybvh.bvhplot.{module}"), function)
-        draw_through(entry_point, backend, twins, tmp_path, centered="first")
-        draw_through(entry_point, backend, twins, tmp_path, centered="first", spacing=2.0)
+        draw_through(entry_point, backend, twins, tmp_path, centered="first_ground")
+        draw_through(entry_point, backend, twins, tmp_path, centered="first_ground", spacing=2.0)
         plain, spaced = scenes
         for plain_view, spaced_view in zip(plain.views, spaced.views, strict=True):
             np.testing.assert_array_equal(spaced_view.coords, plain_view.coords)
@@ -3044,7 +3044,7 @@ class TestSpreadInOneScene:
         drifting.root_pos = root_pos
         return [drifting, still]
 
-    @pytest.mark.parametrize("centered", ["world", "first", "skeleton"])
+    @pytest.mark.parametrize("centered", ["world", "first_ground", "anchor"])
     def test_a_still_moves_the_skeletons_as_the_viewer_does(
         self, pair_in_motion, reached, tmp_path, centered
     ):
@@ -3052,7 +3052,7 @@ class TestSpreadInOneScene:
         viewer moves it by: "auto" spaces by the first skeleton's width
         over the clip, in its facing at the clip's start, not by the
         pose drawn. (Each is compared with itself at spacing 0, since a
-        still under centered="first" is centred on the frame it draws.)"""
+        still under centered="first_ground" is centred on the frame it draws.)"""
         pytest.importorskip("vedo")
         from pybvh.bvhplot import _vedo, _vedo_offscreen
 
@@ -3110,16 +3110,18 @@ class TestSpreadInOneScene:
         for played_view, still_view in zip(played.views, still.views, strict=True):
             np.testing.assert_allclose(still_view.coords[0], played_view.coords[f], atol=1e-9)
 
-    def test_a_matched_still_centred_first_is_the_viewers_frame_recentred(
+    def test_a_matched_still_centred_first_ground_is_the_viewers_frame_recentred(
         self, walk_and_hundredfold, reached, tmp_path
     ):
-        """Under centered="first" a still is centred on the frame it
+        """Under centered="first_ground" a still is centred on the frame it
         draws, so each skeleton sits where the viewer draws it at that
         frame, less the clip's own travel on the ground since its first
         frame, drawn at the skeleton's factor."""
         pytest.importorskip("vedo")
         f = 60
-        played, still = self._matched_pair(walk_and_hundredfold, reached, tmp_path, "first", f)
+        played, still = self._matched_pair(
+            walk_and_hundredfold, reached, tmp_path, "first_ground", f
+        )
         for clip, factor, played_view, still_view in zip(
             walk_and_hundredfold, [1.0, 0.01], played.views, still.views, strict=True
         ):
@@ -3132,7 +3134,7 @@ class TestSpreadInOneScene:
     @pytest.fixture
     def whole_clip_positions(self, monkeypatch):
         """The clips whose positions over every frame are computed in the
-        stills' centering, "first", which a still needs only to measure
+        stills' centering, "first_ground", which a still needs only to measure
         an arrangement on. The scene ground's own reading of every frame,
         under "world" (Bvh.floor_height), is not counted."""
         computed = Bvh.node_positions
@@ -3142,7 +3144,7 @@ class TestSpreadInOneScene:
         def spy(*args, **kwargs):
             given = signature.bind(*args, **kwargs)
             given.apply_defaults()
-            if given.arguments["frame"] is None and given.arguments["centered"] == "first":
+            if given.arguments["frame"] is None and given.arguments["centered"] == "first_ground":
                 clips.append(given.arguments["self"])
             return computed(*args, **kwargs)
 
@@ -3158,7 +3160,7 @@ class TestSpreadInOneScene:
         from pybvh.bvhplot import _vedo_offscreen
 
         reached(_vedo_offscreen, "frame_vedo")
-        bvhplot.frame(twins[0], 3, backend="vedo", centered="first", match_size=True)
+        bvhplot.frame(twins[0], 3, backend="vedo", centered="first_ground", match_size=True)
         assert whole_clip_positions == []
 
     def test_a_still_of_a_comparison_computes_the_whole_clips_once(
@@ -3168,7 +3170,7 @@ class TestSpreadInOneScene:
         from pybvh.bvhplot import _vedo_offscreen
 
         reached(_vedo_offscreen, "frame_vedo")
-        bvhplot.frame(twins, 3, backend="vedo", centered="first")
+        bvhplot.frame(twins, 3, backend="vedo", centered="first_ground")
         assert len(whole_clip_positions) == len(twins)
         assert all(a is b for a, b in zip(whole_clip_positions, twins, strict=True))
 

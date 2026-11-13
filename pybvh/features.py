@@ -14,10 +14,10 @@ import numpy.typing as npt
 
 from .analysis import _validate_stencil_pad, joint_velocities
 from .analysis import foot_contacts as _foot_contacts
-from .bvh import Bvh, _check_centered
+from .bvh import Bvh
 from .bvhnode import NodeSelector
 from .rotations import REPRESENTATION_CHANNELS as _REPRESENTATION_WIDTHS
-from .spatial_coord import _ground_plane_offset
+from .spatial_coord import _check_centered, _ground_plane_offset
 
 
 def feature_array_layout(
@@ -158,14 +158,14 @@ def to_feature_array(
         row of :meth:`Bvh.node_positions
         <pybvh.bvh.Bvh.node_positions>` under ``centered``, so centred
         on :attr:`~pybvh.bvh.Bvh.body_anchor`. On a clip whose anchor is
-        its root it is zero under ``"skeleton"``. With the rotations (and
+        its root it is zero under ``"anchor"``. With the rotations (and
         ``include_joint_translations=True`` on a rig with translating
         joints), the block gives back ``node_positions(centered)`` by
         forward kinematics
         (:func:`~pybvh.spatial_coord.frames_to_node_positions`). On a
         clip whose root lies above the body, the block is the root's
-        position relative to the anchor: under ``"skeleton"`` it is not
-        zero, and under ``"first"`` it is the root's centred row, not
+        position relative to the anchor: under ``"anchor"`` it is not
+        zero, and under ``"first_ground"`` it is the root's centred row, not
         the anchor's. For the body's travel, use
         ``include_joint_translations=True`` or
         :func:`~pybvh.analysis.root_trajectory`.
@@ -252,11 +252,11 @@ def to_feature_array(
             parts.append(root_pos)
         elif bvh._body_anchor_index() != 0:
             parts.append(bvh._all_node_positions(centered)[:, 0])
-        elif centered == "skeleton":
+        elif centered == "anchor":
             parts.append(np.zeros_like(root_pos))
-        else:  # "first"
+        else:  # "first_ground"
             # Ground-plane centering: first-frame root subtracted in the
-            # non-up axes only, matching node_positions(centered="first").
+            # non-up axes only, matching node_positions(centered="first_ground").
             parts.append(root_pos - _ground_plane_offset(root_pos[0], bvh.world_up))
 
     # Joint translations — each relative to its parent, so ``centered``
@@ -291,7 +291,7 @@ def to_feature_array(
 
     # Foot contacts — call directly (same module); always (F, num_feet).
     # foot_contacts reads the clip's world-frame FK (the Bvh cache) whatever
-    # ``centered`` is: per-frame "skeleton" centering would distort the
+    # ``centered`` is: per-frame "anchor" centering would distort the
     # foot-speed signal.
     if include_foot_contacts:
         contacts = _foot_contacts(bvh, feet=feet)

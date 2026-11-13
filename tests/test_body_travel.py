@@ -49,7 +49,7 @@ class TestAReferenceRootGivesTheControlsTravel:
             atol=1e-9,
         )
 
-    @pytest.mark.parametrize("centered", ["skeleton", "first"])
+    @pytest.mark.parametrize("centered", ["anchor", "first_ground"])
     def test_the_centred_positions(self, reference, control, centered):
         # The reference root is node 0; the body follows it in node order.
         np.testing.assert_allclose(
@@ -58,7 +58,7 @@ class TestAReferenceRootGivesTheControlsTravel:
             atol=1e-9,
         )
 
-    @pytest.mark.parametrize("centered", ["skeleton", "first"])
+    @pytest.mark.parametrize("centered", ["anchor", "first_ground"])
     def test_the_centred_positions_of_one_frame(self, reference, control, centered):
         for frame in (0, 3):
             np.testing.assert_allclose(
@@ -83,7 +83,7 @@ class TestAReferenceRootGivesTheControlsTravel:
             equal_nan=True,
         )
 
-    @pytest.mark.parametrize("centered", ["skeleton", "first"])
+    @pytest.mark.parametrize("centered", ["anchor", "first_ground"])
     def test_frames_to_node_positions_on_the_clip(self, reference, control, centered):
         from pybvh.spatial_coord import frames_to_node_positions
 
@@ -104,7 +104,7 @@ class TestAReferenceRootGivesTheControlsTravel:
             atol=1e-9,
         )
 
-    @pytest.mark.parametrize("centered", ["world", "skeleton", "first"])
+    @pytest.mark.parametrize("centered", ["world", "anchor", "first_ground"])
     def test_the_root_block_of_the_feature_array_is_the_root_s_centred_row(
         self, reference, centered
     ):
@@ -119,14 +119,14 @@ class TestABodyMovedAwayFromTheRoot:
     """``reference_props_humanoid_6ch``: the same body, moved by (120, 0, 600)
     from a reference root at the origin, with props beside it."""
 
-    def test_first_centring_starts_the_body_above_the_origin(self):
+    def test_first_ground_centring_starts_the_body_above_the_origin(self):
         clip = _read("reference_props_humanoid_6ch.bvh")
         alone = _read("reference_humanoid_6ch.bvh")
         clip.world_up = "+y"  # what it is authored in, whatever the guess
         body = [clip.node_index[node.name] for node in alone.nodes[1:]]
         np.testing.assert_allclose(
-            clip.node_positions(centered="first")[:, body],
-            alone.node_positions(centered="first")[:, 1:],
+            clip.node_positions(centered="first_ground")[:, body],
+            alone.node_positions(centered="first_ground")[:, 1:],
             atol=1e-9,
         )
 
@@ -185,12 +185,12 @@ def test_a_clip_whose_anchor_is_its_root_reads_the_root_bit_for_bit(path):
 
     np.testing.assert_array_equal(clip.root_trajectory()[:, :2], root_pos[:, ground])
     np.testing.assert_array_equal(
-        clip.node_positions(centered="skeleton"), world - root_pos[:, np.newaxis]
+        clip.node_positions(centered="anchor"), world - root_pos[:, np.newaxis]
     )
     start = root_pos[0].copy()
     start[up.index] = 0.0
-    np.testing.assert_array_equal(clip.node_positions(centered="first"), world - start)
-    features = clip.to_feature_array(centered="skeleton")
+    np.testing.assert_array_equal(clip.node_positions(centered="first_ground"), world - start)
+    features = clip.to_feature_array(centered="anchor")
     np.testing.assert_array_equal(features[:, :3], np.zeros_like(root_pos))
     on_ground = root_pos - np.outer(root_pos @ up.vector, up.vector)
     path_length = np.sum(np.linalg.norm(np.diff(on_ground, axis=0), axis=1))
@@ -208,7 +208,7 @@ def _with_a_body():
     return names
 
 
-@pytest.mark.parametrize("centered", ["world", "skeleton", "first"])
+@pytest.mark.parametrize("centered", ["world", "anchor", "first_ground"])
 @pytest.mark.parametrize("name", _with_a_body())
 def test_the_root_block_and_the_rotations_give_back_the_centred_positions(name, centered):
     # The root block is the root's row of node_positions(centered), so

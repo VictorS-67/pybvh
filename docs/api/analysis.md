@@ -38,7 +38,7 @@ The finite-difference kinematics ladder over FK positions and rotations.
 
 ## Root trajectory & foot contacts
 
-Ground-plane root features and binary contact labels. The [Gallery](../gallery/index.md) draws the contact signals.
+Ground-plane features of the body anchor and binary contact labels. The [Gallery](../gallery/index.md) draws the contact signals.
 
 ::: pybvh.analysis.root_trajectory
     options:

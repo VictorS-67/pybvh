@@ -98,9 +98,9 @@ def node_velocities(
         Input motion.
     centered : str, optional
         Coordinate centering mode (default ``"world"``).
-        Note: ``"world"`` and ``"first"`` produce identical velocities
+        Note: ``"world"`` and ``"first_ground"`` produce identical velocities
         (constant offsets vanish under differentiation); only
-        ``"skeleton"`` is meaningfully different here.
+        ``"anchor"`` is meaningfully different here.
     in_frames : bool, optional
         If True, return velocity in units/frame.
         If False (default), return velocity in units/second.
@@ -202,9 +202,9 @@ def node_accelerations(
         Input motion.
     centered : str, optional
         Coordinate centering mode (default ``"world"``).
-        Note: ``"world"`` and ``"first"`` produce identical accelerations
+        Note: ``"world"`` and ``"first_ground"`` produce identical accelerations
         (constant offsets vanish under differentiation); only
-        ``"skeleton"`` is meaningfully different here.
+        ``"anchor"`` is meaningfully different here.
     in_frames : bool, optional
         If True, return acceleration in units/frame^2.
         If False (default), return in units/second^2.
@@ -2709,8 +2709,8 @@ def _compute_gait_parameters(contacts, foot_h, foot_names, frame_time, root_dist
     Pure array core (no ``Bvh``) so it is directly testable. ``foot_h`` is the
     feet's horizontal (ground-projected) positions, shape ``(F, n_feet, 3)``,
     column order matching ``foot_names`` and the ``contacts`` columns.
-    ``progression`` is the net horizontal travel vector (e.g. the root's
-    first→last displacement); ``step_length`` is measured along it.
+    ``progression`` is the net horizontal travel vector (e.g. the body
+    anchor's first→last displacement); ``step_length`` is measured along it.
     """
     n_frames = contacts.shape[0]
     duration = (n_frames - 1) * frame_time

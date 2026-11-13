@@ -66,15 +66,15 @@ bvh.render("walk_with_context.mp4", ghost=3, trajectory=True)
 And `camera="turntable"` orbits a full 360° over the clip's duration. It is the standard way to show one motion from every side:
 
 ```python
-bvh.render("orbit.mp4", camera="turntable", centered="skeleton")
+bvh.render("orbit.mp4", camera="turntable", centered="anchor")
 ```
 
-`centered="skeleton"` pins the body anchor, the hips, so the orbit is the only motion in frame. Without it, a travelling character also walks across the shot while the camera comes round.
+`centered="anchor"` pins the body anchor, the hips, so the orbit is the only motion in frame. Without it, a travelling character also walks across the shot while the camera comes round.
 
 One orbit over a 4.4 s clip is 82° per second, too fast to look at anything. `turntable_period` sets the speed instead, in seconds of the video per revolution. A clip shorter than the period loops until the orbit completes. A clip longer than the period gets several orbits:
 
 ```python
-bvh.render("orbit.mp4", camera="turntable", centered="skeleton", turntable_period=12)
+bvh.render("orbit.mp4", camera="turntable", centered="anchor", turntable_period=12)
 ```
 
 Anti-aliasing is on by default. The OpenCV backend draws at `Style.supersample` (2) times the output resolution, and then it downsamples. Primitive sizes scale with the drawing surface. So a 4K export gets proportionally thicker lines, not hairlines. `.gif` output always goes through matplotlib, which is what to use when a venue wants an animated figure rather than a video file.

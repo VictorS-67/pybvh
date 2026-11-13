@@ -737,11 +737,11 @@ class TestSpatialCoordinates:
         )
         np.testing.assert_allclose(spatial[:4], expected_first_4, atol=1e-4)
 
-    def test_single_frame_skeleton_centered(self, bvh_example):
-        """Verify spatial coordinates for single frame, skeleton centered."""
-        spatial = bvh_example.node_positions(frame=0, centered="skeleton")
+    def test_single_frame_anchor_centered(self, bvh_example):
+        """Verify spatial coordinates for single frame, anchor centered."""
+        spatial = bvh_example.node_positions(frame=0, centered="anchor")
 
-        # Root should be at origin
+        # The body anchor is at the origin; on this clip it is the root, node 0.
         np.testing.assert_allclose(spatial[0], [0.0, 0.0, 0.0], atol=1e-10)
 
         # Other joints should be offset from origin
@@ -760,10 +760,10 @@ class TestSpatialCoordinates:
         spatial = bvh_example.node_positions(frame=None, centered="world")
         assert spatial.shape == (126, 29, 3)
 
-    def test_all_frames_first_centered(self, bvh_example):
-        """'first' = ground-plane centering: first-frame root over the origin,
+    def test_all_frames_first_ground_centered(self, bvh_example):
+        """'first_ground' = ground-plane centering: first-frame root over the origin,
         up coordinate untouched."""
-        spatial = bvh_example.node_positions(frame=None, centered="first")
+        spatial = bvh_example.node_positions(frame=None, centered="first_ground")
 
         assert spatial.shape == (126, 29, 3)
         # First-frame root: zero in the two horizontal axes, original
@@ -1616,18 +1616,19 @@ class TestVectorizedFK:
     def test_fk_centering_modes_large_file(self):
         """All centering modes should work on a larger file (100 frames)."""
         bvh = read_bvh_file("bvh_data/bvh_test3.bvh")
-        for mode in ["world", "skeleton", "first"]:
+        for mode in ["world", "anchor", "first_ground"]:
             coords = bvh.node_positions(centered=mode)
             assert coords.shape == (100, len(bvh.nodes), 3)
             assert not np.any(np.isnan(coords))
 
-        # Skeleton centering: root should be at origin
-        coords_skel = bvh.node_positions(centered="skeleton")
-        np.testing.assert_allclose(coords_skel[:, 0, :], 0.0, atol=1e-10)
+        # Anchor centering: the body anchor is at the origin on every frame;
+        # on this clip it is the root, node 0.
+        coords_anchor = bvh.node_positions(centered="anchor")
+        np.testing.assert_allclose(coords_anchor[:, 0, :], 0.0, atol=1e-10)
 
-        # First centering (ground-plane): frame 0 root over the origin,
-        # up coordinate preserved.
-        coords_first = bvh.node_positions(centered="first")
+        # First-ground centering: frame 0's body anchor (the root, node 0,
+        # on this clip) over the origin, up coordinate preserved.
+        coords_first = bvh.node_positions(centered="first_ground")
         up_idx = {"x": 0, "y": 1, "z": 2}[bvh.world_up[1]]
         horizontal = [i for i in range(3) if i != up_idx]
         np.testing.assert_allclose(coords_first[0, 0, horizontal], 0.0, atol=1e-10)
@@ -2230,8 +2231,8 @@ class TestFrameSlicing:
         original_fps = 1.0 / bvh_example.frame_time
         # Upsample 2x, then check even frames (which correspond to originals)
         result = bvh_example.resample(original_fps * 2)
-        orig_coords = bvh_example.node_positions(centered="skeleton")
-        result_coords = result.node_positions(centered="skeleton")
+        orig_coords = bvh_example.node_positions(centered="anchor")
+        result_coords = result.node_positions(centered="anchor")
         # Even indices in result should match original frames
         # (approximately, due to SLERP being on the geodesic)
         np.testing.assert_allclose(
@@ -3237,7 +3238,7 @@ class TestRestPose:
             bvh_example,
             root_pos=np.zeros(3),
             joint_angles=bvh_example.rest_pose_angles(),
-            centered="skeleton",
+            centered="anchor",
         )
         np.testing.assert_allclose(rest_via_fk, rest_coords, atol=1e-10)
 
@@ -3248,7 +3249,7 @@ def _rest_pose_by_fk(bvh):
         bvh,
         root_pos=np.zeros(3),
         joint_angles=np.zeros((bvh.joint_count, 3)),
-        centered="skeleton",
+        centered="anchor",
     )
 
 
@@ -3336,9 +3337,9 @@ class TestToDfDictSpatial:
         np.testing.assert_allclose(df_data[f"{root_name}_Y"], spatial[:, 0, 1], atol=1e-10)
         np.testing.assert_allclose(df_data[f"{root_name}_Z"], spatial[:, 0, 2], atol=1e-10)
 
-    def test_spatial_mode_skeleton_centering(self, bvh_example):
-        """Root X/Y/Z columns should all be zeros for skeleton centering."""
-        df_data = bvh_example.to_df_dict(mode="coordinates", centered="skeleton")
+    def test_spatial_mode_anchor_centering(self, bvh_example):
+        """Root X/Y/Z columns should all be zeros under "anchor" centering."""
+        df_data = bvh_example.to_df_dict(mode="coordinates", centered="anchor")
         root_name = bvh_example.root.name
         np.testing.assert_allclose(df_data[f"{root_name}_X"], 0.0, atol=1e-10)
         np.testing.assert_allclose(df_data[f"{root_name}_Y"], 0.0, atol=1e-10)
@@ -3457,7 +3458,7 @@ class TestFramesToSpatialCoordsStandalone:
 
     def test_centering_modes(self, bvh_example):
         """All 3 centering modes work."""
-        for mode in ["world", "skeleton", "first"]:
+        for mode in ["world", "anchor", "first_ground"]:
             result = frames_to_node_positions(bvh_example, centered=mode)
             assert result.shape == (bvh_example.frame_count, len(bvh_example.nodes), 3)
             assert not np.any(np.isnan(result))
@@ -3511,19 +3512,19 @@ class TestFramesToSpatialCoordsStandalone:
         )
         np.testing.assert_allclose(result, expected, atol=1e-12)
 
-    def test_first_centering_is_ground_plane_only(self, bvh_example):
-        """centered='first' zeroes the horizontal axes only, per world_up."""
+    def test_first_ground_centering_is_ground_plane_only(self, bvh_example):
+        """centered='first_ground' zeroes the horizontal axes only, per world_up."""
         for up in ("+y", "-z", "+x"):
             up_idx = {"x": 0, "y": 1, "z": 2}[up[1]]
             world = frames_to_node_positions(bvh_example, centered="world")
-            first = frames_to_node_positions(bvh_example, centered="first", world_up=up)
+            first = frames_to_node_positions(bvh_example, centered="first_ground", world_up=up)
             expected_offset = bvh_example.root_pos[0].copy()
             expected_offset[up_idx] = 0.0
             np.testing.assert_allclose(first, world - expected_offset, atol=1e-12)
 
-    def test_first_centering_invalid_up_raises(self, bvh_example):
+    def test_first_ground_centering_invalid_up_raises(self, bvh_example):
         with pytest.raises(ValueError, match="Axis"):
-            frames_to_node_positions(bvh_example, centered="first", world_up="up")
+            frames_to_node_positions(bvh_example, centered="first_ground", world_up="up")
 
 
 # =============================================================================
@@ -3752,7 +3753,7 @@ class TestNodePositionsCache:
 
     def test_fk_runs_once_across_calls(self, bvh_example, computations):
         first = bvh_example.node_positions(centered="world")
-        second = bvh_example.node_positions(centered="skeleton")
+        second = bvh_example.node_positions(centered="anchor")
         third = bvh_example.node_positions(frame=3)
         assert computations.fk == 1
         np.testing.assert_array_equal(first, second + bvh_example.root_pos[:, np.newaxis, :])
@@ -3788,7 +3789,7 @@ class TestNodePositionsCache:
         assert not np.allclose(before, after)
 
     def test_warm_cache_single_frame_matches_cold(self, bvh_example):
-        for centered in ("world", "skeleton", "first"):
+        for centered in ("world", "anchor", "first_ground"):
             cold = bvh_example.copy()
             cold_frame = cold.node_positions(frame=3, centered=centered)
             warm = bvh_example.copy()
@@ -3798,7 +3799,7 @@ class TestNodePositionsCache:
 
     def test_warm_cache_centered_modes_match_array_level(self, bvh_example):
         bvh_example.node_positions()  # populate cache
-        for centered in ("world", "skeleton", "first"):
+        for centered in ("world", "anchor", "first_ground"):
             expected = frames_to_node_positions(
                 bvh_example, centered=centered, world_up=bvh_example.world_up
             )
@@ -6117,7 +6118,7 @@ class TestToFeatureArray:
         assert feat.shape[0] == bvh_example.frame_count - 1
         np.testing.assert_allclose(feat[:, :3], bvh_example.root_pos[:-1], atol=1e-12)
 
-    @pytest.mark.parametrize("centered", ["world", "first", "skeleton"])
+    @pytest.mark.parametrize("centered", ["world", "first_ground", "anchor"])
     def test_with_foot_contacts(self, bvh_example, centered):
         # The contacts are detected on the clip's world-frame positions in
         # every centering: the same as foot_contacts().
@@ -6768,9 +6769,9 @@ class TestRotateVertical:
     def test_bone_lengths_preserved(self, bvh_example):
         from pybvh.transforms import rotate_vertical
 
-        coords_orig = bvh_example.node_positions(centered="skeleton")
+        coords_orig = bvh_example.node_positions(centered="anchor")
         result = rotate_vertical(bvh_example, angle=np.pi / 2)
-        coords_rot = result.node_positions(centered="skeleton")
+        coords_rot = result.node_positions(centered="anchor")
         # Check all bone lengths match (frame 0)
         for node in bvh_example.nodes:
             if node.parent is not None:
@@ -7090,9 +7091,9 @@ class TestMirror:
         """Total skeleton bone length should be the same after mirroring."""
         from pybvh.transforms import mirror
 
-        coords_orig = bvh_example.node_positions(centered="skeleton")
+        coords_orig = bvh_example.node_positions(centered="anchor")
         result = mirror(bvh_example)
-        coords_mir = result.node_positions(centered="skeleton")
+        coords_mir = result.node_positions(centered="anchor")
         total_orig = 0.0
         total_mir = 0.0
         for node in bvh_example.nodes:
@@ -7109,9 +7110,9 @@ class TestMirror:
 
         lateral_idx = _lateral_index(bvh_example)
 
-        coords_orig = bvh_example.node_positions(centered="skeleton")
+        coords_orig = bvh_example.node_positions(centered="anchor")
         result = mirror(bvh_example)
-        coords_mir = result.node_positions(centered="skeleton")
+        coords_mir = result.node_positions(centered="anchor")
 
         # Build set of all paired node names (including end-site children)
         mapping = bvh_example.lr_mapping

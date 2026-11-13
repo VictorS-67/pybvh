@@ -766,7 +766,7 @@ def compute_follow_azimuths(
     before it is used. The conventions of that smoothing:
 
     - **Heading, not direction of travel.** The body's axis is what is
-      smoothed. The alternative, the direction the root travels, sways
+      smoothed. The alternative, the direction the body anchor travels, sways
       less with the gait, but it has no direction on a clip that turns
       in place and points sideways on a side step.
     - **A centred Gaussian window**, of standard deviation

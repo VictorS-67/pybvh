@@ -169,8 +169,9 @@ def make_scene(
     frame can therefore dip a node slightly below the drawn plane; the
     alternative (the true minimum) would let a single glitched frame
     sink the plane for the whole clip. With ``canonical_floor=False``
-    (root-relative or caller-supplied coords) the floor is the minimum
-    up-coordinate of the coords in use — the clip-wide estimate does not
+    (coords under ``centered="anchor"``, rest-pose or caller-supplied
+    coords) the floor is the minimum up-coordinate of the coords in
+    use — the clip-wide estimate does not
     apply to coords in another frame of reference, and the true minimum
     is the safe choice for a pose whose own extent is all we have.
 

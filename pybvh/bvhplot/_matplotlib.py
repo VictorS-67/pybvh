@@ -476,6 +476,7 @@ def sequence_mpl(
     sample_frames: npt.NDArray[np.intp],
     layout: str,
     *,
+    anchor: int = 0,
     trajectory: bool = True,
     figsize: tuple[float, float] | None = None,
     show: bool = False,
@@ -486,9 +487,10 @@ def sequence_mpl(
     ``layout="offset"``: poses at their world positions (locomotion
     spreads them naturally), orthographic, equal-scale but NON-cubic
     bounds so wide travel fills the frame instead of shrinking into a
-    cube. ``layout="overlay"``: poses superimposed with per-pose
-    horizontal root-centering, cubic bounds, in the style's projection
-    (perspective unless the style asks otherwise).
+    cube. ``layout="overlay"``: poses superimposed, each shifted so that
+    node *anchor* (the clip's body anchor) stands above the origin, its
+    height kept; cubic bounds, in the style's projection (perspective
+    unless the style asks otherwise).
 
     Poses draw back-to-front (oldest first) under manual z-order — the
     correct painter's-algorithm order for the fade encoding.
@@ -500,7 +502,7 @@ def sequence_mpl(
     # no Python loop over frames.
     stack = view.coords[sample_frames]  # (S, N, 3)
     if layout == "overlay":
-        shifts = stack[:, :1, :].copy()  # (S, 1, 3) root positions
+        shifts = stack[:, anchor : anchor + 1, :].copy()  # (S, 1, 3) anchor positions
         shifts[..., view.up_index] = 0.0
         stack = stack - shifts
     poses = list(stack)

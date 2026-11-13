@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import warnings
+from pathlib import Path
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -447,3 +450,53 @@ class TestReviewFixes:
         solo_img = next(_generate_frames(solo, style, (200, 200), AnimationOptions()))
         # ignore the 1px divider column at x=200
         assert np.array_equal(pair_img[:, :199], solo_img[:, :199])
+
+
+SYNTHETIC = Path(__file__).resolve().parent.parent / "bvh_data" / "synthetic"
+
+
+def _read_quietly(path, **kwargs):
+    """The clip, read without the world-up warnings some corpus clips give."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        return read_bvh_file(path, **kwargs)
+
+
+def _overlay_poses(clip, centered="world", n_poses=4):
+    """The node positions ``sequence(layout="overlay")`` draws, per pose,
+    shape ``(S, N, 3)``, read back from the drawn bones (the 3D segments
+    of each bone collection, oldest pose first), and the sampled frames."""
+    from mpl_toolkits.mplot3d.art3d import Line3DCollection
+
+    fig, ax = bvhplot.sequence(
+        clip,
+        layout="overlay",
+        n_poses=n_poses,
+        centered=centered,
+        style=bvhplot.Style("paper", floor=None),
+    )
+    collections = [c for c in ax.collections if isinstance(c, Line3DCollection)]
+    plt.close(fig)
+    samples = _resolve_sample_frames(clip.frame_count, n_poses, None)
+    assert len(collections) == len(samples)
+    poses = np.full((len(samples), len(clip.nodes), 3), np.nan)
+    for pose, collection in zip(poses, collections, strict=True):
+        # private, like ``_focal_length`` in test_scene_backends: mplot3d
+        # has no getter for the 3D segments; a rename fails loudly
+        segments = np.asarray(collection._segments3d)
+        for (child, parent), segment in zip(clip.node_edges, segments, strict=True):
+            pose[parent], pose[child] = segment
+    return poses, samples
+
+
+class TestTheOverlayCentresOnTheBodyAnchor:
+    """``layout="overlay"`` subtracts each pose's body-anchor position in
+    the ground plane (#215), not node 0's."""
+
+    def test_a_reference_root_overlays_as_the_control(self):
+        reference = _read_quietly(SYNTHETIC / "reference_humanoid_6ch.bvh")
+        control = _read_quietly(SYNTHETIC / "rotation_only_control.bvh")
+        ours, _ = _overlay_poses(reference)
+        theirs, _ = _overlay_poses(control)
+        # The reference root is node 0; the body follows it in node order.
+        np.testing.assert_allclose(ours[:, 1:], theirs, atol=1e-9)

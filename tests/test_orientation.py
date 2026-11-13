@@ -464,7 +464,7 @@ class TestRootHeading:
 
 
 class TestFacingChain:
-    """One chain per frame: the frame's leftward, else the root's heading at
+    """One chain per frame: the frame's leftward, else the anchor's heading at
     that frame, else the house default; forward is always left x up."""
 
     _PAIRS = np.array([[3, 4]])  # LeftHand, RightHand
@@ -477,9 +477,9 @@ class TestFacingChain:
         assert valid.tolist() == [True]
         assert defaulted.tolist() == [False]
 
-    def test_a_vertical_left_right_axis_falls_back_to_the_root_heading(self):
+    def test_a_vertical_left_right_axis_falls_back_to_the_anchor_heading(self):
         # World up along the arms: the frame's left/right axis is vertical,
-        # like a body lying on its side. The root, turned a quarter turn
+        # like a body lying on its side. The anchor, turned a quarter turn
         # about +y, carries rest forward +x onto -z.
         quarter_turn = _about([0, 1, 0], 90)[np.newaxis]
         forward, left, up, valid, defaulted = _facing_basis(

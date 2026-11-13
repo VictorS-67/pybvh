@@ -8452,7 +8452,7 @@ class TestFacingOnAFrameLyingOnItsSide:
     def lying(self):
         # Frame 0 is the rest pose turned 60 degrees about world up -x, which
         # lies along the rest pose's left/right axis: the axis stays vertical,
-        # and the root's heading stays readable on the ground.
+        # and the anchor's heading stays readable on the ground.
         bvh = read_bvh_file(BVH_DATA_DIR / "bvh_test1.bvh")
         c, s = np.cos(np.radians(60.0)), np.sin(np.radians(60.0))
         self._pose_frame_zero(bvh, {"Hips": np.array([[1.0, 0, 0], [0, c, -s], [0, s, c]])})
@@ -8468,8 +8468,8 @@ class TestFacingOnAFrameLyingOnItsSide:
             np.cross(_AXIS_VECTORS[forward], _AXIS_VECTORS[left]), _AXIS_VECTORS[lying.world_up]
         )
 
-    def test_the_frame_falls_back_to_the_root_heading_without_warning(self, lying):
-        # The root's heading at frame 0, on the ground of world up -x.
+    def test_the_frame_falls_back_to_the_anchor_heading_without_warning(self, lying):
+        # The anchor's heading at frame 0, on the ground of world up -x.
         heading = lying.root_trajectory()[0, 2:4]  # [sin, cos] on (y, z)
         expected = get_main_direction(np.array([0.0, heading[1], heading[0]]))
         assert expected == "+z"  # the turn of 60 degrees, away from rest forward +y

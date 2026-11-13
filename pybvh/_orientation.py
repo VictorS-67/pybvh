@@ -1606,7 +1606,7 @@ def _heading_units(
     The body anchor's world rotation at each frame applied to *rest_forward* (a
     direction in the skeleton's own frame), projected on the ground of
     *world_up* and normalised. Where that projection is too short to read
-    (the root's forward stands along world up) the row is ``NaN``, the
+    (the anchor's forward stands along world up) the row is ``NaN``, the
     :mod:`pybvh.geometry` policy for a degenerate input: a number there
     would be an arbitrary angle.
 

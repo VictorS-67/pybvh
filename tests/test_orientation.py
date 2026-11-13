@@ -433,10 +433,10 @@ def _about(axis, degrees):
     return np.eye(3) + np.sin(theta) * cross + (1 - np.cos(theta)) * cross @ cross
 
 
-class TestRootHeading:
-    """The heading: the root rotation applied to rest forward, on the ground."""
+class TestAnchorHeading:
+    """The heading: the body anchor's world rotation applied to rest forward, on the ground."""
 
-    def test_identity_root_reads_rest_forward(self):
+    def test_identity_anchor_reads_rest_forward(self):
         heading = _heading_units(np.eye(3)[np.newaxis], "+z", "+y")
         np.testing.assert_allclose(heading, [[0.0, 0.0, 1.0]], atol=1e-12)
 

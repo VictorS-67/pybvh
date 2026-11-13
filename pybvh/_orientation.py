@@ -1100,8 +1100,9 @@ def _infer_rest_forward(rest_left: str | None, rest_up: str | None) -> str:
     usable L/R geometry) it is the house default for rest up,
     arbitrary but stable and perpendicular to it; without a rest up
     either, the default for ``'+y'``. Never read against world up: the
-    rest pose's coordinates are the skeleton's frame, and only a root
-    rotation places them in the world (ADR 0004).
+    rest pose's coordinates are the skeleton's frame, and only the body
+    anchor's world rotation places them in the world (ADR 0004, as ADR
+    0012 amends it).
 
     The default is returned silently; the caller that hands it on as a
     fact warns (:func:`_warn_rest_forward_defaulted`).

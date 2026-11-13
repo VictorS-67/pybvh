@@ -11,6 +11,7 @@ One entry of a skeleton's hierarchy: the root, a joint or an end site. `Bvh.node
 
 **Root**:
 The first node. Its position channels place it in the world frame: its translation per frame is the root position. A root that declares no channels is a static root. A joint below it that declares position channels is a translating joint, placed in its parent's frame.
+_Avoid_: root, for the joint that the body-level measures read: that joint is the body anchor, which is the root only on some clips
 
 **Static root**:
 A root whose `CHANNELS` line declares no channel (`CHANNELS 0`), as Blender's exporter writes above an armature with several root bones. It stays at its offset with no rotation: its root position is its offset in every frame and its row of joint angles is zero. `BvhRoot.is_static()` names the state. An operation that would move it away from its offset, or turn it, raises an error that names it. Its Euler order is `''`: the rotation conversions and forward kinematics read it as the identity and refuse any other rotation for it. `change_euler_order` with no joint and `harmonize` leave it as it is, and `change_euler_order` refuses it when it is named. The travel descriptors (`root_trajectory`, the `centered` modes, the gait descriptors) read the body anchor, so they describe the body below a static root, not that node.

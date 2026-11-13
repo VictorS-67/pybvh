@@ -82,6 +82,7 @@ from .node_tree import (
 )
 from .spatial_coord import (
     FkTopology,
+    _check_centered,
     _ground_plane_offset,
     frames_to_node_positions,
 )
@@ -428,7 +429,7 @@ def _build_rest_pose(bvh: Bvh) -> npt.NDArray[np.float64]:
         bvh.fk_topology,
         root_pos=np.zeros(3),
         joint_angles=np.zeros((bvh.joint_count, 3), dtype=np.float64),
-        centered="skeleton",
+        centered="anchor",
         joint_translations=np.array(
             [node.offset for node in bvh.nodes if _is_translating_joint(node)], dtype=np.float64
         ).reshape(-1, 3),
@@ -444,16 +445,6 @@ def _static_root_pos(offset: npt.ArrayLike, frame_count: int) -> npt.NDArray[np.
 def _channel_declaration(root: BvhRoot) -> str:
     """The root's channel set as a ``CHANNELS`` line counts it."""
     return "CHANNELS 0" if root.is_static() else "CHANNELS 6"
-
-
-def _check_centered(centered: str) -> None:
-    """Raise ``ValueError`` unless *centered* is a centering mode."""
-    centered_options = ["skeleton", "first", "world"]
-    if centered not in centered_options:
-        raise ValueError(
-            f"The value {centered} is not recognized for the centered "
-            f"argument. Currently recognized keywords are {centered_options}"
-        )
 
 
 def _describe_rate(frame_time: float) -> str:
@@ -2171,7 +2162,7 @@ class Bvh:
         :attr:`rest_up`, :attr:`rest_forward` and
         :attr:`has_lr_geometry`, the facing (:meth:`forward_at`,
         :meth:`left_at`, :meth:`facing_frame`), :meth:`root_trajectory`,
-        the ``centered="skeleton"`` and ``"first"`` modes,
+        the ``centered="anchor"`` and ``"first_ground"`` modes,
         :meth:`auto_detect_feet`, :meth:`foot_contacts`,
         :meth:`ground_contacts`, :meth:`skeleton_size`, the gait
         descriptors and :meth:`mirror`. The operations that treat all nodes alike work as on any clip:
@@ -2951,7 +2942,7 @@ class Bvh:
         if centered == "world":
             return world
         anchor = self._body_anchor_positions()
-        if centered == "skeleton":
+        if centered == "anchor":
             return world - anchor[:, np.newaxis, :]
         # with no frames there is nothing to center on
         if self.frame_count == 0:
@@ -2984,8 +2975,8 @@ class Bvh:
             ``-1`` is the **last** frame.
         centered : str
             ``"world"`` – every node at its world position.
-            ``"skeleton"`` – :attr:`body_anchor` at origin for all frames.
-            ``"first"`` – ground-plane centering: the first frame's body
+            ``"anchor"`` – :attr:`body_anchor` at origin for all frames.
+            ``"first_ground"`` – ground-plane centering: the first frame's body
             anchor position is subtracted in the two axes perpendicular
             to :attr:`world_up`; the up coordinate is untouched, so the
             motion starts above the origin at its original height.
@@ -2995,8 +2986,8 @@ class Bvh:
             stays in place with the body below it (a static root,
             ``CHANNELS 0``, or a reference node whose channels do not
             change), they centre on the body, not on the reference
-            node: under ``"skeleton"`` the body anchor stays at the origin and
-            the reference node moves. With *frame* given, ``"first"``
+            node: under ``"anchor"`` the body anchor stays at the origin and
+            the reference node moves. With *frame* given, ``"first_ground"``
             centres on that frame's anchor, the one frame posed.
         """
         _check_centered(centered)
@@ -3023,22 +3014,22 @@ class Bvh:
                     joint_angles=motion["joint_angles"][actual],
                     joint_translations=motion["joint_translations"][actual],
                 )
-            if centered == "skeleton":
+            if centered == "anchor":
                 return world_frame - world_frame[anchor]
             return world_frame - _ground_plane_offset(world_frame[anchor], self.world_up)
         if self._derived.node_positions is not None:
             world_frame = self._derived.node_positions[actual]
             if centered == "world":
                 return world_frame.copy()
-            if centered == "skeleton":
+            if centered == "anchor":
                 return world_frame - motion["root_pos"][actual]
             return world_frame - _ground_plane_offset(motion["root_pos"][actual], self.world_up)
-        if centered == "first":
+        if centered == "first_ground":
             return frames_to_node_positions(
                 self,
                 root_pos=motion["root_pos"][actual],
                 joint_angles=motion["joint_angles"][actual],
-                centered="first",
+                centered="first_ground",
                 world_up=self.world_up,
                 joint_translations=motion["joint_translations"][actual],
             )
@@ -3138,7 +3129,7 @@ class Bvh:
             included. This export is one-way: positions do not determine
             the joint angles, and ``df_to_bvh`` reads euler-mode frames.
         centered : str, optional
-            ``"world"`` (default), ``"skeleton"``, or ``"first"`` — see
+            ``"world"`` (default), ``"anchor"``, or ``"first_ground"`` — see
             :meth:`node_positions` for their semantics. Only used when
             ``mode='coordinates'``.
 

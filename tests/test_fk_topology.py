@@ -97,18 +97,18 @@ class TestForwardKinematicsFromArrays:
         np.testing.assert_array_equal(result, bvh.node_positions())
 
     @pytest.mark.parametrize("filename", ["bvh_test1.bvh", "cmu_12_01_walk.bvh", "bvh_test3.bvh"])
-    def test_matches_the_bvh_path_skeleton_centered(self, filename):
+    def test_matches_the_bvh_path_anchor_centered(self, filename):
         """Same geometry, but not bit-exact by design.
 
-        `Bvh.node_positions` reaches skeleton-centered by subtracting the
+        `Bvh.node_positions` reaches anchor-centered by subtracting the
         root from its cached world-frame FK, where this path simply never
         adds it — one rounding apart, which is the price of that cache.
         """
         bvh = read_bvh_file(BVH_DATA / filename)
         result = frames_to_node_positions(
-            bvh.fk_topology, bvh.root_pos, bvh.joint_angles, centered="skeleton"
+            bvh.fk_topology, bvh.root_pos, bvh.joint_angles, centered="anchor"
         )
-        np.testing.assert_allclose(result, bvh.node_positions(centered="skeleton"), atol=1e-12)
+        np.testing.assert_allclose(result, bvh.node_positions(centered="anchor"), atol=1e-12)
 
     def test_matches_the_node_list_path(self, bvh_example):
         from_nodes = frames_to_node_positions(
@@ -193,31 +193,34 @@ class TestForwardKinematicsFromArrays:
 
 
 # =============================================================================
-# The up axis for centered="first"
+# The up axis for centered="first_ground"
 # =============================================================================
 
 
 class TestFirstCenteringWorldUp:
-    """`centered='first'` never guesses a gravity direction."""
+    """`centered='first_ground'` never guesses a gravity direction."""
 
     def test_bvh_supplies_its_own_world_up(self, bvh_example):
         """A Bvh knows its up axis, so no argument is needed — and '+y' is not assumed."""
         assert bvh_example.world_up == "+z"
         np.testing.assert_allclose(
-            frames_to_node_positions(bvh_example, centered="first"),
-            bvh_example.node_positions(centered="first"),
+            frames_to_node_positions(bvh_example, centered="first_ground"),
+            bvh_example.node_positions(centered="first_ground"),
         )
 
     def test_topology_without_up_raises(self, bvh_example, topology):
         with pytest.raises(ValueError, match="carries no gravity direction"):
             frames_to_node_positions(
-                topology, bvh_example.root_pos, bvh_example.joint_angles, centered="first"
+                topology, bvh_example.root_pos, bvh_example.joint_angles, centered="first_ground"
             )
 
     def test_node_list_without_up_raises(self, bvh_example):
         with pytest.raises(ValueError, match="carries no gravity direction"):
             frames_to_node_positions(
-                bvh_example.nodes, bvh_example.root_pos, bvh_example.joint_angles, centered="first"
+                bvh_example.nodes,
+                bvh_example.root_pos,
+                bvh_example.joint_angles,
+                centered="first_ground",
             )
 
     def test_explicit_world_up_is_honoured(self, bvh_example, topology):
@@ -226,10 +229,10 @@ class TestFirstCenteringWorldUp:
                 topology,
                 bvh_example.root_pos,
                 bvh_example.joint_angles,
-                centered="first",
+                centered="first_ground",
                 world_up=bvh_example.world_up,
             ),
-            bvh_example.node_positions(centered="first"),
+            bvh_example.node_positions(centered="first_ground"),
         )
 
 

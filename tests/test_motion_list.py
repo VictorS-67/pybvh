@@ -468,7 +468,7 @@ SINGLE_CLIP_OPERATIONS = {
     "node_positions": lambda clip, _: clip.node_positions(),
     "node_positions_first_frame": lambda clip, _: clip.node_positions(frame=0),
     "node_positions_last_frame_centered_first": lambda clip, _: clip.node_positions(
-        frame=-1, centered="first"
+        frame=-1, centered="first_ground"
     ),
     "frames_to_node_positions": lambda clip, _: frames_to_node_positions(clip),
     "root_trajectory": lambda clip, _: clip.root_trajectory(),

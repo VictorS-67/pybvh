@@ -326,7 +326,7 @@ def _run_adaptive(bvh):
 
 
 def _run_clip_centered_first(bvh):
-    # The clip moved as node_positions(centered="first") moves its positions:
+    # The clip moved as node_positions(centered="first_ground") moves its positions:
     # its first frame's root to the origin in the ground plane. The pin was
     # taken by passing those positions as coords=, which the detectors no
     # longer take; the clip moved the same way gives the same labels.

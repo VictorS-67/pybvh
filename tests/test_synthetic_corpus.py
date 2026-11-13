@@ -208,13 +208,13 @@ class TestStaticReferenceRoot:
 
     def test_the_travel_descriptors_describe_the_hips(self):
         # They read the body anchor, the hips, not the root, which stays at
-        # the origin: under "skeleton" centering the hips stay still and the
+        # the origin: under "anchor" centering the hips stay still and the
         # reference node travels the other way.
         clip = _read("reference_humanoid_6ch.bvh")
         hips = _travel((0.0, 95.0, 0.0))
         assert clip.walking_pace() > 0.0
         np.testing.assert_allclose(clip.root_trajectory()[:, :2], hips[:, [0, 2]], atol=1e-6)
-        centred = clip.node_positions(centered="skeleton")
+        centred = clip.node_positions(centered="anchor")
         np.testing.assert_array_equal(centred[:, clip.node_index["Hips"]], np.zeros((5, 3)))
         np.testing.assert_allclose(centred[:, clip.node_index["Reference"]], -hips, atol=1e-6)
 

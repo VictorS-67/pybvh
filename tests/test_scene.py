@@ -542,7 +542,10 @@ class TestSceneMethods:
         mirrored = walk.mirror()
         scene = make_scene(
             [walk, mirrored],
-            [walk.node_positions(centered="first"), mirrored.node_positions(centered="first")],
+            [
+                walk.node_positions(centered="first_ground"),
+                mirrored.node_positions(centered="first_ground"),
+            ],
             "front",
             None,
         )
@@ -584,7 +587,7 @@ class TestSceneMethods:
         from pybvh.bvhplot._viewport import make_viewport
 
         clip = make_clip(bvh)
-        coords = clip.node_positions(centered="first")
+        coords = clip.node_positions(centered="first_ground")
         fallback_warning = (
             pytest.warns(UserWarning, match="No usable left/right geometry")
             if warns

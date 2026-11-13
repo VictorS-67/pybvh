@@ -45,6 +45,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .._warnings import user_stacklevel
+from ..spatial_coord import _check_centered
 from ..tools import _format_fps, _require_rate, _same_rate
 from . import _animation_options, _backends, _video
 from ._from_bvh import (
@@ -358,20 +359,16 @@ def _prepare(
     so that side-by-side comparisons of skeletons with different up or
     forward axes render each one correctly in its own subplot.
     """
-    _VALID_CENTERED = {"world", "skeleton", "first"}
-    if centered not in _VALID_CENTERED:
-        raise ValueError(
-            f"Unknown centered mode {centered!r}. Choose from: {sorted(_VALID_CENTERED)}"
-        )
+    _check_centered(centered)
 
     bvh_list, coords_list = normalize_input(bvh, frames, centered)
     coords_list = align_frame_counts(coords_list, pad=pad)
 
     # Canonical (cached, robust) floor only where heights are world
-    # units: FK-computed coords under "world" or "first" centering
-    # (first-centering is ground-plane-only since 0.8.0). Root-relative
+    # units: FK-computed coords under "world" or "first_ground" centering
+    # ("first_ground" is ground-plane-only). Anchor-relative
     # or caller-supplied coords use the min of the coords in use.
-    canonical_floor = not isinstance(frames, np.ndarray) and centered in ("world", "first")
+    canonical_floor = not isinstance(frames, np.ndarray) and centered in ("world", "first_ground")
 
     # Which clip frames the coords are: one frame, the whole clip, or
     # none of them when the caller supplied the array.
@@ -532,7 +529,7 @@ def frame(
         pick a row of *coords*; to draw another row, pass
         ``coords[i]``. Only valid when *bvh* is a single Bvh object.
     centered : str, optional
-        Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
+        Centering mode: ``"world"`` (default), ``"anchor"``, or ``"first_ground"``.
         Ignored when *coords* is given.
     labels : list[str], optional
         Subplot titles for side-by-side comparison.
@@ -567,8 +564,8 @@ def frame(
         uses (see there for the direction): skeleton ``k`` sits
         ``k × spacing`` to the first skeleton's own left. ``None``
         (default) is ``"auto"``, which spaces them by 1.2 × the first
-        skeleton's lateral width when ``centered`` is ``"first"`` or
-        ``"skeleton"``, and leaves them where their files put them
+        skeleton's lateral width when ``centered`` is ``"first_ground"`` or
+        ``"anchor"``, and leaves them where their files put them
         under ``centered="world"``; a float, in scene units, always
         spaces them. The arrangement is measured on the whole clips (cut to
         the shortest, as :func:`play` and :func:`render` cut them under
@@ -583,11 +580,11 @@ def frame(
         each one's own last frame, where the viewer stops at the
         shortest, or holds it under ``sync="pad"``, and resamples under
         ``match_fps``).
-        The other modes differ by centering alone: under ``"first"``
+        The other modes differ by centering alone: under ``"first_ground"``
         the still is centred on the frame it draws, so each skeleton
         stands back from the viewer's place by its clip's travel on the
         ground since the first frame (times its *match_size* factor);
-        under ``"skeleton"`` its floor is the pose's, not the clip's,
+        under ``"anchor"`` its floor is the pose's, not the clip's,
         and a matched skeleton is scaled about that floor. Measured on
         the frame, the spread would also differ when the first skeleton
         sweeps wider over the clip (walking sideways, say) than at that
@@ -637,7 +634,7 @@ def frame(
 
         # Only a comparison is arranged, so only it needs its clips'
         # every frame. The still is not cut from that Scene: under
-        # "skeleton" its floor would become the clip's, not its pose's.
+        # "anchor" its floor would become the clip's, not its pose's.
         whole_clip = _prepare(clips, None, centered, camera, labels) if len(clips) > 1 else None
         scene = _arranged_in_one_scene(
             scene,
@@ -805,7 +802,7 @@ def render(
         backend is named, and warns under ``"auto"``; a preset's own
         values never do (see :class:`Style`).
     centered : str, optional
-        Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
+        Centering mode: ``"world"`` (default), ``"anchor"``, or ``"first_ground"``.
     labels : list[str], optional
         Labels for each skeleton when comparing.
     fps : float, optional
@@ -984,7 +981,7 @@ def render(
         ``k × spacing`` to the first skeleton's own left. ``None``
         (default) is ``"auto"``, which spaces them by 1.2 × the first
         skeleton's lateral width over the clip when ``centered`` is
-        ``"first"`` or ``"skeleton"``, and leaves them where their
+        ``"first_ground"`` or ``"anchor"``, and leaves them where their
         files put them under ``centered="world"``; a float, in scene
         units, always spaces them. Accepted and ignored by OpenCV and matplotlib, which draw
         each skeleton in its own panel.
@@ -1191,7 +1188,7 @@ def play(
         under ``"auto"``, as an option the backend does not read does
         (see *backend*); a preset's own values never do.
     centered : str, optional
-        Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
+        Centering mode: ``"world"`` (default), ``"anchor"``, or ``"first_ground"``.
     labels : list[str], optional
         Labels for each skeleton when comparing.
     fps : float, optional
@@ -1271,7 +1268,7 @@ def play(
         Lateral separation between skeletons in single-scene backends
         (k3d, vedo). ``None`` (default) is ``"auto"``, which spaces
         skeletons by 1.2 × the lateral width of the first skeleton over
-        the clip when ``centered`` is ``"first"`` or ``"skeleton"``; no
+        the clip when ``centered`` is ``"first_ground"`` or ``"anchor"``; no
         spacing is applied when ``centered="world"`` (raw world
         coordinates are honoured). Pass a float (in scene units) to
         override. Accepted and ignored by multi-panel backends
@@ -1454,7 +1451,7 @@ def trajectory(
         ``ghost_spacing`` and ``dpi`` (the figure takes matplotlib's
         own), so a Style built for :func:`frame` serves here too.
     centered : str, optional
-        Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
+        Centering mode: ``"world"`` (default), ``"anchor"``, or ``"first_ground"``.
     labels : list[str], optional
         Legend labels.
     figsize : (float, float), optional

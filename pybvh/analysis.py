@@ -98,9 +98,9 @@ def node_velocities(
         Input motion.
     centered : str, optional
         Coordinate centering mode (default ``"world"``).
-        Note: ``"world"`` and ``"first"`` produce identical velocities
+        Note: ``"world"`` and ``"first_ground"`` produce identical velocities
         (constant offsets vanish under differentiation); only
-        ``"skeleton"`` is meaningfully different here.
+        ``"anchor"`` is meaningfully different here.
     in_frames : bool, optional
         If True, return velocity in units/frame.
         If False (default), return velocity in units/second.
@@ -202,9 +202,9 @@ def node_accelerations(
         Input motion.
     centered : str, optional
         Coordinate centering mode (default ``"world"``).
-        Note: ``"world"`` and ``"first"`` produce identical accelerations
+        Note: ``"world"`` and ``"first_ground"`` produce identical accelerations
         (constant offsets vanish under differentiation); only
-        ``"skeleton"`` is meaningfully different here.
+        ``"anchor"`` is meaningfully different here.
     in_frames : bool, optional
         If True, return acceleration in units/frame^2.
         If False (default), return in units/second^2.

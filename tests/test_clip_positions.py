@@ -66,7 +66,7 @@ def _arrays_in(result):
     return []
 
 
-# The derivatives take centered=, whose "first" and "skeleton" are derived
+# The derivatives take centered=, whose "first_ground" and "anchor" are derived
 # from the clip's positions and its "world" is the positions themselves.
 _TAKE_CENTERED = ("velocities", "accelerations", "speed_derivative", "jerk")
 _ARRAY_CASES = [
@@ -74,7 +74,7 @@ _ARRAY_CASES = [
     for name, call in ENTRY_POINTS.items()
     if _arrays_in(call(make_pos_y_up_rotating_bvh()))
     for kwargs in (
-        [{"centered": c} for c in ("world", "first", "skeleton")]
+        [{"centered": c} for c in ("world", "first_ground", "anchor")]
         if name.endswith(_TAKE_CENTERED)
         else [{}]
     )

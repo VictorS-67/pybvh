@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 
 import pybvh
-from pybvh import analysis, bvhplot, features, read_bvh_file
+from pybvh import analysis, bvhplot, features, read_bvh_file, signal
 from pybvh.spatial_coord import frames_to_node_positions
 
 matplotlib.use("Agg")
@@ -84,6 +84,8 @@ def _close_figures():
     plt.close("all")
 
 
+# The test of each mode's result, below, calls not every callable under
+# "world": this one does.
 @pytest.mark.parametrize("value", NEW_VALUES)
 @pytest.mark.parametrize("name", COMPUTING)
 def test_a_computing_callable_accepts_the_new_values(clip, name, value):
@@ -125,3 +127,174 @@ def test_first_ground_keeps_the_height_and_zeroes_the_ground_plane(clip):
     up = pybvh.tools._axis_to_vector(clip.world_up).astype(bool)
     np.testing.assert_array_equal(first_ground[..., up], world[..., up])
     np.testing.assert_allclose(first_ground[0, anchor, ~up], 0.0, atol=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# Each mode's output, derived from the same callable under "world"
+# ---------------------------------------------------------------------------
+#
+# A branch that reads a stale value, or falls through to another mode, still
+# gives finite output; these tests compare each result with the one its mode
+# defines. The expected result is derived from the callable's "world" output
+# and the body anchor's world positions, so it needs no stored values:
+#
+# - positions: "anchor" subtracts the anchor's position on every frame, all
+#   three axes; "first_ground" subtracts its first-frame position in the two
+#   ground axes only;
+# - vector derivatives: "first_ground" equals "world", since a constant offset
+#   vanishes; "anchor" subtracts the anchor's own derivative of the same order;
+# - speed derivatives and kinetic energy: "first_ground" equals "world", for
+#   the same reason; under "anchor" the expected value is computed from the
+#   expected velocities.
+
+# A clip whose body anchor is its root, and one whose anchor (Hips) sits
+# below a reference root and starts away from the origin, so that every
+# branch of the modes on either kind of clip is reached.
+RELATION_CLIPS = {
+    "anchor is the root": BVH_DATA / "bvh_test1.bvh",
+    "anchor below a reference root": BVH_DATA / "synthetic" / "reference_props_humanoid_6ch.bvh",
+}
+CENTRED_VALUES = ("first_ground", "anchor")
+# The frame the single-frame entry of COMPUTING poses.
+FRAME = 3
+
+
+# Some callables take another path once the clip holds its world positions
+# (``Bvh.node_positions`` with ``frame=``), so each test reads a new clip,
+# and reads it in both states.
+CACHE_STATES = ("nothing cached", "world positions cached")
+
+
+@pytest.fixture(params=list(RELATION_CLIPS))
+def relation_clip_path(request):
+    return RELATION_CLIPS[request.param]
+
+
+def _anchor_world(clip):
+    """The body anchor's world positions, ``(F, 3)``."""
+    return clip.node_positions(centered="world")[:, clip.nodes.index(clip.body_anchor)]
+
+
+def _ground(clip, position):
+    """*position* with its component along the clip's up axis set to zero."""
+    ground = np.array(position, dtype=np.float64)
+    ground[..., "xyz".index(clip.world_up[-1].lower())] = 0.0
+    return ground
+
+
+def _offset(clip, value, frame=None):
+    """What *value* subtracts from a world position: ``(F, 3)``, or ``(3,)`` with *frame*."""
+    anchor = _anchor_world(clip)
+    if frame is not None:
+        return anchor[frame] if value == "anchor" else _ground(clip, anchor[frame])
+    if value == "anchor":
+        return anchor
+    return np.broadcast_to(_ground(clip, anchor[0]), anchor.shape)
+
+
+def _joints(clip):
+    """The indices, in node order, of the nodes that are not end sites."""
+    return [i for i, node in enumerate(clip.nodes) if not node.is_end_site()]
+
+
+def _anchor_derivative(clip, order):
+    return signal.finite_difference(_anchor_world(clip), clip.frame_time, order=order)
+
+
+def _node_derivative(clip, value, order):
+    """The expected ``order``-th derivative of every node under *value*."""
+    world = (analysis.node_velocities, analysis.node_accelerations, analysis.node_jerk)[order - 1](
+        clip, centered="world"
+    )
+    if value == "first_ground":
+        return world
+    return world - _anchor_derivative(clip, order)[:, np.newaxis]
+
+
+def _node_speed_derivative(clip, value):
+    speed = np.linalg.norm(_node_derivative(clip, value, 1), axis=-1)
+    return signal.finite_difference(speed, clip.frame_time)
+
+
+def _kinetic_energy(clip, value):
+    velocities = _node_derivative(clip, value, 1)[:, _joints(clip)]
+    return np.sum(velocities**2, axis=(-2, -1))
+
+
+def _to_df_dict(clip, value):
+    world = clip.to_df_dict(mode="coordinates", centered="world")
+    offset = _offset(clip, value)
+    expected = {"time": world["time"]}
+    for column, values in world.items():
+        if column != "time":
+            expected[column] = values - offset[:, "XYZ".index(column[-1])]
+    return expected
+
+
+def _to_feature_array(clip, value):
+    # With the defaults, only the root position (the first three columns)
+    # depends on ``centered``.
+    expected = clip.to_feature_array(centered="world").copy()
+    expected[:, :3] -= _offset(clip, value)
+    return expected
+
+
+def _world_positions(clip, value):
+    return clip.node_positions(centered="world") - _offset(clip, value)[:, np.newaxis]
+
+
+# For each name in COMPUTING, its expected output under a centred value.
+EXPECTED = {
+    "Bvh.node_positions": _world_positions,
+    "Bvh.node_positions(frame=)": lambda b, c: (
+        b.node_positions(frame=FRAME, centered="world") - _offset(b, c, frame=FRAME)
+    ),
+    "Bvh.joint_positions": lambda b, c: _world_positions(b, c)[:, _joints(b)],
+    "Bvh.to_df_dict": _to_df_dict,
+    "Bvh.node_velocities": lambda b, c: _node_derivative(b, c, 1),
+    "Bvh.joint_velocities": lambda b, c: _node_derivative(b, c, 1)[:, _joints(b)],
+    "Bvh.node_accelerations": lambda b, c: _node_derivative(b, c, 2),
+    "Bvh.joint_accelerations": lambda b, c: _node_derivative(b, c, 2)[:, _joints(b)],
+    "Bvh.node_speed_derivative": _node_speed_derivative,
+    "Bvh.joint_speed_derivative": lambda b, c: _node_speed_derivative(b, c)[:, _joints(b)],
+    "Bvh.node_jerk": lambda b, c: _node_derivative(b, c, 3),
+    "Bvh.joint_jerk": lambda b, c: _node_derivative(b, c, 3)[:, _joints(b)],
+    "Bvh.kinetic_energy": _kinetic_energy,
+    "Bvh.to_feature_array": _to_feature_array,
+    "analysis.node_velocities": lambda b, c: _node_derivative(b, c, 1),
+    "analysis.joint_velocities": lambda b, c: _node_derivative(b, c, 1)[:, _joints(b)],
+    "analysis.node_accelerations": lambda b, c: _node_derivative(b, c, 2),
+    "analysis.joint_accelerations": lambda b, c: _node_derivative(b, c, 2)[:, _joints(b)],
+    "analysis.node_speed_derivative": _node_speed_derivative,
+    "analysis.joint_speed_derivative": lambda b, c: _node_speed_derivative(b, c)[:, _joints(b)],
+    "analysis.node_jerk": lambda b, c: _node_derivative(b, c, 3),
+    "analysis.joint_jerk": lambda b, c: _node_derivative(b, c, 3)[:, _joints(b)],
+    "analysis.kinetic_energy": _kinetic_energy,
+    "features.to_feature_array": _to_feature_array,
+    "frames_to_node_positions": _world_positions,
+}
+
+
+def test_every_computing_callable_has_an_expected_output():
+    assert EXPECTED.keys() == COMPUTING.keys()
+
+
+@pytest.mark.parametrize("cache", CACHE_STATES)
+@pytest.mark.parametrize("value", CENTRED_VALUES)
+@pytest.mark.parametrize("name", COMPUTING)
+def test_a_computing_callable_gives_what_its_mode_defines(relation_clip_path, name, value, cache):
+    clip = read_bvh_file(relation_clip_path)
+    if cache == "world positions cached":
+        clip.node_positions()
+    actual = COMPUTING[name](clip, value)
+    expected = EXPECTED[name](clip, value)
+    if isinstance(expected, dict):
+        assert actual.keys() == expected.keys()
+        pairs = [(actual[k], expected[k]) for k in expected]
+    else:
+        pairs = [(actual, expected)]
+    for got, want in pairs:
+        # A world output that is not finite would let a non-finite result
+        # match it.
+        assert np.all(np.isfinite(want))
+        np.testing.assert_allclose(got, want, rtol=1e-9, atol=1e-9)

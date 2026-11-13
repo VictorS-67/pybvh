@@ -97,8 +97,10 @@ plt.show()
 # The `centered` parameter controls this:
 #
 # - **`"world"`** (default): absolute positions from the BVH file. The skeleton is wherever it was recorded.
-# - **`"first_ground"`**: ground-plane centering — the first frame's root is shifted over the origin in the two horizontal axes, keeping its original height above the ground. The skeleton still moves from there.
-# - **`"anchor"`**: the root is at `[0, 0, 0]` in **every** frame. Only the pose changes, not the global position.
+# - **`"first_ground"`**: ground-plane centering — the first frame's body anchor is shifted over the origin in the two horizontal axes, keeping its original height above the ground. The skeleton still moves from there.
+# - **`"anchor"`**: the body anchor is at `[0, 0, 0]` in **every** frame. Only the pose changes, not the global position.
+#
+# The body anchor (`bvh.body_anchor`) is the joint that the body's measures start from: the hips on most rigs. On this clip the body anchor is the root, `Hips`, so its row is row 0 of the positions.
 #
 # The best way to understand this is visually:
 
@@ -116,13 +118,14 @@ for mode in ["world", "first_ground", "anchor"]:
     plt.show()
 
 # %% [markdown]
-# We can also verify numerically: with `"anchor"` centering, the root is always at the origin.
+# We can also verify numerically: with `"anchor"` centering, the body anchor is always at the origin.
 
 # %%
 coords_anchor = bvh.node_positions(centered="anchor")
+anchor = bvh.index(bvh.body_anchor, space="node")  # its row in node_positions()
 
-print("Root position with 'anchor' centering (first 5 frames):")
-print(coords_anchor[:5, 0])  # all zeros
+print(f"Body anchor ({bvh.body_anchor.name}) with 'anchor' centering (first 5 frames):")
+print(coords_anchor[:5, anchor])  # all zeros
 
 # %% [markdown]
 # **When to use each mode:**

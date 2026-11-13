@@ -296,7 +296,7 @@ class TestGridFloor:
                     rest_up=up,
                     up=up,
                     initial_forward=forward,
-                    root_heading=None,
+                    anchor_heading=None,
                     floor_height=float(heights.min()),
                 )
             ]

@@ -1100,8 +1100,9 @@ def _infer_rest_forward(rest_left: str | None, rest_up: str | None) -> str:
     usable L/R geometry) it is the house default for rest up,
     arbitrary but stable and perpendicular to it; without a rest up
     either, the default for ``'+y'``. Never read against world up: the
-    rest pose's coordinates are the skeleton's frame, and only a root
-    rotation places them in the world (ADR 0004).
+    rest pose's coordinates are the skeleton's frame, and only the body
+    anchor's world rotation places them in the world (ADR 0004, as ADR
+    0012 amends it).
 
     The default is returned silently; the caller that hands it on as a
     fact warns (:func:`_warn_rest_forward_defaulted`).
@@ -1606,7 +1607,7 @@ def _heading_units(
     The body anchor's world rotation at each frame applied to *rest_forward* (a
     direction in the skeleton's own frame), projected on the ground of
     *world_up* and normalised. Where that projection is too short to read
-    (the root's forward stands along world up) the row is ``NaN``, the
+    (the anchor's forward stands along world up) the row is ``NaN``, the
     :mod:`pybvh.geometry` policy for a degenerate input: a number there
     would be an arbitrary angle.
 

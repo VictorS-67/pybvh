@@ -134,13 +134,13 @@ def make_scene(
     :class:`Bvh`; backends only ever see the Scene. Computes, per
     view, the topology, camera angles, floor height
     and every skeleton fact the backends draw from (timing, node names,
-    rest pose, L/R pairs, orientation, chain classification, root
-    heading), so the views are complete once this returns.
+    rest pose, L/R pairs, orientation, chain classification, the
+    body anchor's heading), so the views are complete once this returns.
 
     ``clip_frames`` says which frames of the clip the coords are, so
     the clip-derived, frame-indexed facts can be aligned to them: the
-    root heading (the ``[sin, cos]`` columns of
-    :func:`~pybvh.analysis.root_trajectory`), and the root's heading at
+    body anchor's heading (the ``[sin, cos]`` columns of
+    :func:`~pybvh.analysis.root_trajectory`), and the anchor's heading at
     the first shown row, which ``initial_forward`` falls back to where
     that row's left/right joints give no facing. An
     ``int`` names the single clip frame the coords hold (NumPy
@@ -150,7 +150,7 @@ def make_scene(
     :func:`align_frame_counts`, so ``slice(None)`` is the whole clip.
     The default ``None`` means the coords are not the clip's (a rest
     pose, a caller-supplied array, a transformed copy) and no clip frame
-    corresponds to them; ``root_heading`` is then ``None`` rather than
+    corresponds to them; ``anchor_heading`` is then ``None`` rather than
     a number that would be wrong, and ``initial_forward`` reads no
     heading. The default is the safe one on
     purpose: a caller has to vouch for the coords' provenance to get
@@ -182,7 +182,7 @@ def make_scene(
     views: list[SkeletonView] = []
     for i, (b, coords) in enumerate(zip(bvh_list, coords_list, strict=True)):
         # The clip frame of the first shown row, whose facing may fall back
-        # to the root's heading there; None for coords that are no clip's.
+        # to the anchor's heading there; None for coords that are no clip's.
         first_frame: int | None
         if clip_frames is None:
             first_frame = None
@@ -201,14 +201,14 @@ def make_scene(
         has_body = b._has_body()
 
         if clip_frames is None or not has_body:
-            root_heading = None
+            anchor_heading = None
         else:
             heading = root_trajectory(b)[:, 2:4]
             if isinstance(clip_frames, slice):
-                root_heading = _align_rows(heading[clip_frames], coords.shape[0])
+                anchor_heading = _align_rows(heading[clip_frames], coords.shape[0])
             else:
-                root_heading = heading[clip_frames][np.newaxis]
-            if root_heading.shape[0] != coords.shape[0]:
+                anchor_heading = heading[clip_frames][np.newaxis]
+            if anchor_heading.shape[0] != coords.shape[0]:
                 raise ValueError(
                     f"clip_frames={clip_frames!r} names one clip frame but "
                     f"the coords hold {coords.shape[0]} frames; pass a slice "
@@ -238,7 +238,7 @@ def make_scene(
                 lr_pairs=b._facing_lr_pairs() if has_body else np.empty((0, 2), dtype=np.intp),
                 initial_forward=initial_forward,
                 bone_chains=_chain_per_bone(get_bone_chains(b), len(bones)),
-                root_heading=root_heading,
+                anchor_heading=anchor_heading,
                 coords_in_rest_unit=clip_frames is not None,
                 body=b._in_body() if has_body else None,
             )
@@ -356,10 +356,10 @@ def _camera_angles_and_forward(
     *ref_frame* snapped to the dominant signed world axis, read by the
     facing chain :meth:`~pybvh.bvh.Bvh.forward_at` reads: leftward from
     the L/R joint geometry, crossed with up; where that is degenerate
-    (leftward parallel to up, or no L/R pairs), the root's heading at
+    (leftward parallel to up, or no L/R pairs), the anchor's heading at
     *clip_frame*, the clip frame *ref_frame* is; then a fixed per-up-axis
     default. A pose that names no clip frame (*clip_frame* ``None``)
-    has no root heading, and goes from the joints to the default. A
+    has no anchor heading, and goes from the joints to the default. A
     clip with no body (:attr:`Bvh.body_anchor` ``None``) has no facing,
     and gets the default. The string is always one of the six axes, never the continuous
     direction. It is the fact the ``"front"`` preset turns into an

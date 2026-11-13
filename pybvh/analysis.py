@@ -585,7 +585,7 @@ def root_trajectory(
     avoids both. For the direction of motion, differentiate the ground
     position (the ``ground_*_vel`` columns).
 
-    On a frame where that projection is too short to read (the root's
+    On a frame where that projection is too short to read (the anchor's
     forward stands along world up, norm below ``1e-6``) the heading is
     undefined, and its ``heading_sin`` and ``heading_cos`` are ``NaN``,
     the :mod:`pybvh.geometry` policy for values the motion makes

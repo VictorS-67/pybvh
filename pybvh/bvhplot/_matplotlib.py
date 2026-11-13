@@ -527,7 +527,7 @@ def sequence_mpl(
     else:
         heights = stack[..., view.up_index]
         floor_y = float(heights.min() if view.up_sign > 0 else heights.max())
-    poses_view = dataclasses.replace(view, coords=stack, floor_height=floor_y, root_heading=None)
+    poses_view = dataclasses.replace(view, coords=stack, floor_height=floor_y, anchor_heading=None)
     # The offset figure is orthographic by design (D4): perspective
     # would shrink distant poses and break the left-to-right read.
     viewport = make_viewport(
@@ -1265,17 +1265,17 @@ def trajectory_mpl(
             # (a, b = non-up axes in natural x,y,z order with the up axis
             # removed) — i.e. cos along axis a, sin along axis b.  Our local
             # horiz[] uses the same convention, so the trig components map
-            # directly to (h0, h1) plot coordinates. view.root_heading is
+            # directly to (h0, h1) plot coordinates. view.anchor_heading is
             # that [sin, cos] pair, already aligned to the coords by
             # make_scene (truncated or padded with them).
             F_plot = h0.shape[0]
-            if view.root_heading is None:
+            if view.anchor_heading is None:
                 raise ValueError(
                     "facing_arrows needs a Scene built from clip frames; "
-                    "caller-supplied coordinates carry no root heading."
+                    "caller-supplied coordinates carry no heading."
                 )
-            facing_sin = view.root_heading[:, 0]  # y-component (h1)
-            facing_cos = view.root_heading[:, 1]  # x-component (h0)
+            facing_sin = view.anchor_heading[:, 0]  # y-component (h1)
+            facing_cos = view.anchor_heading[:, 1]  # x-component (h0)
             step = max(1, F_plot // 10)
             idx = np.arange(0, F_plot, step)
             # A frame whose heading cannot be read (NaN) gets no arrow.

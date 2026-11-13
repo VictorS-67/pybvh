@@ -105,7 +105,7 @@ class SkeletonView(GroundFrame):
     chain classification) is a field, so a view built from plain arrays
     with no :class:`Bvh` behind it draws exactly like one made by
     :func:`make_scene`. Frame-indexed fields (``coords``,
-    ``root_heading``) always share their first axis.
+    ``anchor_heading``) always share their first axis.
 
     A view is checked when it is built: the shapes and lengths of its
     fields must agree with each other, every bone and L/R index must be
@@ -124,23 +124,23 @@ class SkeletonView(GroundFrame):
 
     Conventions the fields follow:
 
-    - ``root_heading`` is ``[sin(theta), cos(theta)]`` of
+    - ``anchor_heading`` is ``[sin(theta), cos(theta)]`` of
       :func:`~pybvh.analysis.root_trajectory`'s heading angle
       ``theta = atan2(f[b], f[a])``, where ``f`` is the rest-pose
-      forward rotated by the root rotation and ``(a, b)`` are the two
-      ground axes in natural ``x, y, z`` order with the up axis removed
-      (``(x, z)`` for a y-up rig). It is a ground-plane angle, not a
+      forward rotated by the body anchor's world rotation and
+      ``(a, b)`` are the two ground axes in natural ``x, y, z`` order
+      with the up axis removed (``(x, z)`` for a y-up rig). It is a ground-plane angle, not a
       signed rotation about the up vector: for ``+y`` up, a positive
       rotation about ``+y`` decreases it. Orientation-derived and
       continuous; ``NaN`` on a row whose heading cannot be read (the
-      root's forward stands along up), which draws no facing arrow;
+      anchor's forward stands along up), which draws no facing arrow;
       ``None`` when the coords are not the clip's.
     - ``initial_forward`` is a different quantity: the snapped facing
       of the view's first shown row, ``coords[0]``, not of clip frame
       0 (a view of a clip's frames 40 onward holds the facing at frame
       40). It is read by the facing chain
       :meth:`~pybvh.bvh.Bvh.forward_at` reads (the L/R joint
-      geometry; where it is degenerate, the root's heading at the
+      geometry; where it is degenerate, the anchor's heading at the
       row's clip frame when the coords are the clip's, then the house
       default) and snapped to the dominant signed axis, the value the
       ``"front"`` camera preset is derived from. Follow-camera math never reads it; it
@@ -179,11 +179,11 @@ class SkeletonView(GroundFrame):
       excluded so follow azimuths match the Bvh path bit for bit.
     - Arrays are read-only and borrowed. A view stores a read-only
       NumPy view of each array it is given (``coords``,
-      ``rest_coords``, ``lr_pairs``, ``root_heading``), so writing into
+      ``rest_coords``, ``lr_pairs``, ``anchor_heading``), so writing into
       one through the view raises. That matters because storage is
       shared: no array is copied at construction, and a Scene operation
       may share storage with its source (``subsampled`` shares
-      ``coords`` and ``root_heading``; ``offset`` allocates new coords
+      ``coords`` and ``anchor_heading``; ``offset`` allocates new coords
       and shares the heading; ``looped`` copies both), so a write
       through one Scene would change another. The alternative,
       copying, would double the memory of every clip drawn. The array
@@ -211,7 +211,7 @@ class SkeletonView(GroundFrame):
     ]  # (P, 2) joint L/R pairs in node index space, the facing geometry's; (0, 2) if none
     initial_forward: str  # snapped facing of the first shown row, coords[0], e.g. '+y'
     bone_chains: list[str]  # chain name per bone, parallel to ``bones``
-    root_heading: npt.NDArray[np.float64] | None  # (F, 2) [sin, cos] or None
+    anchor_heading: npt.NDArray[np.float64] | None  # (F, 2) [sin, cos] or None
     coords_in_rest_unit: bool = False  # coords posed from this rest pose: unit ratio exactly 1
     body: npt.NDArray[np.bool_] | None = None  # (N,) which nodes are the body; None: every node
 
@@ -279,11 +279,11 @@ class SkeletonView(GroundFrame):
                     f"nodes 0 to {num_nodes - 1}."
                 )
 
-        if self.root_heading is not None and np.shape(self.root_heading) != (num_frames, 2):
+        if self.anchor_heading is not None and np.shape(self.anchor_heading) != (num_frames, 2):
             raise ValueError(
-                f"root_heading must have shape ({num_frames}, 2) to match "
+                f"anchor_heading must have shape ({num_frames}, 2) to match "
                 f"the {num_frames} frames of coords, got "
-                f"{np.shape(self.root_heading)}."
+                f"{np.shape(self.anchor_heading)}."
             )
         if not (np.isfinite(self.frame_time) and self.frame_time >= 0):
             raise ValueError(
@@ -443,7 +443,7 @@ class SkeletonView(GroundFrame):
         median_ratio = float(np.median(ratios))
         return median_ratio if median_ratio > 0.0 else None
 
-    _ARRAY_FIELDS = ("coords", "rest_coords", "lr_pairs", "root_heading", "body")
+    _ARRAY_FIELDS = ("coords", "rest_coords", "lr_pairs", "anchor_heading", "body")
 
     def _protect_arrays(self) -> None:
         """Swap each array field for a read-only view of itself."""
@@ -570,15 +570,15 @@ class Scene:
         shown = np.arange(num_frames) % self.pass_length
         views = []
         for v in self.views:
-            heading = None if v.root_heading is None else v.root_heading[shown]
-            views.append(dataclasses.replace(v, coords=v.coords[shown], root_heading=heading))
+            heading = None if v.anchor_heading is None else v.anchor_heading[shown]
+            views.append(dataclasses.replace(v, coords=v.coords[shown], anchor_heading=heading))
         return Scene(views=views, loop_length=self.pass_length)
 
     def subsampled(self, step: int) -> Scene:
         """Every ``step``-th frame of every view, as a new Scene.
 
         Slices ``coords`` and every other frame-indexed field
-        (``root_heading``) with ``[::step]`` and scales ``frame_time`` by
+        (``anchor_heading``) with ``[::step]`` and scales ``frame_time`` by
         ``step``, so the kept frames stay at their original moments in
         time; up to ``step - 1`` trailing frames are dropped, so the
         span from the first to the last kept sample can shorten by that
@@ -602,10 +602,13 @@ class Scene:
             )
         views = []
         for v in self.views:
-            heading = None if v.root_heading is None else v.root_heading[::step]
+            heading = None if v.anchor_heading is None else v.anchor_heading[::step]
             views.append(
                 dataclasses.replace(
-                    v, coords=v.coords[::step], frame_time=v.frame_time * step, root_heading=heading
+                    v,
+                    coords=v.coords[::step],
+                    frame_time=v.frame_time * step,
+                    anchor_heading=heading,
                 )
             )
         return Scene(views=views)

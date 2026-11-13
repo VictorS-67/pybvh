@@ -80,9 +80,9 @@ def drawn(monkeypatch):
 
 
 def assert_view_shows(view, clip, frames):
-    """*view* holds *clip*'s poses and root heading at *frames*."""
+    """*view* holds *clip*'s poses and anchor heading at *frames*."""
     np.testing.assert_allclose(view.coords, clip.node_positions()[frames])
-    np.testing.assert_allclose(view.root_heading, root_trajectory(clip)[frames, 2:4])
+    np.testing.assert_allclose(view.anchor_heading, root_trajectory(clip)[frames, 2:4])
 
 
 # ===================================================================
@@ -641,7 +641,7 @@ class TestFrame:
         (scene,) = drawn
         view = scene.views[0]
         np.testing.assert_array_equal(view.coords, pose[np.newaxis])
-        assert view.root_heading is None
+        assert view.anchor_heading is None
         assert view.floor_height == pose[:, 2].min()
 
     def test_a_clip_of_coords_reaches_the_scene_without_a_heading(self, bvh_example, drawn):
@@ -652,7 +652,7 @@ class TestFrame:
         (scene,) = drawn
         view = scene.views[0]
         np.testing.assert_array_equal(view.coords, coords[:1])
-        assert view.root_heading is None
+        assert view.anchor_heading is None
 
     def test_a_clip_of_coords_frames_the_still_like_its_first_frame(self, bvh_example):
         import matplotlib

@@ -2272,7 +2272,7 @@ class TestFacingFrame:
         # valid is the per-frame report of exactly that fallback
         assert not frame.valid[3]
         assert frame.valid[2] and frame.valid[4]
-        # The fallback is the root's heading at that frame.
+        # The fallback is the anchor's heading at that frame.
         sin, cos = cmu_walk.root_trajectory()[3, 2:4]
         up_idx = "xyz".index(cmu_walk.world_up[1])
         a, b = [i for i in range(3) if i != up_idx]

@@ -431,14 +431,17 @@ def frames_to_node_positions(
         node position is subtracted in the two axes other than
         ``world_up`` only, so the motion starts above the origin at its
         original height.
+        ``"anchor_ground"`` – each frame's centre node position is
+        subtracted in the two axes other than ``world_up`` only, so the
+        travel is removed and the height kept.
         The centre node is the :attr:`~pybvh.bvh.Bvh.body_anchor` of a
         *skeleton* given as a Bvh, and the root of a node list or an
         :class:`FkTopology`, which carry no L/R mapping to find a body
         from (see :meth:`Bvh.node_positions`).
     world_up : str or None, optional
         Signed world-up axis string (e.g. ``'+y'``) — only read by
-        ``centered="first_ground"``, to decide which coordinate is left
-        untouched. Defaults to the skeleton's own ``world_up`` when
+        ``centered="first_ground"`` and ``"anchor_ground"``, to decide
+        which coordinate is left untouched. Defaults to the skeleton's own ``world_up`` when
         *skeleton* is a :class:`~pybvh.Bvh`. There is no default for the
         other two input forms: a node list and an ``FkTopology`` carry no
         gravity direction, and guessing one silently mis-centers every
@@ -462,13 +465,14 @@ def frames_to_node_positions(
     Raises
     ------
     ValueError
-        If *centered* is not one of the three modes; if *root_pos* /
+        If *centered* is not one of the four modes; if *root_pos* /
         *joint_angles* are omitted for a skeleton that carries no motion;
         if they disagree on frame count or on the joint count the skeleton
         declares; if *joint_translations* is omitted on a skeleton with a
         translating joint, or does not fit its translating joints or
-        frame count; or if ``centered="first_ground"`` is requested without a
-        ``world_up`` and the skeleton cannot supply one.
+        frame count; or if ``centered="first_ground"`` or
+        ``"anchor_ground"`` is requested without a ``world_up`` and the
+        skeleton cannot supply one.
 
     Notes
     -----
@@ -489,11 +493,13 @@ def frames_to_node_positions(
     channels being its position. Centering then translates every node
     of a frame alike: by that frame's ``root_pos`` under ``"world"``, by
     ``root_pos`` less the first frame's ground-plane position under
-    ``"first_ground"``, and not at all under ``"anchor"``. On a Bvh whose
-    body anchor is not its root, ``"anchor"`` then subtracts each
-    frame's anchor position, and ``"first_ground"`` subtracts the first
-    frame's anchor ground-plane position from the world positions in
-    place of the root's. A reader that adds
+    ``"first_ground"``, by ``root_pos`` less its own ground-plane
+    position under ``"anchor_ground"``, and not at all under
+    ``"anchor"``. On a Bvh whose body anchor is not its root,
+    ``"anchor"`` then subtracts each frame's anchor position,
+    ``"first_ground"`` subtracts the first frame's anchor ground-plane
+    position from the world positions in place of the root's, and
+    ``"anchor_ground"`` each frame's. A reader that adds
     the root's offset to ``root_pos`` instead places every node off by
     that offset, which differs only for a file whose root offset is not
     zero.

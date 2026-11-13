@@ -100,7 +100,7 @@ The `(F, P, 3)` array of the translating joints' position channels, in node orde
 The motion as distinct from the rest pose: what world up, the facing and the heading are read from.
 
 **Centered**:
-How the positions are placed when posing. `"world"` subtracts nothing and keeps the file's coordinates. `"first_ground"` subtracts the first frame's body anchor position in the two ground axes only. `"anchor"` subtracts each frame's body anchor position in all three axes, so the anchor stays at the origin.
+How the positions are placed when posing. `"world"` subtracts nothing and keeps the file's coordinates. `"first_ground"` subtracts the first frame's body anchor position in the two ground axes only. `"anchor"` subtracts each frame's body anchor position in all three axes, so the anchor stays at the origin. `"anchor_ground"` subtracts each frame's body anchor position in the two ground axes only, so the travel goes and the height stays.
 
 **Round trip**:
 Reading a clip, writing it (to a file, a DataFrame or a rotation representation) and reading it back to the same clip within float precision. The fidelity standard.

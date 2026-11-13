@@ -2162,7 +2162,8 @@ class Bvh:
         :attr:`rest_up`, :attr:`rest_forward` and
         :attr:`has_lr_geometry`, the facing (:meth:`forward_at`,
         :meth:`left_at`, :meth:`facing_frame`), :meth:`root_trajectory`,
-        the ``centered="anchor"`` and ``"first_ground"`` modes,
+        the ``centered="anchor"``, ``"first_ground"`` and
+        ``"anchor_ground"`` modes,
         :meth:`auto_detect_feet`, :meth:`foot_contacts`,
         :meth:`ground_contacts`, :meth:`skeleton_size`, the gait
         descriptors and :meth:`mirror`. The operations that treat all nodes alike work as on any clip:
@@ -2982,8 +2983,13 @@ class Bvh:
             anchor position is subtracted in the two axes perpendicular
             to :attr:`world_up`; the up coordinate is untouched, so the
             motion starts above the origin at its original height.
+            ``"anchor_ground"`` – each frame's body anchor position is
+            subtracted in the two axes perpendicular to
+            :attr:`world_up`; the up coordinate is untouched, so the
+            body's travel is removed and its height kept: the anchor
+            stays above the origin, at its own height on every frame.
 
-            The two centred modes read the body anchor, which is the
+            The three centred modes read the body anchor, which is the
             root on a clip whose anchor is its root. On a root that
             stays in place with the body below it (a static root,
             ``CHANNELS 0``, or a reference node whose channels do not
@@ -3131,8 +3137,9 @@ class Bvh:
             included. This export is one-way: positions do not determine
             the joint angles, and ``df_to_bvh`` reads euler-mode frames.
         centered : str, optional
-            ``"world"`` (default), ``"anchor"``, or ``"first_ground"`` — see
-            :meth:`node_positions` for their semantics. Only used when
+            ``"world"`` (default), ``"anchor"``, ``"first_ground"`` or
+            ``"anchor_ground"`` — see :meth:`node_positions` for their
+            semantics. Only used when
             ``mode='coordinates'``.
 
         Returns

@@ -256,6 +256,7 @@ plt.show()
 # - `'world'` (default): absolute positions from the BVH file.
 # - `'first_ground'`: first frame's body anchor over the origin (horizontal axes only, original height kept), motion continues from there.
 # - `'anchor'`: body anchor at the origin in every frame (pose only, no global movement).
+# - `'anchor_ground'`: body anchor over the origin in every frame (horizontal axes only, its height kept): no travel, but a jump still goes up.
 
 # %%
 # Side-by-side frame plots — axis tick values reveal the centering difference

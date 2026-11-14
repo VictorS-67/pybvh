@@ -6,6 +6,10 @@ anchor, the orientation report, the facing and the result of ``mirror``
 (with the clip's own mapping, and with it passed explicitly) on each
 ``.bvh`` of ``bvh_data/`` and ``bvh_data/synthetic/``. Each test reads a
 clip again and compares; a value that raised is pinned as its message.
+
+When the pin was made (#216), every value was checked equal bit for bit
+against ``main``. The test compares floats with ``atol=1e-12`` all the
+same, so that the last bits may differ: CI runs other numpy builds.
 """
 
 from __future__ import annotations

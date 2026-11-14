@@ -86,8 +86,9 @@ def _close_figures():
     plt.close("all")
 
 
-# The test of each mode's result, below, calls not every callable under
-# "world": this one does.
+# The relation test below takes the expected values of the speed
+# derivatives and kinetic_energy from node_velocities, so it never calls
+# them under "world". This test calls every callable under every mode.
 @pytest.mark.parametrize("value", NEW_VALUES)
 @pytest.mark.parametrize("name", COMPUTING)
 def test_a_computing_callable_accepts_the_new_values(clip, name, value):

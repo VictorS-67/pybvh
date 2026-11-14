@@ -899,8 +899,9 @@ class _LRNodePairs(NamedTuple):
     Attributes
     ----------
     joint_pairs : list of (int, int)
-        ``(left_node, right_node)`` per name pair whose two names name
-        joints, in mapping order.
+        ``(left_node, right_node)`` per node pair that a name pair whose
+        two names name joints binds (one per name that does not repeat,
+        see :func:`_bind_name_pair`), in mapping order.
     end_site_pairs : list of (int, int)
         The end sites of each joint pair, matched by position under
         their joints, in the order of *joint_pairs*.
@@ -985,7 +986,7 @@ def _resolve_lr_node_pairs(
             unknown.update(missing)
             continue
         for left_joint, right_joint in _bind_name_pair(
-            joints_of_name[left_name], joints_of_name[right_name]
+            joints_of_name[left_name], joints_of_name[right_name], parent_idx
         ):
             joint_pairs.append((left_joint, right_joint))
             left_ends = end_sites_of.get(left_joint, [])
@@ -998,14 +999,52 @@ def _resolve_lr_node_pairs(
     return _LRNodePairs(joint_pairs, end_site_pairs, mismatches, sorted(unknown))
 
 
-def _bind_name_pair(left_joints: list[int], right_joints: list[int]) -> list[tuple[int, int]]:
-    """The node pairs that one name pair binds to.
+def _bind_name_pair(
+    left_joints: list[int],
+    right_joints: list[int],
+    parent_idx: npt.NDArray[np.intp],
+) -> list[tuple[int, int]]:
+    """The node pairs that one name pair binds to, by the tree.
 
     *left_joints* and *right_joints* are the joints that carry the left
-    and the right name, in node order. The pair binds the last joint of
-    each name, as a name lookup in a dict keyed by name does.
+    and the right name, in node order. Each left joint pairs with the
+    right joint it meets lowest in the hierarchy: their deepest common
+    ancestor is deeper than the one it shares with any other right
+    joint. A left joint with two right joints equally close gets no
+    pair. When neither name repeats, the one pair is bound. Pairs are in
+    the node order of their left joints.
     """
-    return [(left_joints[-1], right_joints[-1])]
+    pairs = []
+    for left in left_joints:
+        meeting = [_meeting_depth(left, right, parent_idx) for right in right_joints]
+        deepest = max(meeting)
+        if meeting.count(deepest) == 1:
+            pairs.append((left, right_joints[meeting.index(deepest)]))
+    return pairs
+
+
+def _meeting_depth(a: int, b: int, parent_idx: npt.NDArray[np.intp]) -> int:
+    """The depth of the deepest common ancestor of nodes *a* and *b*.
+
+    The root is at depth 0. A node counts as its own ancestor, so a node
+    meets one of its descendants at its own depth.
+    """
+    path_a = _path_from_root(a, parent_idx)
+    path_b = _path_from_root(b, parent_idx)
+    shared = 0
+    for x, y in zip(path_a, path_b, strict=False):
+        if x != y:
+            break
+        shared += 1
+    return shared - 1
+
+
+def _path_from_root(node: int, parent_idx: npt.NDArray[np.intp]) -> list[int]:
+    """The nodes from the root down to *node*, both included."""
+    path = [node]
+    while parent_idx[path[-1]] >= 0:
+        path.append(int(parent_idx[path[-1]]))
+    return path[::-1]
 
 
 def _infer_rest_left(

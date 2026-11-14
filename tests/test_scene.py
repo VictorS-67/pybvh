@@ -20,7 +20,6 @@ from synthetic_bvh import (
 from synthetic_scene import make_array_scene, make_array_view, make_bare_view
 
 from pybvh import bvhplot, parse_axis, read_bvh_file
-from pybvh._orientation import _resolve_lr_pairs
 from pybvh.analysis import root_trajectory
 from pybvh.bvhplot._from_bvh import (
     get_bone_chains,
@@ -191,10 +190,10 @@ class TestViewCarriesSkeletonFacts:
         assert flipped.below_floor(0.5) == 2.5
 
     def test_lr_pairs_are_the_facing_geometrys_joint_pairs(self, bvh, coords):
-        """The pairs the follow camera averages: joints only, resolved the
-        way _orientation resolves them, so follow azimuths match the Bvh path."""
+        """The pairs the follow camera averages: the joint pairs of
+        node_lr_pairs, so follow azimuths match the Bvh path."""
         view = make_scene([bvh], [coords], "front", None).views[0]
-        expected = _resolve_lr_pairs(bvh.lr_mapping, bvh.node_index)
+        expected = [(li, ri) for li, ri in bvh.node_lr_pairs if not bvh.nodes[li].is_end_site()]
         assert view.lr_pairs.dtype == np.intp
         assert view.lr_pairs.tolist() == [list(p) for p in expected]
         assert len(expected) > 0

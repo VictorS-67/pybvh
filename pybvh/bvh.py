@@ -2508,7 +2508,8 @@ class Bvh:
         place where the two names meet: each left joint pairs with the
         right joint it meets lowest in the hierarchy, when that left joint
         is also the right joint's closest, so every figure keeps its own
-        pairs. Returns
+        pairs. A joint with two equally close joints of the other name
+        gets no pair. Returns
         ``None`` when no mapping is available (matches the
         ``lr_mapping`` sentinel — one "no pairs" convention across both
         surfaces); ``bvh.lr_pairs or []`` gives a list either way.
@@ -2590,8 +2591,8 @@ class Bvh:
         End sites are not included: that is :attr:`node_lr_pairs`' job,
         for mirroring positions, not for reading the facing. An ``(P, 2)``
         int array, ``(0, 2)`` without an L/R mapping, so array code needs
-        no ``None`` branch. The rest skeleton holds them, for the body
-        anchor rule and for rest up and rest left, which keep the body's.
+        no ``None`` branch. The rest skeleton holds them; their readers
+        are listed in :func:`~pybvh._orientation._resolve_lr_node_pairs`.
         """
         return self._lr_node_pairs_of(self._lr_mapping).joint_pair_array
 

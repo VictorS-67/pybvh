@@ -180,3 +180,48 @@ class TestDataFrame:
         assert [n.name for n in back.nodes] == [n.name for n in three_tips.nodes]
         np.testing.assert_allclose(back.joint_angles, three_tips.joint_angles, atol=1e-12)
         np.testing.assert_array_equal(back.root_pos, three_tips.root_pos)
+
+
+class TestOldName:
+    """A name of the old form, ``EndSiteLeftToeBase``, raises with a hint.
+
+    The old form is no alias: it still raises the unknown-name error, which
+    names the end site's new name when the clip has a node of that name.
+    """
+
+    HINT = r"end sites are named 'LeftToeBase_EndSite' since 0\.10\.0"
+
+    @pytest.fixture
+    def walk(self):
+        return read_bvh_file(BVH_DATA / "bvh_test1.bvh")
+
+    def test_feet_by_an_old_name_raise_with_the_new_name(self, walk):
+        with pytest.raises(ValueError, match=r"No node of this clip is named 'EndSiteLeftToeBase'"):
+            walk.foot_contacts(feet=["EndSiteLeftToeBase"], method="velocity")
+        with pytest.raises(ValueError, match=self.HINT):
+            walk.foot_contacts(feet=["EndSiteLeftToeBase"], method="velocity")
+
+    def test_another_node_parameter_raises_with_the_new_name(self, walk):
+        with pytest.raises(ValueError, match=self.HINT):
+            walk.path_length("EndSiteLeftToeBase")
+
+    @pytest.mark.parametrize("space", ["node", "joint"])
+    def test_index_raises_with_the_new_name(self, walk, space):
+        with pytest.raises(ValueError, match=self.HINT):
+            walk.index("EndSiteLeftToeBase", space=space)
+
+    @pytest.mark.parametrize("name", ["EndSiteTail", "EndSite", "EndSiteLeftToe"])
+    def test_an_old_form_without_its_new_node_raises_without_a_hint(self, walk, name):
+        with pytest.raises(ValueError, match=rf"named '{name}'; bvh\.node_index lists") as info:
+            walk.index(name, space="node")
+        assert "since 0.10.0" not in str(info.value)
+
+    def test_an_old_form_name_given_in_a_table_selects_its_node(self, walk):
+        table = walk.to_node_table()
+        position = walk.index("LeftToeBase_EndSite", space="node")
+        table[position]["name"] = "EndSiteLeftToeBase"
+        renamed = walk.copy(nodes=table)
+        assert renamed.index("EndSiteLeftToeBase", space="node") == position
+        np.testing.assert_array_equal(
+            renamed.path_length("EndSiteLeftToeBase"), walk.path_length("LeftToeBase_EndSite")
+        )

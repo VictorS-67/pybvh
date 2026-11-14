@@ -1254,7 +1254,7 @@ class Bvh:
         offsets within ``1e-6``, rotation orders), since ``other``'s
         motion is written onto ``self``'s bones; to join motion recorded
         on other bones on purpose, put it on this skeleton first,
-        ``self + other.copy(nodes=self.to_node_table())``. Then raises
+        ``self + other.retarget(self)``. Then raises
         ``ValueError`` unless the two have the same rate
         (:meth:`matches_rate`), since ``other``'s frames would play at
         ``self``'s rate: join ``other.resample(self.fps)`` to keep its
@@ -4300,7 +4300,7 @@ class Bvh:
         if difference.kind == "offset":
             message += (
                 " To put the other clip's motion on this clip's bones on purpose, "
-                "join other.copy(nodes=self.to_node_table()) instead, after "
+                "join other.retarget(self) instead, after "
                 "scaling the whole clip if the two are in different units."
             )
         raise ValueError(message)

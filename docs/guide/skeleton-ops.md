@@ -28,6 +28,8 @@ bvh_retarget = bvh.retarget(reference, name_mapping={
 })
 ```
 
+When the two skeletons have the same graph and no `name_mapping` is given, the nodes bind by position: node `i` takes the offset of `reference.nodes[i]`, and no name is looked up. Otherwise each joint binds by name, among joints only. An end site binds through its parent: it takes the offset of the end site in the same position under the reference joint that its parent is bound to. By name, a joint name the binding reads must belong to one joint of its skeleton, or `retarget` raises `ValueError`. To bind such joints, rename one through the node table (`table = bvh.to_node_table()`, change its `"name"`, `bvh.copy(nodes=table)`), then name it in `name_mapping`.
+
 ## Joint extraction
 
 ```python

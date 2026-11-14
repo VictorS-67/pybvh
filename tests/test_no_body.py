@@ -322,8 +322,15 @@ def _body_facts(clip):
         return node.name.removesuffix("_2")
 
     feet = clip.auto_detect_feet()
-    suffix = "_2" if clip.body_anchor.name.endswith("_2") else ""
-    torso = [clip.node_index[f"{joint}{suffix}"] for joint in ("Hips", "Spine", "Head")]
+    # The torso is found below the anchor, not by name: the two figures may
+    # share their names.
+    anchor = clip._body_anchor_index()
+    parent = clip.fk_topology.parent_idx
+    below = {anchor}
+    for i in range(anchor + 1, len(clip.nodes)):
+        if parent[i] in below:
+            below.add(i)
+    torso = [i for i in sorted(below) if name(i) in ("Hips", "Spine", "Head")]
     head = _up_marker_index(clip._rest_skeleton(), clip._body_anchor_index())
     return {
         "anchor": name(clip.body_anchor),
@@ -390,6 +397,15 @@ class TestNamingOneFigure:
         assert _body_facts(at_load) == _body_facts(then_named)
 
 
+# The body-level entry points but the one that slices the clip before it
+# reads the feet: the slice's nodes are other objects than the toes given.
+NAMED_ALIKE = {
+    name: call
+    for name, call in {**READ_WORLD_UP, **BODY_LEVEL}.items()
+    if name != "gait_parameters, one frame, the contacts given"
+}
+
+
 class TestFiguresNamedAlike:
     """Two figures that share their joint names are two figures (#216): a
     name pair binds one node pair in each figure, by the tree."""
@@ -402,6 +418,39 @@ class TestFiguresNamedAlike:
         assert report.body_anchor_source == "ambiguous"
         hips = [node for node in clip.nodes if node.name == "Hips"]
         assert list(report.body_anchor_candidates) == hips
+
+    @pytest.mark.parametrize("name", TWO_FIGURES)
+    def test_hold_the_pairs_of_both_figures(self, name):
+        # The clip with the `_2` names pairs each figure's joints by name;
+        # the nodes are the same in both clips. The order differs: a name
+        # pair gives its node pairs together, in mapping order.
+        distinct = _read(name)
+        clip = _named_alike(distinct)
+        assert sorted(clip.lr_pairs) == sorted(distinct.lr_pairs)
+        assert sorted(clip.node_lr_pairs) == sorted(distinct.node_lr_pairs)
+        assert len(clip.lr_pairs) == 16
+
+    @pytest.mark.parametrize("call", list(NAMED_ALIKE.values()), ids=_ids(NAMED_ALIKE))
+    def test_refuse_every_body_level_entry_point(self, call, monkeypatch):
+        # The names repeat, so the error names each candidate by its node.
+        # A toe's name now selects two nodes and raises for that, so the
+        # entry points given the feet are given the first figure's toes.
+        clip = _named_alike(_read("two_figures_moving_root.bvh"))
+        toes = [node for node in clip.nodes if node.name in TOES][:2]
+        monkeypatch.setitem(globals(), "TOES", toes)
+        with pytest.raises(ValueError, match="no body") as raised:
+            call(clip)
+        message = str(raised.value)
+        assert "'Hips' and 'Hips'" in message
+        assert "`bvh.body_anchor = bvh.nodes[1]`" in message
+
+    @pytest.mark.parametrize("suffix", ["", "_2"])
+    def test_naming_one_gives_the_figure_alone(self, suffix):
+        distinct = _read("two_figures_moving_root.bvh")
+        alone = _figure_alone(distinct, suffix)
+        clip = _named_alike(distinct)
+        clip.body_anchor = clip.nodes[distinct.node_index[f"Hips{suffix}"]]
+        assert _body_facts(clip) == _body_facts(alone)
 
 
 class TestTheAnchorsEvent:

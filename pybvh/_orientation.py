@@ -931,6 +931,15 @@ class _LRNodePairs(NamedTuple):
         """
         return self.joint_pairs + self.end_site_pairs
 
+    @property
+    def joint_pair_array(self) -> npt.NDArray[np.intp]:
+        """The joint pairs as an ``(P, 2)`` int array, in ``nodes`` index space.
+
+        ``(0, 2)`` without a pair, so array code needs no ``None`` branch.
+        The one place this form is built.
+        """
+        return np.asarray(self.joint_pairs, dtype=np.intp).reshape(-1, 2)
+
     def joint_space_pairs(self, joint_idx: npt.NDArray[np.intp]) -> list[tuple[int, int]]:
         """The joint pairs in ``joint_angles`` index space.
 

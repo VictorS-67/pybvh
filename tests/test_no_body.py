@@ -123,6 +123,14 @@ def _ids(entries):
     return list(entries)
 
 
+def _named_alike(clip):
+    """*clip* with its second figure carrying the first figure's names."""
+    table = clip.to_node_table()
+    for row in table:
+        row["name"] = row["name"].removesuffix("_2")
+    return clip.copy(nodes=table)
+
+
 class TestBodyLevelRaises:
     """Every body-level entry point refuses a clip with no body."""
 
@@ -190,11 +198,7 @@ class TestTheErrorsWayOut:
     def _shared_names():
         """``two_figures_static_root`` with the second figure carrying the
         first's names."""
-        clip = _read("two_figures_static_root.bvh")
-        table = clip.to_node_table()
-        for row in table:
-            row["name"] = row["name"].removesuffix("_2")
-        return clip.copy(nodes=table)
+        return _named_alike(_read("two_figures_static_root.bvh"))
 
     @staticmethod
     def _suggested_node(clip, message):
@@ -384,6 +388,20 @@ class TestNamingOneFigure:
         at_load = _read(name, body_anchor="Hips_2")
         assert at_load == then_named
         assert _body_facts(at_load) == _body_facts(then_named)
+
+
+class TestFiguresNamedAlike:
+    """Two figures that share their joint names are two figures (#216): a
+    name pair binds one node pair in each figure, by the tree."""
+
+    @pytest.mark.parametrize("name", TWO_FIGURES)
+    def test_have_no_body(self, name):
+        clip = _named_alike(_read(name))
+        report = clip.orientation_report
+        assert clip.body_anchor is None
+        assert report.body_anchor_source == "ambiguous"
+        hips = [node for node in clip.nodes if node.name == "Hips"]
+        assert list(report.body_anchor_candidates) == hips
 
 
 class TestTheAnchorsEvent:

@@ -884,10 +884,8 @@ def mirror(
         ``{"LeftArm": "RightArm", ...}``.  Defaults to
         :attr:`Bvh.lr_mapping` (auto-detected or user-set). A name pair
         whose names repeat (two figures named alike) binds its joints as
-        :attr:`Bvh.lr_pairs <pybvh.bvh.Bvh.lr_pairs>` says: each left
-        joint pairs with the right joint it meets lowest in the
-        hierarchy, when that left joint is also the right joint's
-        closest, so every figure keeps its own pairs.
+        :attr:`Bvh.lr_pairs <pybvh.bvh.Bvh.lr_pairs>` says; a joint that
+        gets no pair there is not swapped.
     lateral : str or None
         Axis perpendicular to the mirror plane, e.g. ``'x'`` or
         ``'+x'`` (the sign is irrelevant for mirroring).

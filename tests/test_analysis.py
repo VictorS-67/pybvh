@@ -2063,10 +2063,10 @@ def _make_arm_only_bvh() -> Bvh:
     hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=["Z", "Y", "X"])
     left_arm = BvhJoint("LeftArm", offset=[-3, 0, 0], rot_channels=["Z", "Y", "X"])
     left_hand = BvhJoint("LeftHand", offset=[-3, 0, 0], rot_channels=["Z", "Y", "X"])
-    left_end = BvhEndSite("EndSiteLeftHand", offset=[-1, 0, 0])
+    left_end = BvhEndSite("LeftHand_EndSite", offset=[-1, 0, 0])
     right_arm = BvhJoint("RightArm", offset=[3, 0, 0], rot_channels=["Z", "Y", "X"])
     right_hand = BvhJoint("RightHand", offset=[3, 0, 0], rot_channels=["Z", "Y", "X"])
-    right_end = BvhEndSite("EndSiteRightHand", offset=[1, 0, 0])
+    right_end = BvhEndSite("RightHand_EndSite", offset=[1, 0, 0])
 
     left_end.parent = left_hand
     left_hand.children = [left_end]

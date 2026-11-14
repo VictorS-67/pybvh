@@ -3166,13 +3166,13 @@ class Bvh:
 
         Notes
         -----
-        Node names are not unique in a BVH file: the two end sites of one
-        joint share their generated display name, and joints may repeat
-        a name. Columns are labelled the way ``pandas.read_csv`` labels
+        Node names are not unique in a BVH file: joints may repeat a
+        name, and the end sites of two joints of one name then share
+        their generated display name. Columns are labelled the way ``pandas.read_csv`` labels
         repeated headers: the first node of a name keeps it, each later
         one gets ``.1``, ``.2``, ... before the axis and kind
-        (``Arm_Z_rot``, ``Arm.1_Z_rot``; ``EndSiteHand_X``,
-        ``EndSiteHand.1_X``), counted up until the label is neither
+        (``Arm_Z_rot``, ``Arm.1_Z_rot``; ``Hand_EndSite_X``,
+        ``Hand_EndSite.1_X``), counted up until the label is neither
         another node's name nor a label already given. Blender's BVH
         importer does the same with ``.001``. The suffix
         is a column label only: the node keeps its name, which
@@ -3471,7 +3471,7 @@ class Bvh:
 
         For every non-end-site joint (root included): the node-space index of the joint's end-site child — a row of :meth:`node_positions` output — or ``None`` for interior joints whose children are all joints. The tip is the bone's far end, so ``bvh.node_positions()[:, bvh.joint_tips["LeftFoot"]]`` is the toe-tip trajectory without knowing the end site's generated display name.
 
-        Resolution is identity-based on the node tree, never by name: end-site display names are cosmetic (the parser generates ``'EndSite' + parent name``) and may even collide with a real joint's name, which would make a name-keyed lookup through :attr:`node_index` silently pick the wrong node. A joint with several end-site children (nonstandard, but the parser accepts it) maps to the **first one in file order**.
+        Resolution is identity-based on the node tree, never by name: end-site display names are cosmetic (the parser generates the parent's name + ``'_EndSite'``) and may even collide with a real joint's name, which would make a name-keyed lookup through :attr:`node_index` silently pick the wrong node. A joint with several end-site children (nonstandard, but the parser accepts it) maps to the **first one in file order**.
 
         Returns
         -------
@@ -4475,7 +4475,7 @@ class Bvh:
         would, so writing it and reading it back keeps
         :meth:`matches_hierarchy`. A kept joint left with nothing below
         it (no kept descendant, no end site of its own) gets an end site
-        named ``'EndSite' + name``, placed right after it, at the offset
+        named ``name + '_EndSite'``, placed right after it, at the offset
         of its nearest original end-site descendant (zero when it has
         none).
 
@@ -4609,8 +4609,8 @@ class Bvh:
             kept_old_j_indices.append(column)
 
             if not survivor_below[i]:
-                # No name: the builder names it 'EndSite' + the joint's
-                # name, as the parser would.
+                # No name: the builder names it the joint's name +
+                # '_EndSite', as the parser would.
                 rows.append(
                     {"parent": row_of[id(node)], "offset": self._find_end_site_offset(node)}
                 )

@@ -1,9 +1,10 @@
 """Regression tests: topology is resolved by node identity, never by name.
 
 Node names are not unique in general. The parser derives every end site's
-display name from its parent joint (`'EndSite' + parent.name`), so two end
-sites under one joint collide outright, and a real joint may be named after
-one. Nothing in the parser or the `Bvh` constructor rejects a duplicate.
+display name from its parent joint (`parent.name + '_EndSite'`), so the end
+sites of two joints of one name collide, a node list or a node table may
+give two end sites one name, and a real joint may be named after one.
+Nothing in the parser or the `Bvh` constructor rejects a duplicate.
 
 Anything that resolves a *parent* — or any node it already holds the object
 for — must therefore key on `id(node)`. A name-keyed lookup silently returns
@@ -36,20 +37,20 @@ def collision_rig():
     Node order (depth-first)::
 
         0 Hips             (root)
-        1 EndSiteHips      (a real JOINT, named like an end site)
+        1 Hips_EndSite     (a real JOINT, named like an end site)
         2 Child
-        3 EndSiteChild     (end site of Child)
-        4 EndSiteHips      (end site of Hips — collides with node 1)
+        3 Child_EndSite    (end site of Child)
+        4 Hips_EndSite     (end site of Hips — collides with node 1)
 
     `node_index` keeps the last occurrence, so a name lookup for the
-    *joint* 'EndSiteHips' returns node 4 — an end site, which cannot have
+    *joint* 'Hips_EndSite' returns node 4 — an end site, which cannot have
     children at all.
     """
     root = BvhRoot("Hips", [0, 0, 0], "XYZ", "ZYX", [])
-    shadowed = _attach(root, BvhJoint("EndSiteHips", [1, 0, 0], "ZYX", []))
+    shadowed = _attach(root, BvhJoint("Hips_EndSite", [1, 0, 0], "ZYX", []))
     child = _attach(shadowed, BvhJoint("Child", [0, 1, 0], "ZYX", []))
-    _attach(child, BvhEndSite("EndSiteChild", [0, 1, 0]))
-    _attach(root, BvhEndSite("EndSiteHips", [0, 0, 1]))
+    _attach(child, BvhEndSite("Child_EndSite", [0, 1, 0]))
+    _attach(root, BvhEndSite("Hips_EndSite", [0, 0, 1]))
     nodes = [root, shadowed, child, child.children[0], root.children[1]]
     return Bvh(nodes, np.zeros((3, 3)), np.zeros((3, 3, 3)), 1 / 30)
 
@@ -60,14 +61,14 @@ def duplicate_joint_rig():
 
     Node order::
 
-        0 Hips  1 Arm  2 ArmChild  3 EndSiteArmChild  4 Arm  5 EndSiteArm
+        0 Hips  1 Arm  2 ArmChild  3 ArmChild_EndSite  4 Arm  5 Arm_EndSite
     """
     root = BvhRoot("Hips", [0, 0, 0], "XYZ", "ZYX", [])
     first = _attach(root, BvhJoint("Arm", [1, 0, 0], "ZYX", []))
     grandchild = _attach(first, BvhJoint("ArmChild", [0, 1, 0], "ZYX", []))
-    _attach(grandchild, BvhEndSite("EndSiteArmChild", [0, 1, 0]))
+    _attach(grandchild, BvhEndSite("ArmChild_EndSite", [0, 1, 0]))
     second = _attach(root, BvhJoint("Arm", [-1, 0, 0], "ZYX", []))
-    _attach(second, BvhEndSite("EndSiteArm", [0, 1, 0]))
+    _attach(second, BvhEndSite("Arm_EndSite", [0, 1, 0]))
     nodes = [root, first, grandchild, grandchild.children[0], second, second.children[0]]
     # Every joint gets its own angles, so a column swap between the two
     # 'Arm' joints shows. Powers of two survive the degrees round trip of
@@ -80,14 +81,17 @@ def duplicate_joint_rig():
 def one_joint_two_end_sites_rig():
     """One joint carrying two end sites, which share their display name.
 
+    The names are given here: the reader would number the second
+    (``Hand_EndSite2``), but a node list or a node table may repeat one.
+
     Node order::
 
-        0 Hips  1 Hand  2 EndSiteHand  3 EndSiteHand
+        0 Hips  1 Hand  2 Hand_EndSite  3 Hand_EndSite
     """
     root = BvhRoot("Hips", [0, 0, 0], "XYZ", "ZYX", [])
     hand = _attach(root, BvhJoint("Hand", [0, 1, 0], "ZYX", []))
-    _attach(hand, BvhEndSite("EndSiteHand", [1, 0, 0]))
-    _attach(hand, BvhEndSite("EndSiteHand", [0, 0, 2]))
+    _attach(hand, BvhEndSite("Hand_EndSite", [1, 0, 0]))
+    _attach(hand, BvhEndSite("Hand_EndSite", [0, 0, 2]))
     nodes = [root, hand, hand.children[0], hand.children[1]]
     return Bvh(nodes, np.zeros((3, 3)), np.zeros((3, 2, 3)), 1 / 30)
 
@@ -110,7 +114,7 @@ def _expected_node_edges(bvh):
 def test_collision_rig_has_a_lossy_node_index(collision_rig):
     """Precondition: the name map genuinely loses a node."""
     assert len(collision_rig.node_index) < len(collision_rig.nodes)
-    assert collision_rig.node_index["EndSiteHips"] == 4
+    assert collision_rig.node_index["Hips_EndSite"] == 4
     assert collision_rig.nodes[4].is_end_site()
 
 
@@ -172,25 +176,25 @@ class TestOtherTopologyConsumers:
             coords,
             [
                 [0, 0, 0],  # Hips
-                [1, 0, 0],  # EndSiteHips (joint), offset from Hips
+                [1, 0, 0],  # Hips_EndSite (joint), offset from Hips
                 [1, 1, 0],  # Child
-                [1, 2, 0],  # EndSiteChild
-                [0, 0, 1],  # EndSiteHips (end site), offset from Hips
+                [1, 2, 0],  # Child_EndSite
+                [0, 0, 1],  # Hips_EndSite (end site), offset from Hips
             ],
             atol=1e-12,
         )
 
     def test_joint_tips(self, collision_rig):
-        assert collision_rig.joint_tips == {"Hips": 4, "EndSiteHips": None, "Child": 3}
+        assert collision_rig.joint_tips == {"Hips": 4, "Hips_EndSite": None, "Child": 3}
 
     def test_fk_topology_parent_array(self, collision_rig):
         np.testing.assert_array_equal(collision_rig.fk_topology.parent_idx, [-1, 0, 1, 2, 0])
 
     def test_extract_joints_keeps_the_right_end_site_offset(self, collision_rig):
         """The synthesized end site comes from the original node, by identity."""
-        reduced = collision_rig.extract_joints(["Hips", "EndSiteHips"])
+        reduced = collision_rig.extract_joints(["Hips", "Hips_EndSite"])
         assert reduced.node_edges == _expected_node_edges(reduced)
-        assert [n.name for n in reduced.nodes if not n.is_end_site()] == ["Hips", "EndSiteHips"]
+        assert [n.name for n in reduced.nodes if not n.is_end_site()] == ["Hips", "Hips_EndSite"]
 
     def test_extract_joints_wires_parents_by_identity(self):
         """A joint nested under a joint of the same name: 'Hand' hangs from
@@ -199,9 +203,9 @@ class TestOtherTopologyConsumers:
         root = BvhRoot("Hips", [0, 0, 0], "XYZ", "ZYX", [])
         outer = _attach(root, BvhJoint("Arm", [1, 0, 0], "ZYX", []))
         inner = _attach(outer, BvhJoint("Arm", [0, 1, 0], "ZYX", []))
-        _attach(inner, BvhEndSite("EndSiteArm", [0, 1, 0]))
+        _attach(inner, BvhEndSite("Arm_EndSite", [0, 1, 0]))
         hand = _attach(outer, BvhJoint("Hand", [0, 0, 1], "ZYX", []))
-        _attach(hand, BvhEndSite("EndSiteHand", [0, 0, 1]))
+        _attach(hand, BvhEndSite("Hand_EndSite", [0, 0, 1]))
         nodes = [root, outer, inner, inner.children[0], hand, hand.children[0]]
         bvh = Bvh(nodes, np.zeros((2, 3)), np.zeros((2, 4, 3)), 1 / 30)
 
@@ -212,9 +216,9 @@ class TestOtherTopologyConsumers:
             "Hips",
             "Arm",
             "Arm",
-            "EndSiteArm",
+            "Arm_EndSite",
             "Hand",
-            "EndSiteHand",
+            "Hand_EndSite",
         ]
         assert reduced.node_edges == [(1, 0), (2, 1), (3, 2), (4, 1), (5, 4)]
 
@@ -266,12 +270,12 @@ class TestDataFrameColumns:
             "Hand_X",
             "Hand_Y",
             "Hand_Z",
-            "EndSiteHand_X",
-            "EndSiteHand_Y",
-            "EndSiteHand_Z",
-            "EndSiteHand.1_X",
-            "EndSiteHand.1_Y",
-            "EndSiteHand.1_Z",
+            "Hand_EndSite_X",
+            "Hand_EndSite_Y",
+            "Hand_EndSite_Z",
+            "Hand_EndSite.1_X",
+            "Hand_EndSite.1_Y",
+            "Hand_EndSite.1_Z",
         ]
 
     def test_two_end_sites_leave_euler_mode_unsuffixed(self, one_joint_two_end_sites_rig):
@@ -325,19 +329,19 @@ class TestDataFrameColumns:
             "ArmChild_X",
             "ArmChild_Y",
             "ArmChild_Z",
-            "EndSiteArmChild_X",
-            "EndSiteArmChild_Y",
-            "EndSiteArmChild_Z",
+            "ArmChild_EndSite_X",
+            "ArmChild_EndSite_Y",
+            "ArmChild_EndSite_Z",
             "Arm.1_X",
             "Arm.1_Y",
             "Arm.1_Z",
-            "EndSiteArm_X",
-            "EndSiteArm_Y",
-            "EndSiteArm_Z",
+            "Arm_EndSite_X",
+            "Arm_EndSite_Y",
+            "Arm_EndSite_Z",
         ]
 
     def test_suffix_follows_the_nodes_the_mode_exports(self, collision_rig):
-        """The joint 'EndSiteHips' (node 1) precedes the end site of that
+        """The joint 'Hips_EndSite' (node 1) precedes the end site of that
         name (node 4): coordinates mode suffixes the end site, and euler
         mode, where end sites have no columns, suffixes nothing."""
         coordinates = list(collision_rig.to_df_dict(mode="coordinates"))
@@ -346,18 +350,18 @@ class TestDataFrameColumns:
             "Hips_X",
             "Hips_Y",
             "Hips_Z",
-            "EndSiteHips_X",
-            "EndSiteHips_Y",
-            "EndSiteHips_Z",
+            "Hips_EndSite_X",
+            "Hips_EndSite_Y",
+            "Hips_EndSite_Z",
             "Child_X",
             "Child_Y",
             "Child_Z",
-            "EndSiteChild_X",
-            "EndSiteChild_Y",
-            "EndSiteChild_Z",
-            "EndSiteHips.1_X",
-            "EndSiteHips.1_Y",
-            "EndSiteHips.1_Z",
+            "Child_EndSite_X",
+            "Child_EndSite_Y",
+            "Child_EndSite_Z",
+            "Hips_EndSite.1_X",
+            "Hips_EndSite.1_Y",
+            "Hips_EndSite.1_Z",
         ]
 
         euler = list(collision_rig.to_df_dict(mode="euler"))
@@ -369,9 +373,9 @@ class TestDataFrameColumns:
             "Hips_Z_rot",
             "Hips_Y_rot",
             "Hips_X_rot",
-            "EndSiteHips_Z_rot",
-            "EndSiteHips_Y_rot",
-            "EndSiteHips_X_rot",
+            "Hips_EndSite_Z_rot",
+            "Hips_EndSite_Y_rot",
+            "Hips_EndSite_X_rot",
             "Child_Z_rot",
             "Child_Y_rot",
             "Child_X_rot",
@@ -405,7 +409,7 @@ class TestRoundTrips:
     topology: the writer walks `children`, the reader and `df_to_bvh`
     build by position, and none of them keys on a name."""
 
-    @pytest.fixture(params=["collision_rig", "duplicate_joint_rig", "one_joint_two_end_sites_rig"])
+    @pytest.fixture(params=["collision_rig", "duplicate_joint_rig"])
     def rig(self, request):
         return request.getfixturevalue(request.param)
 
@@ -417,6 +421,18 @@ class TestRoundTrips:
         assert back.matches_channels(rig)
         # The file carries six decimals, so the posed skeleton is equal to
         # that precision; a limb attached elsewhere is off by a bone length.
+        np.testing.assert_allclose(back.node_positions(), rig.node_positions(), atol=1e-6)
+
+    def test_file_round_trip_numbers_two_end_sites_of_one_name(
+        self, one_joint_two_end_sites_rig, tmp_path
+    ):
+        """A file carries no end-site name, so the reader gives its own."""
+        rig = one_joint_two_end_sites_rig
+        path = tmp_path / "rig.bvh"
+        write_bvh_file(rig, path)
+        back = read_bvh_file(path)
+        assert [n.name for n in back.nodes] == ["Hips", "Hand", "Hand_EndSite", "Hand_EndSite2"]
+        assert back.matches_channels(rig)
         np.testing.assert_allclose(back.node_positions(), rig.node_positions(), atol=1e-6)
 
     @pytest.fixture(params=["collision_rig", "duplicate_joint_rig", "one_joint_two_end_sites_rig"])
@@ -462,10 +478,10 @@ class TestRoundTrips:
             "Hand": {
                 "offset": [0, 1, 0],
                 "parent": "Hips",
-                "children": ["EndSiteHand"],
+                "children": ["Hand_EndSite"],
                 "rot_channels": ["Z", "Y", "X"],
             },
-            "EndSiteHand": {"offset": [0, 0, 2], "parent": "Hand"},
+            "Hand_EndSite": {"offset": [0, 0, 2], "parent": "Hand"},
         }
         df = pd.DataFrame(rig.to_df_dict(mode="euler"))
         with pytest.raises(TypeError, match="to_node_table"):
@@ -515,10 +531,10 @@ def _tips_rig(right_tips):
     root = BvhRoot("Hips", [0, 0, 0], "XYZ", "ZYX", [])
     left = _attach(root, BvhJoint("LeftHand", [1, 0, 0], "ZYX", []))
     right = _attach(root, BvhJoint("RightHand", [-1, 0, 0], "ZYX", []))
-    _attach(left, BvhEndSite("EndSiteLeftHand", [0.5, 1.0, 0.0]))
-    _attach(left, BvhEndSite("EndSiteLeftHand", [0.5, 2.0, 0.0]))
+    _attach(left, BvhEndSite("LeftHand_EndSite", [0.5, 1.0, 0.0]))
+    _attach(left, BvhEndSite("LeftHand_EndSite", [0.5, 2.0, 0.0]))
     for height in [1.0, 2.0][:right_tips]:
-        _attach(right, BvhEndSite("EndSiteRightHand", [-0.5, height, 0.0]))
+        _attach(right, BvhEndSite("RightHand_EndSite", [-0.5, height, 0.0]))
     nodes = [root, left, *left.children, right, *right.children]
     return Bvh(nodes, np.zeros((3, 3)), np.zeros((3, 3, 3)), 1 / 30)
 

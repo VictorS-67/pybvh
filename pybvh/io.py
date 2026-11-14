@@ -475,7 +475,9 @@ def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
                         f"at line {line_number} in file {filepath}: {e}"
                     ) from e
                 # No name: the builder gives an end site its display name,
-                # 'EndSite' + the parent's name. End-site blocks are fully
+                # the parent's name + '_EndSite', numbered from the second
+                # end site of one joint. A name after 'End Site' in the file
+                # is ignored, as the writer prints none. End-site blocks are fully
                 # consumed by _read_end_site_block (including their closing
                 # '}'), so they never go on the stack.
                 table.append({"parent": open_rows[-1], "offset": offset})

@@ -303,8 +303,8 @@ def nodes_to_table(nodes: Sequence[BvhNode]) -> list[dict[str, Any]]:
     (for :attr:`Bvh.nodes`, the depth-first order of the file), each
     node an entry whose ``parent`` is the *index* of its parent's entry.
     Position is identity. Names play no part in it, because BVH names
-    are not unique: two end sites under one joint share their generated
-    display name, and duplicate joint names occur in real files, so a
+    are not unique: duplicate joint names occur in real files, and the
+    end sites of two joints of one name share their generated name, so a
     name-keyed export (the ``{name: ...}`` hierarchy dict of earlier
     releases) loses nodes that this table keeps.
 
@@ -312,7 +312,7 @@ def nodes_to_table(nodes: Sequence[BvhNode]) -> list[dict[str, Any]]:
 
     ``name``
         The node's name, a ``str``. For an end site, the display name
-        (``'EndSiteHips'``), which is cosmetic.
+        (``'Hips_EndSite'``), which is cosmetic.
     ``parent``
         The index of the parent's entry in this table, ``None`` for the
         root (entry 0) and nowhere else.
@@ -412,8 +412,8 @@ def nodes_to_table(nodes: Sequence[BvhNode]) -> list[dict[str, Any]]:
       'pos_channels': ['X', 'Y', 'Z'], 'rot_channels': ['Z', 'Y', 'X']},
      {'name': 'Hand', 'parent': 0, 'offset': array([0., 1., 0.]),
       'rot_channels': ['Z', 'Y', 'X']},
-     {'name': 'EndSiteHand', 'parent': 1, 'offset': array([1., 0., 0.])},
-     {'name': 'EndSiteHand', 'parent': 1, 'offset': array([0., 0., 2.])}]
+     {'name': 'Hand_EndSite', 'parent': 1, 'offset': array([1., 0., 0.])},
+     {'name': 'Hand_EndSite2', 'parent': 1, 'offset': array([0., 0., 2.])}]
     """
     position = {id(node): i for i, node in enumerate(nodes)}
     table: list[dict[str, Any]] = []
@@ -477,8 +477,12 @@ def nodes_from_table(table: Sequence[Mapping[str, Any]]) -> list[BvhNode]:
 
     Two leniencies, so a table can be written by hand: a root entry
     without ``pos_channels`` gets ``['X', 'Y', 'Z']``, and an end-site
-    entry without ``name`` gets ``'EndSite' + parent name``, the
-    parser's own rule. The root entry may also omit ``parent``, whose
+    entry without ``name`` gets the parser's own name: the parent's
+    name followed by ``'_EndSite'`` (``'Hand_EndSite'``), and
+    ``'Hand_EndSite2'``, ``'Hand_EndSite3'`` for the next end sites of
+    that joint, counted by their position under it. A name the entry
+    gives is kept as it is, so a table written by an earlier release
+    keeps its names. The root entry may also omit ``parent``, whose
     only value is ``None``. Nothing else is inferred.
 
     Parameters
@@ -535,7 +539,7 @@ def nodes_from_table(table: Sequence[Mapping[str, Any]]) -> list[BvhNode]:
     ...     {'parent': 1, 'offset': [0, 0, 2]},
     ... ])
     >>> [node.name for node in nodes]
-    ['Hips', 'Hand', 'EndSiteHand', 'EndSiteHand']
+    ['Hips', 'Hand', 'Hand_EndSite', 'Hand_EndSite2']
     """
     if len(table) == 0:
         raise ValueError("A node table needs at least one entry, the root.")
@@ -605,6 +609,18 @@ def _nodes_from_table_or_list(
         f"node table (bvh.to_node_table(), one dict per node) or a node "
         f"list (bvh.nodes)."
     )
+
+
+def _end_site_name(parent_name: str, number: int) -> str:
+    """The name pybvh gives an end site, which a BVH file leaves unnamed.
+
+    *number* counts the end sites of the parent joint from 1, by their
+    position under it: ``Hand_EndSite``, then ``Hand_EndSite2``,
+    ``Hand_EndSite3``. The name is cosmetic; a node's kind is read
+    through :meth:`~pybvh.bvhnode.BvhNode.is_end_site`.
+    """
+    suffix = "" if number == 1 else str(number)
+    return f"{parent_name}_EndSite{suffix}"
 
 
 def _entry_label(index: int, entry: Mapping[str, Any]) -> str:
@@ -699,10 +715,13 @@ def _node_from_entry(entry: Mapping[str, Any], index: int, parent: BvhJoint | No
         if not is_end_site:
             raise ValueError(
                 f"Node table {label} has no name; only an end-site entry "
-                f"may omit it (it is then named 'EndSite' + parent name)."
+                f"may omit it (it is then named after its parent, "
+                f"'Hand' -> 'Hand_EndSite')."
             )
         assert parent is not None  # entry 0 is never an end site
-        name = "EndSite" + parent.name
+        # The children built so far are the entries before this one.
+        number = 1 + sum(child.is_end_site() for child in parent.children)
+        name = _end_site_name(parent.name, number)
 
     # The node setters validate name, offset and channels; the entry's
     # index is what their messages lack.

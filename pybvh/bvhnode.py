@@ -209,7 +209,7 @@ class BvhNode:
 class BvhEndSite(BvhNode):
     """A BVH End Site — a channel-less leaf marking the tip of a bone chain.
 
-    End sites carry only an offset (the bone-tip position relative to the parent joint); they have no channels, no children, and no motion data. End-site identity is carried by this class — check it via :meth:`is_end_site` or ``isinstance``. Generated display names like ``'EndSiteHips'`` are cosmetic only and carry no semantics.
+    End sites carry only an offset (the bone-tip position relative to the parent joint); they have no channels, no children, and no motion data. End-site identity is carried by this class — check it via :meth:`is_end_site` or ``isinstance``. Generated display names like ``'Hips_EndSite'`` are cosmetic only and carry no semantics.
 
     Attributes
     ----------

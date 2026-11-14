@@ -2339,9 +2339,8 @@ class Bvh:
         named up joint it comes from them, and from the body anchor those
         pairs meet at.
         """
-        pairs = self._lr_node_pairs_of(mapping).joint_pairs
         skeleton = self._rest_skeleton()._replace(
-            lr_pairs=np.asarray(pairs, dtype=np.intp).reshape(-1, 2)
+            lr_pairs=self._lr_node_pairs_of(mapping).joint_pair_array
         )
         anchor = self._body_anchor_index(
             None if self._body_anchor_setting is not None else _find_body_anchor(skeleton)
@@ -2594,8 +2593,7 @@ class Bvh:
         no ``None`` branch. The rest skeleton holds them, for the body
         anchor rule and for rest up and rest left, which keep the body's.
         """
-        pairs = self._lr_node_pairs_of(self._lr_mapping).joint_pairs
-        return np.asarray(pairs, dtype=np.intp).reshape(-1, 2)
+        return self._lr_node_pairs_of(self._lr_mapping).joint_pair_array
 
     def _facing_lr_pairs(self) -> npt.NDArray[np.intp]:
         """The L/R pairs the facing reads: those of :meth:`_mapping_lr_pairs`

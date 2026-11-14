@@ -529,12 +529,31 @@ def lr_pin_clip_paths(repo_root: str) -> list[str]:
     return paths
 
 
+# The fields of OrientationReport that hold a string or None and that the
+# L/R pairs feed, pinned as they are; body_anchor and body_anchor_candidates,
+# which hold nodes, are pinned as node indices. world_up_inherited is left
+# out: the pairs do not feed it.
+REPORT_FIELDS = (
+    "rest_up",
+    "rest_up_source",
+    "rest_left",
+    "rest_forward",
+    "rest_forward_source",
+    "world_up",
+    "world_up_source",
+    "lr_mapping_source",
+    "body_anchor_source",
+)
+
+
 def lr_pin_values(bvh) -> dict[str, np.ndarray]:
     """Every value of *bvh* that the L/R pairs feed, as arrays.
 
-    ``lr_pairs``, ``node_lr_pairs``, the body anchor, the orientation
-    report, the facing and the result of ``mirror`` (with the clip's own
-    mapping, and with it passed explicitly, the strict path). A value
+    ``lr_pairs``, ``node_lr_pairs``, the body anchor, the fields of the
+    orientation report that the pairs feed (``REPORT_FIELDS``, the body
+    anchor and its candidates), the facing and the result of ``mirror``
+    (with the clip's own mapping, and with it passed explicitly, the strict
+    path). A value
     that raises is stored as the string ``"<ExceptionType>: <message>"``,
     and ``None`` as the string ``"None"``. ``tests/test_lr_pairs_pin.py``
     replays it against the fixture.
@@ -562,8 +581,21 @@ def lr_pin_values(bvh) -> dict[str, np.ndarray]:
         "body_anchor": guarded(
             lambda: None if bvh.body_anchor is None else bvh.nodes.index(bvh.body_anchor)
         ),
-        "orientation_report": guarded(lambda: repr(bvh.orientation_report)),
     }
+    # The documented fields of the orientation report that the pairs feed,
+    # each its own key, a node as its index in ``bvh.nodes``.
+    report = guarded(lambda: bvh.orientation_report)
+    if isinstance(report, str):
+        values["orientation_report"] = report
+    else:
+        for field in REPORT_FIELDS:
+            values[f"orientation_report/{field}"] = getattr(report, field)
+        values["orientation_report/body_anchor"] = (
+            None if report.body_anchor is None else bvh.nodes.index(report.body_anchor)
+        )
+        values["orientation_report/body_anchor_candidates"] = np.array(
+            [bvh.nodes.index(node) for node in report.body_anchor_candidates], dtype=np.int64
+        )
     # Every frame would make the fixture megabytes; the pairs act on each
     # frame alike, so about twenty evenly spaced frames pin them as well.
     frames = slice(None, None, max(1, bvh.frame_count // 20))

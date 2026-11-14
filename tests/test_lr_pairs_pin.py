@@ -2,10 +2,15 @@
 
 ``tests/fixtures/lr_pairs_pinned.npz`` froze, before the name pairs went
 through one resolver (#216), ``lr_pairs``, ``node_lr_pairs``, the body
-anchor, the orientation report, the facing and the result of ``mirror``
-(with the clip's own mapping, and with it passed explicitly) on each
-``.bvh`` of ``bvh_data/`` and ``bvh_data/synthetic/``. Each test reads a
-clip again and compares; a value that raised is pinned as its message.
+anchor, the fields of the orientation report that the pairs feed, the
+facing and the result of ``mirror`` (with the clip's own mapping, and with
+it passed explicitly) on each ``.bvh`` of ``bvh_data/`` and
+``bvh_data/synthetic/``. Each test reads a clip again and compares; a value
+that raised is pinned as its message.
+
+The report was first pinned as its repr. The repr is not documented
+output, so each field is now its own key; those keys were made on ``main``
+and checked equal to this tree's values and to the repr they replace.
 
 When the pin was made (#216), every value was checked equal bit for bit
 against ``main``. The test compares floats with ``atol=1e-12`` all the

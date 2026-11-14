@@ -396,8 +396,8 @@ def nodes_to_table(nodes: Sequence[BvhNode]) -> list[dict[str, Any]]:
 
     Examples
     --------
-    The rig of one joint carrying two end sites, which no name-keyed
-    export can hold, built here from a table by the inverse:
+    The rig of one joint carrying two end sites, built here from a
+    table by the inverse; the second end site's name takes a number:
 
     >>> nodes = nodes_from_table([
     ...     {'name': 'Hips', 'parent': None, 'offset': [0, 0, 0],

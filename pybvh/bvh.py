@@ -75,6 +75,7 @@ from .node_tree import (
     _channel_difference,
     _check_node_list,
     _check_node_tree,
+    _end_site_name,
     _hierarchy_difference,
     _nodes_from_table_or_list,
     nodes_from_table,
@@ -3452,8 +3453,26 @@ class Bvh:
                 return end_sites[0]
         names_at = "bvh.node_index" if space == "node" else "bvh.joint_names"
         raise ValueError(
-            f"No {space} of this clip is named {node!r}; {names_at} lists the {space}s' names."
+            f"No {space} of this clip is named {node!r}; {names_at} lists the "
+            f"{space}s' names.{self._old_end_site_name_hint(node)}"
         )
+
+    def _old_end_site_name_hint(self, name: str) -> str:
+        """The sentence that names the new form of an end-site name of before 0.10.0.
+
+        Until 0.9.0, an end site was named ``'EndSite'`` + its parent's
+        name, ``'EndSiteLeftToe'``; since 0.10.0 it is ``'LeftToe_EndSite'``
+        (``_end_site_name``). The sentence is given only when ``name`` has
+        the old form and a node of this clip carries the new name, and is
+        empty otherwise. A later release can remove it.
+        """
+        old_prefix = "EndSite"
+        if not name.startswith(old_prefix) or name == old_prefix:
+            return ""
+        new_name = _end_site_name(name[len(old_prefix) :], 1)
+        if not any(candidate.name == new_name for candidate in self.nodes):
+            return ""
+        return f" The end sites are named {new_name!r} since 0.10.0."
 
     def _end_site_in_joint_space(self, position: int) -> str:
         """The refusal of the end site at ``position`` in joint space."""

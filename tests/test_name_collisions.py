@@ -388,7 +388,7 @@ class TestDataFrameColumns:
         root = BvhRoot("Hips", [0, 0, 0], "XYZ", "ZYX", [])
         for name, offset in [("Arm", [1, 0, 0]), ("Arm", [-1, 0, 0]), ("Arm.1", [0, 1, 0])]:
             joint = _attach(root, BvhJoint(name, offset, "ZYX", []))
-            _attach(joint, BvhEndSite("EndSite" + name, [0, 1, 0]))
+            _attach(joint, BvhEndSite(name + "_EndSite", [0, 1, 0]))
         nodes = [root]
         for joint in root.children:
             nodes.extend([joint, joint.children[0]])
@@ -543,8 +543,9 @@ def _tips_rig(right_tips):
 def two_tips_rig():
     """A symmetric skeleton whose hands each carry two end sites.
 
-    Both end sites of a hand get the same generated name, so a name-keyed
-    lookup returns one of them twice. The rig is symmetric about x, so a
+    Both end sites of a hand are given the same name here (the reader
+    would number the second), so a name-keyed lookup returns one of them
+    twice. The rig is symmetric about x, so a
     correct mirror is the identity on the offsets.
     """
     return _tips_rig(right_tips=2)

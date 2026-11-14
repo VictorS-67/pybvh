@@ -453,6 +453,23 @@ class TestFiguresNamedAlike:
         clip.body_anchor = clip.nodes[distinct.node_index[f"Hips{suffix}"]]
         assert _body_facts(clip) == _body_facts(alone)
 
+    @pytest.mark.parametrize("suffix", ["", "_2"])
+    def test_naming_one_mirrors_both_figures(self, suffix):
+        # The names differ between the two clips, the node order does not,
+        # so the mirrored arrays compare one to one: each figure swaps its
+        # own sides, as in the clip with the `_2` names.
+        distinct = _read("two_figures_moving_root.bvh")
+        anchor = distinct.node_index[f"Hips{suffix}"]
+        clip = _named_alike(distinct)
+        clip.body_anchor = clip.nodes[anchor]
+        distinct.body_anchor = distinct.nodes[anchor]
+        mirrored, expected = mirror(clip), mirror(distinct)
+        np.testing.assert_array_equal(mirrored.joint_angles, expected.joint_angles)
+        np.testing.assert_array_equal(mirrored.root_pos, expected.root_pos)
+        np.testing.assert_array_equal(
+            [node.offset for node in mirrored.nodes], [node.offset for node in expected.nodes]
+        )
+
 
 class TestTheAnchorsEvent:
     """Setting the anchor clears what was computed from it (ADR 0003, 0004)."""

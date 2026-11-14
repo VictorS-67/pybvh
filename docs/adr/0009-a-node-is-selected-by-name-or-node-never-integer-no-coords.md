@@ -19,7 +19,7 @@ Through v0.9.0 a caller selected nodes in three incompatible ways. Names (`foot_
 | Name map | A repeated name means | Built by |
 | --- | --- | --- |
 | `lr_mapping` | one node pair per place where the two names meet, bound by the tree | #216 |
-| `retarget`'s binding and `name_mapping` | same graph and no mapping: by position; else by name, and a repeated joint name that the binding reads is refused; end sites through their parent | #120 |
+| `retarget`'s binding and `name_mapping` | same graph and no mapping: by position; else by name, and a repeated joint name that the binding reads is refused; end sites through their parent | #120 (built) |
 | `masses` of `kinetic_energy` | every joint of the name takes the value | already so |
 
 *The words of decision 5 are unchanged.)*

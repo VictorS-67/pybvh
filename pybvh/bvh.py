@@ -454,6 +454,39 @@ def _describe_rate(frame_time: float) -> str:
     return f"{_format_fps(frame_time)} fps, frame_time {float(frame_time)!r}"
 
 
+def _joints_by_name_end_sites_by_parent(
+    nodes: Sequence[BvhNode], parent_idx: npt.NDArray[np.intp]
+) -> tuple[dict[str, list[int]], dict[int, list[int]]]:
+    """The positions in *nodes* of the joints of each name, and of the end
+    sites under each parent, in ``nodes`` order; *parent_idx* gives each
+    node's parent (``fk_topology.parent_idx``). The lookups of ``retarget``
+    by name (#120)."""
+    joints_of_name: dict[str, list[int]] = {}
+    end_sites_of: dict[int, list[int]] = {}
+    for i, node in enumerate(nodes):
+        if node.is_end_site():
+            end_sites_of.setdefault(int(parent_idx[i]), []).append(i)
+        else:
+            joints_of_name.setdefault(node.name, []).append(i)
+    return joints_of_name, end_sites_of
+
+
+def _refuse_a_repeated_joint_name(positions: list[int], name: str, skeleton: str) -> None:
+    """Raise when *name*, which ``retarget`` binds by, belongs to several
+    joints of *skeleton* (``bvh`` or ``new_skeleton``), at *positions* (#120)."""
+    if len(positions) < 2:
+        return
+    listed = ", ".join(f"{skeleton}.nodes[{position}]" for position in positions)
+    owner = "this clip" if skeleton == "bvh" else "new_skeleton"
+    raise ValueError(
+        f"{len(positions)} joints of {owner} are named {name!r}: {listed}. "
+        f"retarget binds by name here, so the name must belong to one joint. "
+        f"Rename one of them through the node table (table = "
+        f"{skeleton}.to_node_table(), change its 'name', {skeleton} = "
+        f"{skeleton}.copy(nodes=table)), then name it in name_mapping."
+    )
+
+
 class Bvh:
     """Container for BVH motion-capture data.
 
@@ -3656,8 +3689,15 @@ class Bvh:
         - by name otherwise: each joint takes the offset of the reference
           joint of its name, or of the name ``name_mapping`` gives it. Names
           are looked up among joints only, so an end site never takes a
-          joint's offset, nor a joint an end site's. Where a joint name
-          repeats in ``new_skeleton``, the last joint of that name is read.
+          joint's offset, nor a joint an end site's. Each joint name the
+          binding reads (a joint name of this clip, and the name of
+          ``new_skeleton`` it maps to) must belong to one joint of its
+          skeleton, or ``ValueError`` is raised before anything changes,
+          listing the joints of the name; a name that repeats elsewhere in
+          ``new_skeleton`` is not read. To bind such joints, rename one
+          through the node table (``table = bvh.to_node_table()``, change
+          its ``"name"``, ``bvh.copy(nodes=table)``), then name it in
+          ``name_mapping``.
           An end site binds through its parent: it takes the offset of the
           end site in the same position under the reference joint that its
           parent is bound to. When the two joints carry different numbers
@@ -3743,34 +3783,37 @@ class Bvh:
         joint's place, nor a joint an end site's (#120).
         """
         new_skel_nodes = new_skeleton.nodes
-        ref_parent_idx = new_skeleton.fk_topology.parent_idx
-        ref_joint_by_name: dict[str, int] = {}
-        ref_end_sites_of: dict[int, list[int]] = {}
-        for j, ref_node in enumerate(new_skel_nodes):
-            if ref_node.is_end_site():
-                ref_end_sites_of.setdefault(int(ref_parent_idx[j]), []).append(j)
-            else:
-                ref_joint_by_name[ref_node.name] = j
+        ref_joints_of_name, ref_end_sites_of = _joints_by_name_end_sites_by_parent(
+            new_skel_nodes, new_skeleton.fk_topology.parent_idx
+        )
+        own_joints_of_name, own_end_sites_of = _joints_by_name_end_sites_by_parent(
+            self.nodes, self.fk_topology.parent_idx
+        )
+        mapping = name_mapping or {}
+        target_name_of = {name: mapping.get(name, name) for name in own_joints_of_name}
+
+        # A name the binding reads must belong to one joint, on both sides;
+        # checked before any offset is read, so a refusal changes nothing.
+        for name, positions in own_joints_of_name.items():
+            _refuse_a_repeated_joint_name(positions, name, "bvh")
+            target_name = target_name_of[name]
+            _refuse_a_repeated_joint_name(
+                ref_joints_of_name.get(target_name, []), target_name, "new_skeleton"
+            )
+        # A name that repeats here is one no joint of this clip reads.
+        ref_joint_by_name = {name: js[0] for name, js in ref_joints_of_name.items()}
 
         offsets = self._offsets()
         bound: dict[int, int] = {}
-        own_end_sites_of: dict[int, list[int]] = {}
-        parent_idx = self.fk_topology.parent_idx
-        for i, node in enumerate(self.nodes):
-            if node.is_end_site():
-                own_end_sites_of.setdefault(int(parent_idx[i]), []).append(i)
-                continue
-            if name_mapping and node.name in name_mapping:
-                target_name = name_mapping[node.name]
-            else:
-                target_name = node.name
-
+        for name, positions in own_joints_of_name.items():
+            i = positions[0]  # the only one: a repeated name was refused above
+            target_name = target_name_of[name]
             if target_name in ref_joint_by_name:
                 bound[i] = ref_joint_by_name[target_name]
                 offsets[i] = new_skel_nodes[bound[i]].offset
             elif strict:
                 raise ValueError(
-                    f"Node '{node.name}' (mapped to '{target_name}') not found "
+                    f"Node '{name}' (mapped to '{target_name}') not found "
                     f"in new_skeleton and strict=True."
                 )
             # else: keep original offset (lenient mode)

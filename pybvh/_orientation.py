@@ -56,8 +56,10 @@ if TYPE_CHECKING:
 #      world up.
 #
 # The L/R mapping is detected from joint names and resolved into index
-# pairs (_detect_lr_mapping_by_names, _resolve_lr_pairs,
-# _resolve_node_lr_pairs), also on plain data. Bvh gathers every input.
+# node pairs (_detect_lr_mapping_by_names, _resolve_lr_node_pairs, the one
+# resolver every reader of the pairs goes through; its docstring lists the
+# readers), also on plain data.
+# Bvh gathers every input.
 #
 # The facing chain, per frame, one up throughout (→ = "used by"):
 #
@@ -889,65 +891,85 @@ def _iter_unique_lr_pairs(mapping: dict[str, str]):
         yield a, b
 
 
-def _resolve_lr_pairs(
-    mapping: dict[str, str] | None,
-    name2idx: dict[str, int],
-    *,
-    strict: bool = False,
-) -> list[tuple[int, int]]:
-    """Resolve an L/R name mapping to ``(left_idx, right_idx)`` pairs.
+class _LRNodePairs(NamedTuple):
+    """An L/R name mapping bound to nodes: what :func:`_resolve_lr_node_pairs` gives.
 
-    The single pair-resolution loop shared by every L/R consumer
-    (``mirror``, ``Bvh.lr_pairs``, the orientation heuristics).
-    Symmetric mappings (the public form of ``Bvh.lr_mapping``) are
-    deduplicated to one tuple per pair via :func:`_iter_unique_lr_pairs`.
+    Every pair is in ``nodes`` index space; each reader, as listed in
+    :func:`_resolve_lr_node_pairs`, maps the pairs into the index space it
+    needs.
 
-    Parameters
+    Attributes
     ----------
-    mapping : dict or None
-        L/R name mapping.  ``None`` or empty resolves to ``[]``.
-    name2idx : dict
-        Name → index lookup defining the target index space (e.g.
-        ``bvh.joint_index`` or ``bvh.node_index``).
-    strict : bool, optional
-        If True, raise ``ValueError`` listing every mapped name missing
-        from ``name2idx`` (used to surface typos in explicitly passed
-        mappings).  Default False: pairs with unknown names are skipped.
+    joint_pairs : list of (int, int)
+        ``(left_node, right_node)`` per node pair that a name pair whose
+        two names name joints binds (one when neither name repeats,
+        see :func:`_bind_name_pair`), in mapping order.
+    end_site_pairs : list of (int, int)
+        The end sites of each joint pair, matched by position under
+        their joints, in the order of *joint_pairs*.
+    end_site_mismatches : list of (str, int, str, int)
+        ``(left_name, left_end_count, right_name, right_end_count)`` for
+        each joint pair whose two joints carry different numbers of end
+        sites, so their tips cannot be zipped. The joint pair itself is
+        still in *joint_pairs*; only its end sites are omitted.
+    unknown_names : list of str
+        The mapped names that no joint carries, sorted. Their pairs are
+        skipped.
     """
-    if not mapping:
-        return []
-    pairs: list[tuple[int, int]] = []
-    unknown: set[str] = set()
-    for left_name, right_name in _iter_unique_lr_pairs(mapping):
-        if left_name in name2idx and right_name in name2idx:
-            pairs.append((name2idx[left_name], name2idx[right_name]))
-        else:
-            unknown.update(n for n in (left_name, right_name) if n not in name2idx)
-    if strict and unknown:
-        raise ValueError(
-            f"lr_mapping references unknown joint names: "
-            f"{sorted(unknown)}. Check against `bvh.joint_names`."
-        )
-    return pairs
+
+    joint_pairs: list[tuple[int, int]]
+    end_site_pairs: list[tuple[int, int]]
+    end_site_mismatches: list[tuple[str, int, str, int]]
+    unknown_names: list[str]
+
+    @property
+    def node_pairs(self) -> list[tuple[int, int]]:
+        """Every node pair: the joint pairs, then their end-site pairs.
+
+        The form of the pairs that the readers in node space take; the
+        readers are listed in :func:`_resolve_lr_node_pairs`.
+        """
+        return self.joint_pairs + self.end_site_pairs
+
+    @property
+    def joint_pair_array(self) -> npt.NDArray[np.intp]:
+        """The joint pairs as an ``(P, 2)`` int array, in ``nodes`` index space.
+
+        ``(0, 2)`` without a pair, so array code needs no ``None`` branch.
+        The one place this form is built.
+        """
+        return np.asarray(self.joint_pairs, dtype=np.intp).reshape(-1, 2)
+
+    def joint_space_pairs(self, joint_idx: npt.NDArray[np.intp]) -> list[tuple[int, int]]:
+        """The joint pairs in ``joint_angles`` index space.
+
+        *joint_idx* maps each node to its joint column (the clip's
+        ``fk_topology.joint_idx``). What :attr:`Bvh.lr_pairs` returns and
+        what :func:`~pybvh.transforms.mirror` swaps in the angles.
+        """
+        return [(int(joint_idx[left]), int(joint_idx[right])) for left, right in self.joint_pairs]
 
 
-def _resolve_node_lr_pairs(
+def _resolve_lr_node_pairs(
     mapping: dict[str, str] | None,
     node_names: Sequence[str],
     parent_idx: npt.NDArray[np.intp],
     is_end_site: npt.NDArray[np.bool_],
-) -> tuple[list[tuple[int, int]], list[tuple[str, int, str, int]]]:
-    """Resolve an L/R name mapping to ``nodes``-space pairs, end sites included.
+) -> _LRNodePairs:
+    """Bind the name pairs of an L/R mapping to node pairs.
 
-    The single implementation behind :attr:`Bvh.node_lr_pairs` and
-    :func:`~pybvh.transforms.mirror`, which need the same pairs but
-    disagree on what to do about an unpairable joint — so this reports
-    that case rather than deciding it.
+    The one resolver of the L/R pairs: the body anchor rule, rest up and
+    rest left, the facing, :attr:`Bvh.lr_pairs`, :attr:`Bvh.node_lr_pairs`
+    and :func:`~pybvh.transforms.mirror` all read its result, each in its
+    own index space and with its own policy on an unknown name or an
+    end-site mismatch, which this reports rather than decides.
+    Symmetric mappings (the public form of ``Bvh.lr_mapping``) give one
+    pair per name pair, via :func:`_iter_unique_lr_pairs`.
 
     Parameters
     ----------
     mapping : dict or None
-        L/R name mapping.  ``None`` or empty resolves to ``([], [])``.
+        L/R name mapping. ``None`` or empty resolves to no pairs.
     node_names : sequence of str
         Every node's name, in node order (depth first, as
         :attr:`Bvh.nodes`), end sites included.
@@ -958,55 +980,121 @@ def _resolve_node_lr_pairs(
 
     Returns
     -------
-    pairs : list of (int, int)
-        ``(left_idx, right_idx)`` in ``nodes`` index space: every joint
-        pair in *mapping* order first, then the end-site pairs in that
-        same order.  Deterministic, so downstream metadata built from it
+    _LRNodePairs
+        The pairs, deterministic so that metadata built from them
         reproduces across runs.
-    mismatches : list of (str, int, str, int)
-        ``(left_name, left_end_count, right_name, right_end_count)`` for
-        each pair whose two joints carry different numbers of end sites,
-        so their tips cannot be zipped.  The joint pair itself is still
-        returned in *pairs*; only its end sites are omitted.
 
     Notes
     -----
-    Joint names are looked up among joints only — an end site whose
-    generated display name collides with a joint's cannot shadow it — and
-    a joint's end sites are found by position, as the end-site children
-    of that joint in node order, since two end sites under one joint
-    carry the same generated name.
+    Names are looked up among joints only, so an end site whose
+    generated display name collides with a joint's cannot shadow it. A
+    joint's end sites are found by position, as the end-site children of
+    that joint in node order, since two end sites under one joint carry
+    the same generated name. :func:`_bind_name_pair` binds the nodes of
+    the two names of a pair.
     """
     if not mapping:
-        return [], []
+        return _LRNodePairs([], [], [], [])
 
-    joint_by_name: dict[str, int] = {}
+    joints_of_name: dict[str, list[int]] = {}
     end_sites_of: dict[int, list[int]] = {}
     for i, name in enumerate(node_names):
         if is_end_site[i]:
             end_sites_of.setdefault(int(parent_idx[i]), []).append(i)
         else:
-            joint_by_name[name] = i
+            joints_of_name.setdefault(name, []).append(i)
 
     joint_pairs: list[tuple[int, int]] = []
     end_site_pairs: list[tuple[int, int]] = []
     mismatches: list[tuple[str, int, str, int]] = []
+    unknown: set[str] = set()
 
     for left_name, right_name in _iter_unique_lr_pairs(mapping):
-        left_joint = joint_by_name.get(left_name)
-        right_joint = joint_by_name.get(right_name)
-        if left_joint is None or right_joint is None:
+        missing = [n for n in (left_name, right_name) if n not in joints_of_name]
+        if missing:
+            unknown.update(missing)
             continue
-        joint_pairs.append((left_joint, right_joint))
+        for left_joint, right_joint in _bind_name_pair(
+            joints_of_name[left_name], joints_of_name[right_name], parent_idx
+        ):
+            joint_pairs.append((left_joint, right_joint))
+            left_ends = end_sites_of.get(left_joint, [])
+            right_ends = end_sites_of.get(right_joint, [])
+            if len(left_ends) != len(right_ends):
+                mismatches.append((left_name, len(left_ends), right_name, len(right_ends)))
+                continue
+            end_site_pairs.extend(zip(left_ends, right_ends, strict=True))
 
-        left_ends = end_sites_of.get(left_joint, [])
-        right_ends = end_sites_of.get(right_joint, [])
-        if len(left_ends) != len(right_ends):
-            mismatches.append((left_name, len(left_ends), right_name, len(right_ends)))
+    return _LRNodePairs(joint_pairs, end_site_pairs, mismatches, sorted(unknown))
+
+
+def _bind_name_pair(
+    left_joints: list[int],
+    right_joints: list[int],
+    parent_idx: npt.NDArray[np.intp],
+) -> list[tuple[int, int]]:
+    """The node pairs that one name pair binds to, by the tree.
+
+    *left_joints* and *right_joints* are the joints that carry the left
+    and the right name, in node order. Each left joint pairs with the
+    right joint it meets lowest in the hierarchy: their deepest common
+    ancestor is deeper than the one it shares with any other right
+    joint. A left joint with two right joints equally close gets no
+    pair. The same holds from the right joint's side, so a joint is in
+    one pair at most: a figure that lacks one side's joint borrows none
+    from another figure, whose own joint is closer. When neither name
+    repeats, the one pair is bound. Pairs are in the node order of their
+    left joints.
+    """
+    if len(left_joints) == 1 and len(right_joints) == 1:
+        return [(left_joints[0], right_joints[0])]
+    depth = {
+        (left, right): _meeting_depth(left, right, parent_idx)
+        for left in left_joints
+        for right in right_joints
+    }
+
+    pairs = []
+    for left in left_joints:
+        right = _closest(right_joints, [depth[left, other] for other in right_joints])
+        if right is None:
             continue
-        end_site_pairs.extend(zip(left_ends, right_ends, strict=True))
+        if _closest(left_joints, [depth[other, right] for other in left_joints]) == left:
+            pairs.append((left, right))
+    return pairs
 
-    return joint_pairs + end_site_pairs, mismatches
+
+def _closest(joints: list[int], meeting_depths: list[int]) -> int | None:
+    """The joint of *joints* with the deepest of *meeting_depths*, ``None``
+    when two joints share it."""
+    deepest = max(meeting_depths)
+    if meeting_depths.count(deepest) > 1:
+        return None
+    return joints[meeting_depths.index(deepest)]
+
+
+def _meeting_depth(a: int, b: int, parent_idx: npt.NDArray[np.intp]) -> int:
+    """The depth of the deepest common ancestor of nodes *a* and *b*.
+
+    The root is at depth 0. A node counts as its own ancestor, so a node
+    meets one of its descendants at its own depth.
+    """
+    path_a = _path_from_root(a, parent_idx)
+    path_b = _path_from_root(b, parent_idx)
+    shared = 0
+    for x, y in zip(path_a, path_b, strict=False):
+        if x != y:
+            break
+        shared += 1
+    return shared - 1
+
+
+def _path_from_root(node: int, parent_idx: npt.NDArray[np.intp]) -> list[int]:
+    """The nodes from the root down to *node*, both included."""
+    path = [node]
+    while parent_idx[path[-1]] >= 0:
+        path.append(int(parent_idx[path[-1]]))
+    return path[::-1]
 
 
 def _infer_rest_left(

@@ -43,8 +43,8 @@ from ._orientation import (
     _iter_unique_lr_pairs,
     _lr_pairs_in_body,
     _LrMappingSource,
-    _resolve_lr_pairs,
-    _resolve_node_lr_pairs,
+    _LRNodePairs,
+    _resolve_lr_node_pairs,
     _RestSkeleton,
     _size_reference,
     _warn_facing_defaulted_at_frames,
@@ -2339,9 +2339,8 @@ class Bvh:
         named up joint it comes from them, and from the body anchor those
         pairs meet at.
         """
-        pairs = _resolve_lr_pairs(mapping, self.node_index)
         skeleton = self._rest_skeleton()._replace(
-            lr_pairs=np.asarray(pairs, dtype=np.intp).reshape(-1, 2)
+            lr_pairs=self._lr_node_pairs_of(mapping).joint_pair_array
         )
         anchor = self._body_anchor_index(
             None if self._body_anchor_setting is not None else _find_body_anchor(skeleton)
@@ -2504,7 +2503,13 @@ class Bvh:
 
         Index-space counterpart of :attr:`lr_mapping`: one
         ``(left, right)`` tuple per pair, in mapping order, resolved as
-        :func:`~pybvh.transforms.mirror` resolves its pairs. Returns
+        :func:`~pybvh.transforms.mirror` resolves its pairs. A name pair
+        whose names repeat (two figures named alike) gives one tuple per
+        place where the two names meet: each left joint pairs with the
+        right joint it meets lowest in the hierarchy, when that left joint
+        is also the right joint's closest, so every figure keeps its own
+        pairs. A joint with two equally close joints of the other name
+        gets no pair. Returns
         ``None`` when no mapping is available (matches the
         ``lr_mapping`` sentinel — one "no pairs" convention across both
         surfaces); ``bvh.lr_pairs or []`` gives a list either way.
@@ -2516,7 +2521,7 @@ class Bvh:
         mapping = self._lr_mapping
         if mapping is None:
             return None
-        return _resolve_lr_pairs(mapping, self.joint_index)
+        return self._lr_node_pairs_of(mapping).joint_space_pairs(self.fk_topology.joint_idx)
 
     @property
     def node_lr_pairs(self) -> list[tuple[int, int]] | None:
@@ -2536,7 +2541,8 @@ class Bvh:
         Left and right joints are matched by name (that is what
         :attr:`lr_mapping` is), but looked up among joints only, so an
         end site whose generated display name collides with a joint's
-        cannot shadow it. The end sites themselves are matched
+        cannot shadow it. A name that several joints carry binds by the
+        tree, as in :attr:`lr_pairs`. The end sites themselves are matched
         positionally within each joint and resolved by identity.
 
         A joint pair whose two sides carry **different numbers of end
@@ -2558,19 +2564,19 @@ class Bvh:
         """
         if self._lr_mapping is None:
             return None
-        pairs, _mismatches = self._node_lr_pairs_of(self._lr_mapping)
-        return pairs
+        return self._lr_node_pairs_of(self._lr_mapping).node_pairs
 
-    def _node_lr_pairs_of(
-        self, mapping: dict[str, str] | None
-    ) -> tuple[list[tuple[int, int]], list[tuple[str, int, str, int]]]:
-        """*mapping* resolved in ``nodes`` index space, and its end-site mismatches.
+    def _lr_node_pairs_of(self, mapping: dict[str, str] | None) -> _LRNodePairs:
+        """The name pairs of *mapping* bound to this clip's nodes.
 
-        What :attr:`node_lr_pairs` and :func:`~pybvh.transforms.mirror`
-        read, each with its own policy on a mismatch.
+        Every reader of the L/R pairs goes through here, with the clip's
+        own mapping or, for :func:`~pybvh.transforms.mirror`, the one it
+        mirrors with, and maps the node pairs into its own index space.
+        :func:`~pybvh._orientation._resolve_lr_node_pairs` lists the
+        readers.
         """
         topology = self.fk_topology
-        return _resolve_node_lr_pairs(
+        return _resolve_lr_node_pairs(
             mapping,
             self._node_names(),
             topology.parent_idx,
@@ -2585,11 +2591,10 @@ class Bvh:
         End sites are not included: that is :attr:`node_lr_pairs`' job,
         for mirroring positions, not for reading the facing. An ``(P, 2)``
         int array, ``(0, 2)`` without an L/R mapping, so array code needs
-        no ``None`` branch. The rest skeleton holds them, for the body
-        anchor rule and for rest up and rest left, which keep the body's.
+        no ``None`` branch. The rest skeleton holds them; their readers
+        are listed in :func:`~pybvh._orientation._resolve_lr_node_pairs`.
         """
-        pairs = _resolve_lr_pairs(self._lr_mapping, self.node_index)
-        return np.asarray(pairs, dtype=np.intp).reshape(-1, 2)
+        return self._lr_node_pairs_of(self._lr_mapping).joint_pair_array
 
     def _facing_lr_pairs(self) -> npt.NDArray[np.intp]:
         """The L/R pairs the facing reads: those of :meth:`_mapping_lr_pairs`
@@ -2761,9 +2766,9 @@ class Bvh:
             anchor = self._found_body_anchor()
         if anchor.node is None:
             names = [self._nodes[i].name for i in anchor.candidates]
-            listed = ", ".join(repr(name) for name in names[:-1]) + f" and {names[-1]!r}"
             joint_names = [self._nodes[i].name for i in self._non_end_site_indices()]
             if all(joint_names.count(name) == 1 for name in names):
+                labels = [repr(name) for name in names]
                 way_out = (
                     f"`bvh.body_anchor = {names[0]!r}`, or pass `body_anchor=` to read_bvh_file"
                 )
@@ -2771,7 +2776,9 @@ class Bvh:
                 # A name several joints carry selects none of them, and
                 # body_anchor= at load takes a name; the node, by its
                 # position, selects the candidate whatever mapping found it.
+                labels = [f"`bvh.nodes[{i}]`" for i in anchor.candidates]
                 way_out = f"`bvh.body_anchor = bvh.nodes[{anchor.candidates[0]}]`"
+            listed = ", ".join(labels[:-1]) + f" and {labels[-1]}"
             raise ValueError(
                 f"This clip has no body: its hierarchy holds several figures of "
                 f"comparable size, whose body anchors would be {listed}. Name the "

@@ -19,6 +19,7 @@ from pybvh.bvhnode import BvhEndSite, BvhJoint, BvhRoot
 
 sys.path.insert(0, str(Path(__file__).parent))
 from synthetic_bvh import (
+    joint_node_lr_pairs,
     kernel_contacts,
     make_contact_rig,
     make_neg_y_up_bvh,
@@ -2243,7 +2244,6 @@ class TestFacingFrame:
         """Frames whose horizontal (left - right) average vanishes get the
         constant fallback basis; the fallback's snap agrees with
         forward_at on the same degenerate frame. Other frames unchanged."""
-        from pybvh._orientation import _resolve_lr_pairs
         from pybvh.rotations import euler_to_rotmat, rotmat_to_euler
         from pybvh.tools import _axis_to_vector, get_main_direction
 
@@ -2253,7 +2253,7 @@ class TestFacingFrame:
         # (left - right) lies along world up: nothing of it is left on the
         # ground.
         pos = cmu_walk.node_positions(frame=3)
-        pairs = _resolve_lr_pairs(cmu_walk.lr_mapping, cmu_walk.node_index)
+        pairs = joint_node_lr_pairs(cmu_walk)
         leftward = np.mean([pos[li] - pos[ri] for li, ri in pairs], axis=0)
         turn = _rotation_onto(leftward, _axis_to_vector(cmu_walk.world_up))
         order = cmu_walk.nodes[0].rot_channels

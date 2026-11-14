@@ -2771,9 +2771,9 @@ class Bvh:
             anchor = self._found_body_anchor()
         if anchor.node is None:
             names = [self._nodes[i].name for i in anchor.candidates]
-            listed = ", ".join(repr(name) for name in names[:-1]) + f" and {names[-1]!r}"
             joint_names = [self._nodes[i].name for i in self._non_end_site_indices()]
             if all(joint_names.count(name) == 1 for name in names):
+                labels = [repr(name) for name in names]
                 way_out = (
                     f"`bvh.body_anchor = {names[0]!r}`, or pass `body_anchor=` to read_bvh_file"
                 )
@@ -2781,7 +2781,9 @@ class Bvh:
                 # A name several joints carry selects none of them, and
                 # body_anchor= at load takes a name; the node, by its
                 # position, selects the candidate whatever mapping found it.
+                labels = [f"`bvh.nodes[{i}]`" for i in anchor.candidates]
                 way_out = f"`bvh.body_anchor = bvh.nodes[{anchor.candidates[0]}]`"
+            listed = ", ".join(labels[:-1]) + f" and {labels[-1]}"
             raise ValueError(
                 f"This clip has no body: its hierarchy holds several figures of "
                 f"comparable size, whose body anchors would be {listed}. Name the "

@@ -386,6 +386,61 @@ class TestLrPairs:
         assert self._resolve(None) == ([], [], [], [])
 
 
+def _resolve_tree(nodes, mapping):
+    """The pairs of *mapping* on a skeleton of ``(name, parent)`` joints."""
+    names = [name for name, _ in nodes]
+    parent_idx = np.array([parent for _, parent in nodes])
+    return _resolve_lr_node_pairs(mapping, names, parent_idx, np.zeros(len(nodes), dtype=bool))
+
+
+class TestLrPairsOfRepeatedNames:
+    """A name pair whose names repeat binds by the tree (#216)."""
+
+    def test_each_left_joint_takes_the_right_joint_it_meets_lowest(self):
+        # Two figures under one root, named alike, the second listed with
+        # its right leg first.
+        nodes = [
+            ("Root", -1),
+            ("Hips", 0),
+            ("LeftUpLeg", 1),
+            ("RightUpLeg", 1),
+            ("Hips", 0),
+            ("RightUpLeg", 4),
+            ("LeftUpLeg", 4),
+        ]
+        resolved = _resolve_tree(nodes, {"LeftUpLeg": "RightUpLeg"})
+        assert resolved.joint_pairs == [(2, 3), (6, 5)]
+
+    def test_a_left_joint_with_two_right_joints_equally_close_has_no_pair(self):
+        nodes = [("Hips", -1), ("LeftArm", 0), ("RightArm", 0), ("RightArm", 0)]
+        assert _resolve_tree(nodes, {"LeftArm": "RightArm"}).joint_pairs == []
+
+    def test_a_figure_without_the_right_joint_lends_none_from_the_other(self):
+        # The second figure has no right foot: its left foot meets the
+        # first figure's right foot only at the root, which is farther
+        # than that right foot's own left foot.
+        nodes = [
+            ("Root", -1),
+            ("Hips", 0),
+            ("LeftFoot", 1),
+            ("RightFoot", 1),
+            ("Hips", 0),
+            ("LeftFoot", 4),
+        ]
+        assert _resolve_tree(nodes, {"LeftFoot": "RightFoot"}).joint_pairs == [(2, 3)]
+
+    def test_a_figure_without_the_left_joint_lends_none_from_the_other(self):
+        nodes = [
+            ("Root", -1),
+            ("Hips", 0),
+            ("LeftFoot", 1),
+            ("RightFoot", 1),
+            ("Hips", 0),
+            ("RightFoot", 4),
+        ]
+        assert _resolve_tree(nodes, {"LeftFoot": "RightFoot"}).joint_pairs == [(2, 3)]
+
+
 class TestRestLeft:
     """The skeleton's own left: the L/R geometry measured against rest up."""
 

@@ -1011,16 +1011,37 @@ def _bind_name_pair(
     right joint it meets lowest in the hierarchy: their deepest common
     ancestor is deeper than the one it shares with any other right
     joint. A left joint with two right joints equally close gets no
-    pair. When neither name repeats, the one pair is bound. Pairs are in
-    the node order of their left joints.
+    pair. The same holds from the right joint's side, so a joint is in
+    one pair at most: a figure that lacks one side's joint borrows none
+    from another figure, whose own joint is closer. When neither name
+    repeats, the one pair is bound. Pairs are in the node order of their
+    left joints.
     """
+    if len(left_joints) == 1 and len(right_joints) == 1:
+        return [(left_joints[0], right_joints[0])]
+    depth = {
+        (left, right): _meeting_depth(left, right, parent_idx)
+        for left in left_joints
+        for right in right_joints
+    }
+
     pairs = []
     for left in left_joints:
-        meeting = [_meeting_depth(left, right, parent_idx) for right in right_joints]
-        deepest = max(meeting)
-        if meeting.count(deepest) == 1:
-            pairs.append((left, right_joints[meeting.index(deepest)]))
+        right = _closest(right_joints, [depth[left, other] for other in right_joints])
+        if right is None:
+            continue
+        if _closest(left_joints, [depth[other, right] for other in left_joints]) == left:
+            pairs.append((left, right))
     return pairs
+
+
+def _closest(joints: list[int], meeting_depths: list[int]) -> int | None:
+    """The joint of *joints* with the deepest of *meeting_depths*, ``None``
+    when two joints share it."""
+    deepest = max(meeting_depths)
+    if meeting_depths.count(deepest) > 1:
+        return None
+    return joints[meeting_depths.index(deepest)]
 
 
 def _meeting_depth(a: int, b: int, parent_idx: npt.NDArray[np.intp]) -> int:

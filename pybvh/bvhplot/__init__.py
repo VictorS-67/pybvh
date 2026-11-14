@@ -759,7 +759,7 @@ def sequence(
     scene = _prepare(bvh, None, centered, camera, None)
     sample_frames = _resolve_sample_frames(scene.num_frames, n_poses, frames)
     # The overlay centres each pose on the body: a clip with no body raises.
-    anchor = bvh._body_anchor_index() if layout == "overlay" else 0
+    anchor = bvh._body_anchor_index() if layout == "overlay" else None
 
     from ._matplotlib import sequence_mpl
 

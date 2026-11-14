@@ -103,6 +103,26 @@ def _offsets(bvh):
     return np.array([node.offset for node in bvh.nodes])
 
 
+def _clip_from_rows(rows):
+    """A clip of one frame from ``(name, parent, offset)`` rows, the root
+    first; a row with a fourth item, ``"end"``, is an end site."""
+    table = []
+    for name, parent, offset, *kind in rows:
+        row = {"name": name, "parent": parent, "offset": offset}
+        if not kind:
+            row["rot_channels"] = "ZYX"
+            if parent is None:
+                row["pos_channels"] = "XYZ"
+        table.append(row)
+    joint_count = sum(1 for row in table if "rot_channels" in row)
+    return Bvh(
+        nodes=nodes_from_table(table),
+        root_pos=np.zeros((1, 3)),
+        joint_angles=np.zeros((1, joint_count, 3)),
+        frame_time=0.1,
+    )
+
+
 def _clip_from_parents(parents, names=None, offsets=None):
     """A clip of joints named *names* (``J0``, ``J1``, ... by default),
     each wired to the node at its index in *parents* (``None`` for the
@@ -2141,11 +2161,18 @@ class TestFrameSlicing:
         other = bvh_example.scale(2.0)
         with pytest.raises(ValueError, match="the rest offset of") as caught:
             bvh_example + other
-        assert "other.copy(nodes=self.to_node_table())" in str(caught.value)
-        with pytest.raises(ValueError, match="the rest offset of"):
+        assert "join other.retarget(self) instead" in str(caught.value)
+        with pytest.raises(ValueError, match="other.retarget\\(self\\)"):
+            joined = bvh_example.copy()
+            joined += other
+        with pytest.raises(ValueError, match="other.retarget\\(self\\)"):
             bvh_example.copy()[0:3] = other[0:3]
-        joined = bvh_example + other.copy(nodes=bvh_example.to_node_table())
+        joined = bvh_example + other.retarget(bvh_example)
         assert joined.frame_count == 2 * bvh_example.frame_count
+        spliced = bvh_example.copy()
+        spliced[0:3] = other[0:3].retarget(bvh_example)
+        spliced += other.retarget(bvh_example)
+        assert spliced.frame_count == 2 * bvh_example.frame_count
 
     def test_concat_checks_rotation_order_of_custom_joint_class(self, bvh_example):
         """A node class of the caller's own that is not an end site counts as a joint.
@@ -2250,7 +2277,7 @@ class TestSkeletonRetargeting:
     """Tests for retarget with name_mapping."""
 
     def test_retarget_no_mapping(self, bvh_example):
-        """Without mapping, retarget works as before (by name)."""
+        """Without mapping, onto the same graph, retarget binds by position."""
         ref = bvh_example.copy()
         ref.scale(2.0, inplace=True)
         result = bvh_example.retarget(ref)
@@ -2307,6 +2334,330 @@ class TestSkeletonRetargeting:
         with pytest.raises(ValueError, match="new_skeleton must be a Bvh object") as excinfo:
             bvh_example.retarget(bvh_example.nodes)
         assert excinfo.value.__suppress_context__
+
+    def test_retarget_gives_two_end_sites_of_one_name_their_own_offsets(self):
+        # Issue #120's reproduction: a root with two end sites of one name.
+        source = _clip_from_rows(
+            [
+                ("Hips", None, [0, 0, 0]),
+                ("EndSiteHips", 0, [0, 1, 0], "end"),
+                ("EndSiteHips", 0, [1, 0, 0], "end"),
+            ]
+        )
+        reference = _clip_from_rows(
+            [
+                ("Hips", None, [0, 0, 0]),
+                ("EndSiteHips", 0, [0, 2, 0], "end"),
+                ("EndSiteHips", 0, [2, 0, 0], "end"),
+            ]
+        )
+        result = source.retarget(reference)
+        assert _offsets(result).tolist() == [[0, 0, 0], [0, 2, 0], [2, 0, 0]]
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [{}, {"name_mapping": {}}, {"strict": True}],
+        ids=["default", "empty mapping", "strict"],
+    )
+    def test_retarget_gives_two_joints_of_one_name_their_own_offsets(self, kwargs):
+        source = _clip_from_parents(
+            [None, 0, 0], names=["Hips", "Leg", "Leg"], offsets=[[0, 0, 0], [1, 0, 0], [-1, 0, 0]]
+        )
+        reference = _clip_from_parents(
+            [None, 0, 0], names=["Hips", "Leg", "Leg"], offsets=[[0, 0, 0], [3, 0, 0], [-4, 0, 0]]
+        )
+        result = source.retarget(reference, **kwargs)
+        assert _offsets(result).tolist() == [[0, 0, 0], [3, 0, 0], [-4, 0, 0]]
+
+    @pytest.mark.parametrize(
+        "path",
+        sorted((Path(__file__).parent.parent / "bvh_data").rglob("*.bvh")),
+        ids=lambda p: p.name,
+    )
+    def test_retarget_onto_the_same_graph_copies_the_offsets_node_by_node(self, path):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            clip = read_bvh_file(path)
+        table = clip.to_node_table()
+        for i, row in enumerate(table):
+            row["offset"] = [value * 1.5 + 0.1 * i for value in row["offset"]]
+        reference = clip.copy(nodes=table)
+        result = clip.retarget(reference)
+        assert _offsets(result).tolist() == [row["offset"] for row in table]
+
+    @pytest.mark.parametrize("strict", [False, True])
+    def test_retarget_under_a_mapping_binds_end_sites_through_their_parent(self, strict):
+        # The ticket's reproduction: the end sites' names hold their
+        # parent's, so they cannot match across the mapping by name.
+        source = _clip_from_rows(
+            [
+                ("Hips", None, [0, 0, 0]),
+                ("Spine", 0, [0, 1, 0]),
+                ("EndSiteSpine", 1, [0, 1, 0], "end"),
+                ("EndSiteHips", 0, [1, 0, 0], "end"),
+            ]
+        )
+        reference = _clip_from_rows(
+            [
+                ("mixamorig:Hips", None, [0, 0, 0]),
+                ("mixamorig:Spine", 0, [0, 2, 0]),
+                ("the spine's tip", 1, [0, 3, 0], "end"),
+                ("the hips' tip", 0, [4, 0, 0], "end"),
+            ]
+        )
+        mapping = {"Hips": "mixamorig:Hips", "Spine": "mixamorig:Spine"}
+        result = source.retarget(reference, name_mapping=mapping, strict=strict)
+        assert _offsets(result).tolist() == [
+            [0, 0, 0],
+            [0, 2, 0],
+            [0, 3, 0],
+            [4, 0, 0],
+        ]
+
+    def test_retarget_under_a_mapping_binds_two_end_sites_by_position(self):
+        source = _clip_from_rows(
+            [
+                ("Hand", None, [0, 0, 0]),
+                ("tip", 0, [1, 0, 0], "end"),
+                ("tip", 0, [0, 1, 0], "end"),
+            ]
+        )
+        reference = _clip_from_rows(
+            [
+                ("R_Hand", None, [0, 0, 0]),
+                ("tip", 0, [5, 0, 0], "end"),
+                ("tip", 0, [0, 6, 0], "end"),
+            ]
+        )
+        result = source.retarget(reference, name_mapping={"Hand": "R_Hand"})
+        assert _offsets(result).tolist() == [
+            [0, 0, 0],
+            [5, 0, 0],
+            [0, 6, 0],
+        ]
+
+    def _two_tips_onto_one(self):
+        source = _clip_from_rows(
+            [
+                ("Hand", None, [0, 0, 0]),
+                ("Finger", 0, [0, 1, 0]),
+                ("tip", 1, [0, 1, 0], "end"),
+                ("tip", 0, [1, 0, 0], "end"),
+                ("tip", 0, [0, 0, 1], "end"),
+            ]
+        )
+        reference = _clip_from_rows(
+            [
+                ("R_Hand", None, [0, 0, 0]),
+                ("R_Finger", 0, [0, 2, 0]),
+                ("tip", 1, [0, 3, 0], "end"),
+                ("tip", 0, [7, 0, 0], "end"),
+            ]
+        )
+        return source, reference, {"Hand": "R_Hand", "Finger": "R_Finger"}
+
+    def test_retarget_keeps_the_end_sites_of_joints_with_other_end_site_counts(self):
+        source, reference, mapping = self._two_tips_onto_one()
+        result = source.retarget(reference, name_mapping=mapping)
+        assert _offsets(result).tolist() == [
+            [0, 0, 0],
+            [0, 2, 0],
+            [0, 3, 0],
+            [1, 0, 0],
+            [0, 0, 1],
+        ]
+
+    def test_strict_retarget_names_the_joint_and_the_two_end_site_counts(self):
+        source, reference, mapping = self._two_tips_onto_one()
+        with pytest.raises(ValueError, match=r"'Hand' has 2 end site.*'R_Hand'.* has 1"):
+            source.retarget(reference, name_mapping=mapping, strict=True)
+
+    def test_strict_retarget_names_a_joint_without_end_sites_bound_to_one_with_two(self):
+        source = _clip_from_rows(
+            [
+                ("Hand", None, [0, 0, 0]),
+                ("Finger", 0, [0, 1, 0]),
+                ("tip", 1, [0, 1, 0], "end"),
+            ]
+        )
+        reference = _clip_from_rows(
+            [
+                ("R_Hand", None, [0, 0, 0]),
+                ("R_Finger", 0, [0, 2, 0]),
+                ("tip", 1, [0, 3, 0], "end"),
+                ("tip", 0, [7, 0, 0], "end"),
+                ("tip", 0, [0, 0, 7], "end"),
+            ]
+        )
+        mapping = {"Hand": "R_Hand", "Finger": "R_Finger"}
+        with pytest.raises(ValueError, match=r"'Hand' has 0 end site.*'R_Hand'.* has 2"):
+            source.retarget(reference, name_mapping=mapping, strict=True)
+
+    def test_retarget_keeps_the_end_site_of_a_joint_without_a_match(self):
+        source = _clip_from_rows(
+            [
+                ("Hips", None, [0, 0, 0]),
+                ("Tail", 0, [0, 1, 0]),
+                ("tip", 1, [0, 1, 0], "end"),
+            ]
+        )
+        reference = _clip_from_rows(
+            [
+                ("R_Hips", None, [0, 0, 0]),
+                ("R_Leg", 0, [0, 2, 0]),
+                ("tip", 1, [0, 3, 0], "end"),
+            ]
+        )
+        result = source.retarget(reference, name_mapping={"Hips": "R_Hips"})
+        assert _offsets(result).tolist() == [
+            [0, 0, 0],
+            [0, 1, 0],
+            [0, 1, 0],
+        ]
+        with pytest.raises(ValueError, match="Node 'Tail' .* not found"):
+            source.retarget(reference, name_mapping={"Hips": "R_Hips"}, strict=True)
+
+    def test_retarget_never_binds_an_end_site_and_a_joint_by_name(self):
+        # The clip's end site is named as a reference joint, and the
+        # clip's joint "Nub" as a reference end site.
+        source = _clip_from_rows(
+            [
+                ("Hips", None, [0, 0, 0]),
+                ("Nub", 0, [0, 1, 0]),
+                ("Head", 0, [1, 0, 0], "end"),
+            ]
+        )
+        reference = _clip_from_rows(
+            [
+                ("Hips", None, [0, 0, 0]),
+                ("Head", 0, [0, 9, 0]),
+                ("Nub", 1, [0, 7, 0], "end"),
+            ]
+        )
+        result = source.retarget(reference)
+        assert _offsets(result).tolist() == [
+            [0, 0, 0],
+            [0, 1, 0],
+            [1, 0, 0],
+        ]
+        with pytest.raises(ValueError, match="Node 'Nub' .* not found"):
+            source.retarget(reference, strict=True)
+
+    def test_retarget_by_name_refuses_a_reference_name_of_two_joints(self):
+        source = _clip_from_rows([("Hips", None, [0, 0, 0]), ("Spine", 0, [0, 1, 0])])
+        reference = _clip_from_rows(
+            [
+                ("Hips", None, [0, 0, 0]),
+                ("Spine", 0, [0, 2, 0]),
+                ("Spine", 1, [0, 3, 0]),
+            ]
+        )
+        with pytest.raises(ValueError) as caught:
+            source.retarget(reference)
+        message = str(caught.value)
+        assert "2 joints of new_skeleton are named 'Spine'" in message
+        assert "new_skeleton.nodes[1], new_skeleton.nodes[2]" in message
+        assert "new_skeleton.to_node_table()" in message
+        assert "name_mapping" in message
+
+    def test_retarget_by_name_refuses_a_clip_name_of_two_joints(self):
+        source = _clip_from_rows(
+            [
+                ("Hips", None, [0, 0, 0]),
+                ("Spine", 0, [0, 1, 0]),
+                ("Spine", 1, [0, 1, 0]),
+            ]
+        )
+        reference = _clip_from_rows([("Hips", None, [0, 0, 0]), ("Spine", 0, [0, 2, 0])])
+        with pytest.raises(ValueError) as caught:
+            source.retarget(reference)
+        message = str(caught.value)
+        assert "2 joints of this clip are named 'Spine'" in message
+        assert "bvh.nodes[1], bvh.nodes[2]" in message
+        assert "bvh.to_node_table()" in message
+
+    def test_strict_retarget_refuses_a_repeated_name_before_a_joint_without_match(self):
+        # Tail, without a match, comes before Spine: the refusal of the
+        # repeated name still wins over the strict error.
+        source = _clip_from_rows(
+            [
+                ("Hips", None, [0, 0, 0]),
+                ("Tail", 0, [0, -1, 0]),
+                ("Spine", 0, [0, 1, 0]),
+            ]
+        )
+        reference = _clip_from_rows(
+            [
+                ("Hips", None, [0, 0, 0]),
+                ("Spine", 0, [0, 2, 0]),
+                ("Spine", 1, [0, 3, 0]),
+            ]
+        )
+        with pytest.raises(ValueError, match="2 joints of new_skeleton are named 'Spine'"):
+            source.retarget(reference, strict=True)
+
+    def test_retarget_under_a_mapping_refuses_a_mapped_name_of_two_joints(self):
+        source = _clip_from_rows([("Hips", None, [0, 0, 0]), ("Back", 0, [0, 1, 0])])
+        reference = _clip_from_rows(
+            [
+                ("Hips", None, [0, 0, 0]),
+                ("Spine", 0, [0, 2, 0]),
+                ("Spine", 1, [0, 3, 0]),
+            ]
+        )
+        with pytest.raises(ValueError, match=r"new_skeleton.nodes\[1\], new_skeleton.nodes\[2\]"):
+            source.retarget(reference, name_mapping={"Back": "Spine"})
+
+    def test_retarget_under_a_mapping_refuses_a_clip_name_of_two_joints(self):
+        # The same graph, but a mapping makes the binding by name.
+        source = _clip_from_parents(
+            [None, 0, 0], names=["Hips", "Leg", "Leg"], offsets=[[0, 0, 0], [1, 0, 0], [-1, 0, 0]]
+        )
+        reference = source.scale(2.0)
+        with pytest.raises(ValueError, match=r"bvh.nodes\[1\], bvh.nodes\[2\]"):
+            source.retarget(reference, name_mapping={"Hips": "Hips"})
+
+    def test_retarget_by_name_accepts_a_repeated_name_it_does_not_read(self):
+        source = _clip_from_rows([("Hips", None, [0, 0, 0]), ("Spine", 0, [0, 1, 0])])
+        reference = _clip_from_rows(
+            [
+                ("Hips", None, [0, 0, 0]),
+                ("Spine", 0, [0, 2, 0]),
+                ("Arm", 1, [1, 0, 0]),
+                ("Arm", 1, [-1, 0, 0]),
+            ]
+        )
+        result = source.retarget(reference)
+        assert _offsets(result).tolist() == [[0, 0, 0], [0, 2, 0]]
+
+    def test_retarget_after_the_rename_the_refusal_names_gives_each_joint_its_offset(self):
+        source = _clip_from_rows(
+            [
+                ("Hips", None, [0, 0, 0]),
+                ("Spine", 0, [0, 1, 0]),
+                ("Spine", 1, [0, 1, 0]),
+            ]
+        )
+        reference = _clip_from_rows(
+            [
+                ("Hips", None, [0, 0, 0]),
+                ("Spine", 0, [0, 2, 0]),
+                ("Spine", 1, [0, 3, 0]),
+                ("Head", 2, [0, 4, 0]),
+            ]
+        )
+        table = source.to_node_table()
+        table[2]["name"] = "Chest"
+        source = source.copy(nodes=table)
+        table = reference.to_node_table()
+        table[2]["name"] = "Spine1"
+        reference = reference.copy(nodes=table)
+        result = source.retarget(reference, name_mapping={"Chest": "Spine1"})
+        assert _offsets(result).tolist() == [
+            [0, 0, 0],
+            [0, 2, 0],
+            [0, 3, 0],
+        ]
 
     def test_retarget_preserves_motion(self, bvh_example):
         """retarget should not modify root_pos or joint_angles."""
@@ -4603,6 +4954,34 @@ class TestRetargetFailsWhole:
         for node, offset in zip(bvh_example.nodes, before, strict=True):
             np.testing.assert_array_equal(node.offset, offset)
 
+    def test_retarget_refusing_a_repeated_name_leaves_the_clip_unchanged(self):
+        # Hips binds before Spine is read and its offset differs, so an
+        # offset written before the refusal shows.
+        source = _clip_from_rows([("Hips", None, [0, 0, 0]), ("Spine", 0, [0, 1, 0])])
+        reference = _clip_from_rows(
+            [
+                ("Hips", None, [0, 0, 1]),
+                ("Spine", 0, [0, 2, 0]),
+                ("Spine", 1, [0, 3, 0]),
+            ]
+        )
+        with pytest.raises(ValueError, match="named 'Spine'"):
+            source.retarget(reference, inplace=True)
+        assert _offsets(source).tolist() == [[0, 0, 0], [0, 1, 0]]
+
+    def test_retarget_refusing_a_repeated_clip_name_leaves_the_clip_unchanged(self):
+        source = _clip_from_rows(
+            [
+                ("Hips", None, [0, 0, 0]),
+                ("Spine", 0, [0, 1, 0]),
+                ("Spine", 1, [0, 1, 0]),
+            ]
+        )
+        reference = _clip_from_rows([("Hips", None, [0, 0, 1]), ("Spine", 0, [0, 2, 0])])
+        with pytest.raises(ValueError, match="2 joints of this clip are named 'Spine'"):
+            source.retarget(reference, inplace=True)
+        assert _offsets(source).tolist() == [[0, 0, 0], [0, 1, 0], [0, 1, 0]]
+
 
 # =============================================================================
 # Test: resample extreme cases
@@ -4832,7 +5211,7 @@ class TestRetargetEdgeCases:
     """Tests for retarget edge cases."""
 
     def test_empty_mapping(self, bvh_example, standard_skeleton):
-        """name_mapping={} should match by name."""
+        """name_mapping={} binds as no mapping does: by position on the same graph."""
         result = bvh_example.retarget(standard_skeleton, name_mapping={})
         for n_result, n_ref in zip(result.nodes, standard_skeleton.nodes, strict=True):
             np.testing.assert_array_equal(n_result.offset, n_ref.offset)

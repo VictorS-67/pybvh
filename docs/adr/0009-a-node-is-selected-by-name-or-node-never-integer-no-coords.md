@@ -14,6 +14,16 @@ Through v0.9.0 a caller selected nodes in three incompatible ways. Names (`foot_
 
 **5. Integers stay where the array fixes the space.** The array-level functions (`transforms.mirror_angles`' joint-space pairs, `geometry`) take indices into the array they are given, which has one index space. The name maps (`lr_mapping`, `retarget`'s `name_mapping`, the `masses` of `kinetic_energy` given as a mapping) key values by names and are not selections in the sense of this record.
 
+*(Amended 2026-11-14, #216, decided in the grilling of #216 and #120: a name map never keeps one node of a repeated name without saying so, and each map states what a repeated name means:*
+
+| Name map | A repeated name means | Built by |
+| --- | --- | --- |
+| `lr_mapping` | one node pair per place where the two names meet, bound by the tree | #216 |
+| `retarget`'s binding and `name_mapping` | same graph and no mapping: by position; else by name, and a repeated joint name that the binding reads is refused; end sites through their parent | #120 (built) |
+| `masses` of `kinetic_energy` | every joint of the name takes the value | already so |
+
+*The words of decision 5 are unchanged.)*
+
 **6. `coords=` is removed from every public function and method of `bvh` and `analysis`.** Each reads the clip's stored forward-kinematics positions, without a copy where the result does not escape. `centered=` stays. Positions the caller holds (smoothed, predicted or edited) take the array path: `bvh.index(node, space="node")`, then `pybvh.geometry` or `pybvh.signal`. bvhplot's `coords=` stays: drawing given positions is its purpose.
 
 `tests/test_node_selection.py` holds one table with one row per selecting parameter, which checks each refusal on each row, and a guard over the public signatures of `Bvh`, `analysis` and `features`: a parameter named `coords`, a selecting parameter not typed with `NodeSelector`, a selecting parameter without its row, and a parameter typed with `int` that the guard does not list as a frame, an axis or a count each fail it. Each row is called with an end site: a parameter named `joint` or `joints` must refuse it, and every other must accept it.

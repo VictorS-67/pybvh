@@ -3644,6 +3644,20 @@ class Bvh:
     ) -> Bvh | None:
         """Copy joint offsets from a reference skeleton.
 
+        Each node takes the offset of the reference node bound to it:
+
+        - by position when the two skeletons have the same graph
+          (:meth:`matches_hierarchy` with ``match_offsets=False``: the same
+          node count and, node by node, the same name, the same kind and the
+          same parent, offsets not compared) and no ``name_mapping`` is
+          given. Node ``i`` takes the offset of ``new_skeleton.nodes[i]``,
+          and no name is looked up, so two end sites of one joint, or two
+          joints of one name, each take their own offset;
+        - by name otherwise: each node takes the offset of the reference
+          node of its name, or of the name ``name_mapping`` gives it. Where
+          a name repeats in ``new_skeleton``, the last node of that name is
+          read.
+
         A translating joint keeps its displacement from its rest pose: its
         ``joint_translations`` move by the change of its offset,
         ``pos + (new_offset - old_offset)`` in every frame.
@@ -3654,9 +3668,10 @@ class Bvh:
             Reference skeleton whose offsets will be copied.
         name_mapping : dict, optional
             Maps self's joint names to ``new_skeleton``'s joint names,
-            e.g. ``{'Hips': 'mixamorig:Hips', ...}``.
-            Joints not in the mapping are matched by identical name.
-            If None (default), all joints are matched by name.
+            e.g. ``{'Hips': 'mixamorig:Hips', ...}``; a non-empty mapping makes
+            the binding by name. Joints not in the mapping are matched by identical
+            name. If None (default) or empty, the nodes bind by position
+            on the same graph, and by name otherwise.
         strict : bool, optional
             If True, raise ``ValueError`` when a joint in self has no
             match in ``new_skeleton``.  If False (default), unmapped
@@ -3679,6 +3694,40 @@ class Bvh:
         except AttributeError:
             raise ValueError("new_skeleton must be a Bvh object") from None
 
+        if (
+            not name_mapping
+            and _hierarchy_difference(self.nodes, new_skel_nodes, atol=None) is None
+        ):
+            # The same graph: node i is the reference's node i, whatever
+            # names repeat (#120).
+            offsets = new_skeleton._offsets()
+        else:
+            offsets = self._offsets_by_name(new_skel_nodes, name_mapping, strict)
+
+        # A translating joint keeps its displacement from its rest pose:
+        # its frames move by the change of its offset (#186).
+        translating = [i for i, node in enumerate(self.nodes) if _is_translating_joint(node)]
+        translations = (
+            self._motion_on_skeleton()["joint_translations"]
+            + (offsets - self._offsets())[translating]
+        )
+
+        target = self if inplace else self.copy()
+        target._replace_offsets(offsets, translations=translations)
+        if inplace:
+            return None
+        return target
+
+    def _offsets_by_name(
+        self,
+        new_skel_nodes: Sequence[BvhNode],
+        name_mapping: dict[str, str] | None,
+        strict: bool,
+    ) -> npt.NDArray[np.float64]:
+        """This clip's offsets with each node's replaced by the offset of
+        the reference node of its name, or of the name *name_mapping*
+        gives it; the binding of :meth:`retarget` when the graphs differ
+        or a mapping is given."""
         # Build name → index lookup for the reference skeleton
         newnodes2idx = {n.name: i for i, n in enumerate(new_skel_nodes)}
 
@@ -3698,20 +3747,7 @@ class Bvh:
                     f"in new_skeleton and strict=True."
                 )
             # else: keep original offset (lenient mode)
-
-        # A translating joint keeps its displacement from its rest pose:
-        # its frames move by the change of its offset (#186).
-        translating = [i for i, node in enumerate(self.nodes) if _is_translating_joint(node)]
-        translations = (
-            self._motion_on_skeleton()["joint_translations"]
-            + (offsets - self._offsets())[translating]
-        )
-
-        target = self if inplace else self.copy()
-        target._replace_offsets(offsets, translations=translations)
-        if inplace:
-            return None
-        return target
+        return offsets
 
     @overload
     def scale(self, scale: float, *, inplace: Literal[True]) -> None: ...

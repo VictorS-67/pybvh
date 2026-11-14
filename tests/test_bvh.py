@@ -103,6 +103,26 @@ def _offsets(bvh):
     return np.array([node.offset for node in bvh.nodes])
 
 
+def _clip_from_rows(rows):
+    """A clip of one frame from ``(name, parent, offset)`` rows, the root
+    first; a row with a fourth item, ``"end"``, is an end site."""
+    table = []
+    for name, parent, offset, *kind in rows:
+        row = {"name": name, "parent": parent, "offset": offset}
+        if not kind:
+            row["rot_channels"] = "ZYX"
+            if parent is None:
+                row["pos_channels"] = "XYZ"
+        table.append(row)
+    joint_count = sum(1 for row in table if "rot_channels" in row)
+    return Bvh(
+        nodes=nodes_from_table(table),
+        root_pos=np.zeros((1, 3)),
+        joint_angles=np.zeros((1, joint_count, 3)),
+        frame_time=0.1,
+    )
+
+
 def _clip_from_parents(parents, names=None, offsets=None):
     """A clip of joints named *names* (``J0``, ``J1``, ... by default),
     each wired to the node at its index in *parents* (``None`` for the
@@ -2250,7 +2270,7 @@ class TestSkeletonRetargeting:
     """Tests for retarget with name_mapping."""
 
     def test_retarget_no_mapping(self, bvh_example):
-        """Without mapping, retarget works as before (by name)."""
+        """Without mapping, onto the same graph, retarget binds by position."""
         ref = bvh_example.copy()
         ref.scale(2.0, inplace=True)
         result = bvh_example.retarget(ref)
@@ -2307,6 +2327,56 @@ class TestSkeletonRetargeting:
         with pytest.raises(ValueError, match="new_skeleton must be a Bvh object") as excinfo:
             bvh_example.retarget(bvh_example.nodes)
         assert excinfo.value.__suppress_context__
+
+    def test_retarget_gives_two_end_sites_of_one_name_their_own_offsets(self):
+        # Issue #120's reproduction: a root with two end sites of one name.
+        source = _clip_from_rows(
+            [
+                ("Hips", None, [0, 0, 0]),
+                ("EndSiteHips", 0, [0, 1, 0], "end"),
+                ("EndSiteHips", 0, [1, 0, 0], "end"),
+            ]
+        )
+        reference = _clip_from_rows(
+            [
+                ("Hips", None, [0, 0, 0]),
+                ("EndSiteHips", 0, [0, 2, 0], "end"),
+                ("EndSiteHips", 0, [2, 0, 0], "end"),
+            ]
+        )
+        result = source.retarget(reference)
+        assert _offsets(result).tolist() == [[0, 0, 0], [0, 2, 0], [2, 0, 0]]
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [{}, {"name_mapping": {}}, {"strict": True}],
+        ids=["default", "empty mapping", "strict"],
+    )
+    def test_retarget_gives_two_joints_of_one_name_their_own_offsets(self, kwargs):
+        source = _clip_from_parents(
+            [None, 0, 0], names=["Hips", "Leg", "Leg"], offsets=[[0, 0, 0], [1, 0, 0], [-1, 0, 0]]
+        )
+        reference = _clip_from_parents(
+            [None, 0, 0], names=["Hips", "Leg", "Leg"], offsets=[[0, 0, 0], [3, 0, 0], [-4, 0, 0]]
+        )
+        result = source.retarget(reference, **kwargs)
+        assert _offsets(result).tolist() == [[0, 0, 0], [3, 0, 0], [-4, 0, 0]]
+
+    @pytest.mark.parametrize(
+        "path",
+        sorted((Path(__file__).parent.parent / "bvh_data").rglob("*.bvh")),
+        ids=lambda p: p.name,
+    )
+    def test_retarget_onto_the_same_graph_copies_the_offsets_node_by_node(self, path):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            clip = read_bvh_file(path)
+        table = clip.to_node_table()
+        for i, row in enumerate(table):
+            row["offset"] = [value * 1.5 + 0.1 * i for value in row["offset"]]
+        reference = clip.copy(nodes=table)
+        result = clip.retarget(reference)
+        assert _offsets(result).tolist() == [row["offset"] for row in table]
 
     def test_retarget_preserves_motion(self, bvh_example):
         """retarget should not modify root_pos or joint_angles."""
@@ -4832,7 +4902,7 @@ class TestRetargetEdgeCases:
     """Tests for retarget edge cases."""
 
     def test_empty_mapping(self, bvh_example, standard_skeleton):
-        """name_mapping={} should match by name."""
+        """name_mapping={} binds as no mapping does: by position on the same graph."""
         result = bvh_example.retarget(standard_skeleton, name_mapping={})
         for n_result, n_ref in zip(result.nodes, standard_skeleton.nodes, strict=True):
             np.testing.assert_array_equal(n_result.offset, n_ref.offset)

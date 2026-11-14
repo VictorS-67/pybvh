@@ -948,8 +948,7 @@ def mirror(
             f"{resolved.unknown_names}. Check against `bvh.joint_names`."
         )
     joints = [n for n in target.nodes if isinstance(n, BvhJoint)]
-    joint_idx = target.fk_topology.joint_idx
-    lr_j_pairs = [(int(joint_idx[li]), int(joint_idx[ri])) for li, ri in resolved.joint_pairs]
+    lr_j_pairs = resolved.joint_space_pairs(target.fk_topology.joint_idx)
 
     # A pair swaps its translation columns, so both joints of a pair
     # translate or neither does: a one-sided pair has no column to swap
@@ -997,7 +996,7 @@ def mirror(
     # unpairable joint: the property drops its end sites, mirror refuses,
     # because swapping some of a joint's tips and not others produces a
     # skeleton that is wrong rather than incomplete.
-    lr_node_pairs = resolved.joint_pairs + resolved.end_site_pairs
+    lr_node_pairs = resolved.node_pairs
     if resolved.end_site_mismatches:
         left_name, num_left, right_name, num_right = resolved.end_site_mismatches[0]
         raise ValueError(

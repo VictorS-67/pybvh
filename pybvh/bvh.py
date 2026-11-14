@@ -2521,11 +2521,7 @@ class Bvh:
         mapping = self._lr_mapping
         if mapping is None:
             return None
-        joint_idx = self.fk_topology.joint_idx
-        return [
-            (int(joint_idx[left]), int(joint_idx[right]))
-            for left, right in self._lr_node_pairs_of(mapping).joint_pairs
-        ]
+        return self._lr_node_pairs_of(mapping).joint_space_pairs(self.fk_topology.joint_idx)
 
     @property
     def node_lr_pairs(self) -> list[tuple[int, int]] | None:
@@ -2568,8 +2564,7 @@ class Bvh:
         """
         if self._lr_mapping is None:
             return None
-        resolved = self._lr_node_pairs_of(self._lr_mapping)
-        return resolved.joint_pairs + resolved.end_site_pairs
+        return self._lr_node_pairs_of(self._lr_mapping).node_pairs
 
     def _lr_node_pairs_of(self, mapping: dict[str, str] | None) -> _LRNodePairs:
         """The name pairs of *mapping* bound to this clip's nodes.

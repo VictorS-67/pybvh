@@ -215,7 +215,7 @@ class TestTheErrorsWayOut:
         with pytest.raises(ValueError, match="no body") as raised:
             _ = clip.rest_up
         message = str(raised.value)
-        assert "'Hips' and 'Hips'" in message
+        assert "would be `bvh.nodes[1]` and `bvh.nodes[28]`" in message
         assert "read_bvh_file" not in message
         first = clip.orientation_report.body_anchor_candidates[0]
         assert self._suggested_node(clip, message) is first
@@ -441,7 +441,8 @@ class TestFiguresNamedAlike:
         with pytest.raises(ValueError, match="no body") as raised:
             call(clip)
         message = str(raised.value)
-        assert "'Hips' and 'Hips'" in message
+        assert "would be `bvh.nodes[1]` and `bvh.nodes[28]`" in message
+        assert "'Hips'" not in message
         assert "`bvh.body_anchor = bvh.nodes[1]`" in message
 
     @pytest.mark.parametrize("suffix", ["", "_2"])

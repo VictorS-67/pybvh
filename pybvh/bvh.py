@@ -2504,7 +2504,12 @@ class Bvh:
 
         Index-space counterpart of :attr:`lr_mapping`: one
         ``(left, right)`` tuple per pair, in mapping order, resolved as
-        :func:`~pybvh.transforms.mirror` resolves its pairs. Returns
+        :func:`~pybvh.transforms.mirror` resolves its pairs. A name pair
+        whose names repeat (two figures named alike) gives one tuple per
+        place where the two names meet: each left joint pairs with the
+        right joint it meets lowest in the hierarchy, when that left joint
+        is also the right joint's closest, so every figure keeps its own
+        pairs. Returns
         ``None`` when no mapping is available (matches the
         ``lr_mapping`` sentinel — one "no pairs" convention across both
         surfaces); ``bvh.lr_pairs or []`` gives a list either way.
@@ -2540,7 +2545,8 @@ class Bvh:
         Left and right joints are matched by name (that is what
         :attr:`lr_mapping` is), but looked up among joints only, so an
         end site whose generated display name collides with a joint's
-        cannot shadow it. The end sites themselves are matched
+        cannot shadow it. A name that several joints carry binds by the
+        tree, as in :attr:`lr_pairs`. The end sites themselves are matched
         positionally within each joint and resolved by identity.
 
         A joint pair whose two sides carry **different numbers of end

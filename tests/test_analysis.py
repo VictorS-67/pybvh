@@ -1827,6 +1827,13 @@ class TestFootContactsPinnedGolden:
         )
 
         fields = report_fields(report)
+        # The pin was made when an end site was named 'EndSite' + its
+        # parent's name (#220). Each tested node is compared under the name
+        # of that time, so the pin itself is never rewritten (ADR 0002).
+        fields["nodes"] = tuple(
+            "EndSite" + node.parent.name if node.is_end_site() else node.name
+            for node in report.nodes
+        )
         pinned_keys = pin[f"run{run_idx}/__keys__"].tolist()
         assert sorted(fields) == pinned_keys, f"run{run_idx} ({run_name}): report fields changed"
         pinned_none = pin[f"run{run_idx}/__none__"].tolist()

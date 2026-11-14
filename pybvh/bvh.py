@@ -3653,10 +3653,16 @@ class Bvh:
           given. Node ``i`` takes the offset of ``new_skeleton.nodes[i]``,
           and no name is looked up, so two end sites of one joint, or two
           joints of one name, each take their own offset;
-        - by name otherwise: each node takes the offset of the reference
-          node of its name, or of the name ``name_mapping`` gives it. Where
-          a name repeats in ``new_skeleton``, the last node of that name is
-          read.
+        - by name otherwise: each joint takes the offset of the reference
+          joint of its name, or of the name ``name_mapping`` gives it. Names
+          are looked up among joints only, so an end site never takes a
+          joint's offset, nor a joint an end site's. Where a joint name
+          repeats in ``new_skeleton``, the last joint of that name is read.
+          An end site binds through its parent: it takes the offset of the
+          end site in the same position under the reference joint that its
+          parent is bound to. When the two joints carry different numbers
+          of end sites, or its parent has no match, the end site has no
+          match.
 
         A translating joint keeps its displacement from its rest pose: its
         ``joint_translations`` move by the change of its offset,
@@ -3674,8 +3680,11 @@ class Bvh:
             on the same graph, and by name otherwise.
         strict : bool, optional
             If True, raise ``ValueError`` when a joint in self has no
-            match in ``new_skeleton``.  If False (default), unmapped
-            joints keep their original offsets.
+            match in ``new_skeleton``, or when a bound joint and its match
+            carry different numbers of end sites; the error names the
+            joint, and for end sites the two counts. If False (default),
+            joints and end sites without a match keep their original
+            offsets.
         inplace : bool, optional
             If True, modify self and return None.
             If False (default), return a modified copy.
@@ -3702,7 +3711,7 @@ class Bvh:
             # names repeat (#120).
             offsets = new_skeleton._offsets()
         else:
-            offsets = self._offsets_by_name(new_skel_nodes, name_mapping, strict)
+            offsets = self._offsets_by_name(new_skeleton, name_mapping, strict)
 
         # A translating joint keeps its displacement from its rest pose:
         # its frames move by the change of its offset (#186).
@@ -3720,33 +3729,71 @@ class Bvh:
 
     def _offsets_by_name(
         self,
-        new_skel_nodes: Sequence[BvhNode],
+        new_skeleton: Bvh,
         name_mapping: dict[str, str] | None,
         strict: bool,
     ) -> npt.NDArray[np.float64]:
-        """This clip's offsets with each node's replaced by the offset of
-        the reference node of its name, or of the name *name_mapping*
-        gives it; the binding of :meth:`retarget` when the graphs differ
-        or a mapping is given."""
-        # Build name → index lookup for the reference skeleton
-        newnodes2idx = {n.name: i for i, n in enumerate(new_skel_nodes)}
+        """This clip's offsets with each joint's replaced by the offset of
+        the reference joint of its name, or of the name *name_mapping*
+        gives it, and each end site's by the offset of the end site in the
+        same position under the joint its parent is bound to; the binding
+        of :meth:`retarget` when the graphs differ or a mapping is given.
+
+        Names are looked up among joints only, so an end site cannot take a
+        joint's place, nor a joint an end site's (#120).
+        """
+        new_skel_nodes = new_skeleton.nodes
+        ref_parent_idx = new_skeleton.fk_topology.parent_idx
+        ref_joint_by_name: dict[str, int] = {}
+        ref_end_sites_of: dict[int, list[int]] = {}
+        for j, ref_node in enumerate(new_skel_nodes):
+            if ref_node.is_end_site():
+                ref_end_sites_of.setdefault(int(ref_parent_idx[j]), []).append(j)
+            else:
+                ref_joint_by_name[ref_node.name] = j
 
         offsets = self._offsets()
+        bound: dict[int, int] = {}
+        own_end_sites_of: dict[int, list[int]] = {}
+        parent_idx = self.fk_topology.parent_idx
         for i, node in enumerate(self.nodes):
-            # Determine the target name in new_skeleton
+            if node.is_end_site():
+                own_end_sites_of.setdefault(int(parent_idx[i]), []).append(i)
+                continue
             if name_mapping and node.name in name_mapping:
                 target_name = name_mapping[node.name]
             else:
                 target_name = node.name
 
-            if target_name in newnodes2idx:
-                offsets[i] = new_skel_nodes[newnodes2idx[target_name]].offset
+            if target_name in ref_joint_by_name:
+                bound[i] = ref_joint_by_name[target_name]
+                offsets[i] = new_skel_nodes[bound[i]].offset
             elif strict:
                 raise ValueError(
                     f"Node '{node.name}' (mapped to '{target_name}') not found "
                     f"in new_skeleton and strict=True."
                 )
             # else: keep original offset (lenient mode)
+
+        # An end site binds through its parent, by position among that
+        # joint's end sites, as node_lr_pairs pairs them; one whose parent
+        # has no match keeps its offset (strict has raised on the parent).
+        # Every bound joint is walked, so that one without end sites is
+        # also compared with its match.
+        for parent, ref_parent in bound.items():
+            end_sites = own_end_sites_of.get(parent, [])
+            ref_end_sites = ref_end_sites_of.get(ref_parent, [])
+            if len(ref_end_sites) == len(end_sites):
+                for i, j in zip(end_sites, ref_end_sites, strict=True):
+                    offsets[i] = new_skel_nodes[j].offset
+            elif strict:
+                raise ValueError(
+                    f"Joint '{self.nodes[parent].name}' has {len(end_sites)} end "
+                    f"site(s) and its match '{new_skel_nodes[ref_parent].name}' "
+                    f"in new_skeleton has {len(ref_end_sites)}, so its end sites "
+                    f"have no match and strict=True."
+                )
+            # else: keep their original offsets (lenient mode)
         return offsets
 
     @overload

@@ -900,7 +900,7 @@ class _LRNodePairs(NamedTuple):
     ----------
     joint_pairs : list of (int, int)
         ``(left_node, right_node)`` per node pair that a name pair whose
-        two names name joints binds (one per name that does not repeat,
+        two names name joints binds (one when neither name repeats,
         see :func:`_bind_name_pair`), in mapping order.
     end_site_pairs : list of (int, int)
         The end sites of each joint pair, matched by position under

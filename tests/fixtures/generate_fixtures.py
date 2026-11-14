@@ -18,6 +18,10 @@ One fixture is different in kind: `foot_contacts_pinned.npz` is a BEHAVIOR PIN o
 `follow_azimuths_pinned.npz` is a second behavior pin of the same kind, of the follow camera's azimuth schedule (`gen_follow_azimuths`):
 
     .venv/bin/python tests/fixtures/generate_fixtures.py --follow-azimuths-pin
+
+`lr_pairs_pinned.npz` is a third, of every value the L/R pairs feed on every bundled clip (`gen_lr_pairs`):
+
+    .venv/bin/python tests/fixtures/generate_fixtures.py --lr-pairs-pin
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ import dataclasses
 import json
 import os
 import sys
+import warnings
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -513,6 +518,108 @@ def gen_follow_azimuths() -> None:
     )
 
 
+def lr_pin_clip_paths(repo_root: str) -> list[str]:
+    """The bundled clips the L/R pin covers: every ``.bvh`` of ``bvh_data/``
+    and ``bvh_data/synthetic/``, as paths relative to *repo_root*, sorted."""
+    paths = []
+    for folder in ("bvh_data", os.path.join("bvh_data", "synthetic")):
+        for name in sorted(os.listdir(os.path.join(repo_root, folder))):
+            if name.endswith(".bvh"):
+                paths.append(os.path.join(folder, name))
+    return paths
+
+
+def lr_pin_values(bvh) -> dict[str, np.ndarray]:
+    """Every value of *bvh* that the L/R pairs feed, as arrays.
+
+    ``lr_pairs``, ``node_lr_pairs``, the body anchor, the orientation
+    report, the facing and the result of ``mirror`` (with the clip's own
+    mapping, and with it passed explicitly, the strict path). A value
+    that raises is stored as the string ``"<ExceptionType>: <message>"``,
+    and ``None`` as the string ``"None"``. ``tests/test_lr_pairs_pin.py``
+    replays it against the fixture.
+    """
+    from pybvh import transforms
+
+    def guarded(read):
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                return read()
+        except Exception as error:  # noqa: BLE001 - the error is the pinned value
+            return f"{type(error).__name__}: {error}"
+
+    def as_array(value):
+        if value is None:
+            return np.array("None")
+        if isinstance(value, str):
+            return np.array(value)
+        return np.asarray(value)
+
+    values: dict[str, object] = {
+        "lr_pairs": guarded(lambda: bvh.lr_pairs),
+        "node_lr_pairs": guarded(lambda: bvh.node_lr_pairs),
+        "body_anchor": guarded(
+            lambda: None if bvh.body_anchor is None else bvh.nodes.index(bvh.body_anchor)
+        ),
+        "orientation_report": guarded(lambda: repr(bvh.orientation_report)),
+    }
+    # Every frame would make the fixture megabytes; the pairs act on each
+    # frame alike, so about twenty evenly spaced frames pin them as well.
+    frames = slice(None, None, max(1, bvh.frame_count // 20))
+    facing = guarded(bvh.facing_frame)
+    if isinstance(facing, str):
+        values["facing"] = facing
+    else:
+        for field in ("forward", "left", "up", "valid"):
+            values[f"facing/{field}"] = getattr(facing, field)[frames]
+    for label, kwargs in (("mirror", {}), ("mirror_explicit", {"lr_mapping": bvh.lr_mapping})):
+        mirrored = guarded(lambda kwargs=kwargs: transforms.mirror(bvh, **kwargs))
+        if isinstance(mirrored, str):
+            values[label] = mirrored
+        else:
+            values[f"{label}/rest_pose_positions"] = mirrored.rest_pose_positions()
+            values[f"{label}/root_pos"] = mirrored.root_pos[frames]
+            values[f"{label}/joint_angles"] = mirrored.joint_angles[frames]
+            values[f"{label}/joint_translations"] = mirrored.joint_translations[frames]
+    return {key: as_array(value) for key, value in values.items()}
+
+
+def gen_lr_pairs() -> None:
+    # ------------------------------------------------------------------
+    # !! BEHAVIOR PIN — regenerating RE-BASELINES it !!
+    #
+    # Same kind as gen_foot_contacts: no external reference, it freezes
+    # every value the L/R pairs feed, on every bundled clip, so that the
+    # resolver of the name pairs (#216) can be proven bit-identical. The
+    # committed .npz must come from the tree before that change.
+    # ------------------------------------------------------------------
+    repo_root = os.path.dirname(os.path.dirname(HERE))
+    sys.path.insert(0, repo_root)
+    from pybvh import read_bvh_file
+
+    arrays: dict[str, np.ndarray] = {}
+    clips = lr_pin_clip_paths(repo_root)
+    for path in clips:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            bvh = read_bvh_file(os.path.join(repo_root, path))
+        for key, value in lr_pin_values(bvh).items():
+            arrays[f"{path}/{key}"] = value
+    _save(
+        "lr_pairs_pinned",
+        {
+            "ref": "pybvh itself — BEHAVIOR PIN, no external reference",
+            "source": clips,
+            "quantity": "lr_pin_values(bvh) per bundled clip",
+            "env": "the development .venv (numpy-only), NOT the fixture env",
+            "warning": "regenerating re-baselines the pin; the committed "
+            "fixture must come from the tree before the change it guards",
+        },
+        **arrays,
+    )
+
+
 if __name__ == "__main__":
     if "--foot-contacts-pin" in sys.argv:
         print("RE-BASELINING the foot_contacts behavior pin in", HERE)
@@ -520,6 +627,9 @@ if __name__ == "__main__":
     elif "--follow-azimuths-pin" in sys.argv:
         print("RE-BASELINING the follow azimuths behavior pin in", HERE)
         gen_follow_azimuths()
+    elif "--lr-pairs-pin" in sys.argv:
+        print("RE-BASELINING the L/R pairs behavior pin in", HERE)
+        gen_lr_pairs()
     else:
         print("Generating golden fixtures into", HERE)
         gen_rotations()

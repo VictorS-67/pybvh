@@ -2161,11 +2161,18 @@ class TestFrameSlicing:
         other = bvh_example.scale(2.0)
         with pytest.raises(ValueError, match="the rest offset of") as caught:
             bvh_example + other
-        assert "other.copy(nodes=self.to_node_table())" in str(caught.value)
-        with pytest.raises(ValueError, match="the rest offset of"):
+        assert "join other.retarget(self) instead" in str(caught.value)
+        with pytest.raises(ValueError, match="other.retarget\\(self\\)"):
+            joined = bvh_example.copy()
+            joined += other
+        with pytest.raises(ValueError, match="other.retarget\\(self\\)"):
             bvh_example.copy()[0:3] = other[0:3]
-        joined = bvh_example + other.copy(nodes=bvh_example.to_node_table())
+        joined = bvh_example + other.retarget(bvh_example)
         assert joined.frame_count == 2 * bvh_example.frame_count
+        spliced = bvh_example.copy()
+        spliced[0:3] = other[0:3].retarget(bvh_example)
+        spliced += other.retarget(bvh_example)
+        assert spliced.frame_count == 2 * bvh_example.frame_count
 
     def test_concat_checks_rotation_order_of_custom_joint_class(self, bvh_example):
         """A node class of the caller's own that is not an end site counts as a joint.

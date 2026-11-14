@@ -118,6 +118,31 @@ class TestJoinsRequireTheSameTranslatingJoints:
         with pytest.raises(ValueError, match="Hips"):
             clip += _clip_on(_rotating_hips_table())
 
+    def test_the_way_the_refusal_names_keeps_each_displacement(self):
+        # The second clip's Hips rest at (0, 100, 0), not (0, 90, 0): the
+        # join refuses and names other.retarget(self), which moves its
+        # frames by (0, -10, 0), so (7, 100, 0) becomes (7, 90, 0).
+        table = _table()
+        table[1]["offset"] = [0, 100, 0]
+        other = Bvh(
+            nodes=nodes_from_table(table),
+            root_pos=np.zeros((2, 3)),
+            joint_angles=np.zeros((2, 3, 3)),
+            joint_translations=np.array([[[7.0, 100, 0]], [[8.0, 100, 0]]]),
+            frame_time=0.1,
+            world_up="+y",
+        )
+        clip = _clip([0.0, 1])
+        with pytest.raises(ValueError, match=r"other\.retarget\(self\)"):
+            clip + other
+        joined = clip + other.retarget(clip)
+        assert joined.joint_translations.tolist() == [
+            [[0.0, 90, 0]],
+            [[1.0, 90, 0]],
+            [[7.0, 90, 0]],
+            [[8.0, 90, 0]],
+        ]
+
     def test_splicing_refuses_another_set(self):
         clip = _clip([0.0, 1])
         with pytest.raises(ValueError, match="Hips"):

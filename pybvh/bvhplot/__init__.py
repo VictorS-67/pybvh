@@ -700,7 +700,9 @@ def sequence(
         ``"overlay"``: poses superimposed, each centred on the body
         anchor (:attr:`~pybvh.bvh.Bvh.body_anchor`) in the ground plane:
         each pose is shifted so that the anchor stands above the origin,
-        at the height *centered* gives it. Seen from the front in the
+        at the height *centered* gives it. It stands on the floor the
+        offset layout draws under the same *centered*, so poses in the air
+        float above it. Seen from the front in the
         style's projection (perspective unless the style asks
         otherwise) — the right mode for in-place motion; on locomotion
         the legs tangle. A clip with no body (``body_anchor`` ``None``)

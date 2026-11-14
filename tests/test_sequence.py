@@ -543,3 +543,55 @@ class TestTheOverlayCentresOnTheBodyAnchor:
         assert "'Hips_2'" in str(raised.value)
         fig, _ax = bvhplot.sequence(clip, n_poses=2)
         plt.close(fig)
+
+
+def _drawn_floor_height(clip, centered, frames):
+    """The up coordinate of the grid floor that ``sequence(layout="overlay")``
+    draws, read back from the floor's line segments (zorder 0.5)."""
+    from mpl_toolkits.mplot3d.art3d import Line3DCollection
+
+    fig, ax = bvhplot.sequence(
+        clip,
+        layout="overlay",
+        n_poses=4,
+        frames=frames,
+        centered=centered,
+        style=bvhplot.Style("paper", floor="grid"),
+    )
+    floors = [
+        c for c in ax.collections if isinstance(c, Line3DCollection) and c.get_zorder() == 0.5
+    ]
+    plt.close(fig)
+    assert len(floors) == 1
+    # private, as in _overlay_poses: mplot3d has no getter for 3D segments
+    heights = np.asarray(floors[0]._segments3d)[..., "xyz".index(clip.world_up[1])]
+    assert np.ptp(heights) < 1e-9
+    return float(heights.flat[0])
+
+
+class TestTheOverlayStandsOnTheViewsFloor:
+    """The overlay shifts each pose in the ground plane only, so it draws
+    the floor the other figures draw under the same mode: on frames in the
+    air, the poses float above it."""
+
+    FLIGHT = (200, 260)
+
+    @pytest.fixture(scope="class")
+    def jump(self):
+        # The walk, lifted by half its height over FLIGHT: frames in the air.
+        clip = _read_quietly(SYNTHETIC.parent / "cmu_12_01_walk.bvh")
+        up = "xyz".index(clip.world_up[1])
+        heights = clip.node_positions()[..., up]
+        root_pos = clip.root_pos.copy()
+        root_pos[slice(*self.FLIGHT), up] += 0.5 * float(np.ptp(heights))
+        clip.root_pos = root_pos
+        return clip
+
+    @pytest.mark.parametrize("centered", ["world", "first_ground", "anchor_ground"])
+    def test_a_mode_that_keeps_the_height_draws_the_clips_floor(self, jump, centered):
+        assert _drawn_floor_height(jump, centered, self.FLIGHT) == pytest.approx(jump.floor_height)
+
+    def test_anchor_draws_the_lowest_point_of_the_whole_clip(self, jump):
+        up = "xyz".index(jump.world_up[1])
+        lowest = float(jump.node_positions(centered="anchor")[..., up].min())
+        assert _drawn_floor_height(jump, "anchor", self.FLIGHT) == pytest.approx(lowest)

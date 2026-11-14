@@ -520,16 +520,10 @@ def sequence_mpl(
 
     ax.view_init(elev=view.elevation, azim=view.azimuth, vertical_axis=view.up_letter)
 
-    # The figure shows the sampled poses, not the clip: frame those.
-    # Overlay layouts re-center heights, so the world floor does not
-    # apply — use the poses' own lowest point (sign-aware: for a
-    # negative up axis the ground is at the coordinate maximum).
-    if layout == "offset":
-        floor_y = view.floor_height
-    else:
-        heights = stack[..., view.up_index]
-        floor_y = float(heights.min() if view.up_sign > 0 else heights.max())
-    poses_view = dataclasses.replace(view, coords=stack, floor_height=floor_y, anchor_heading=None)
+    # The figure shows the sampled poses, not the clip: frame those. The
+    # overlay shifts each pose in the ground plane only, so the view's
+    # floor holds in both layouts, and poses in the air float above it.
+    poses_view = dataclasses.replace(view, coords=stack, anchor_heading=None)
     # The offset figure is orthographic by design (D4): perspective
     # would shrink distant poses and break the left-to-right read.
     viewport = make_viewport(

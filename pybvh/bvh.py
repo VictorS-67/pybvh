@@ -2572,7 +2572,8 @@ class Bvh:
         Every reader of the L/R pairs goes through here, with the clip's
         own mapping or, for :func:`~pybvh.transforms.mirror`, the one it
         mirrors with, and maps the node pairs into its own index space.
-        See :func:`~pybvh._orientation._resolve_lr_node_pairs`.
+        :func:`~pybvh._orientation._resolve_lr_node_pairs` lists the
+        readers.
         """
         topology = self.fk_topology
         return _resolve_lr_node_pairs(

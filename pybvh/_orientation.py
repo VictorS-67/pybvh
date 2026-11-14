@@ -57,7 +57,8 @@ if TYPE_CHECKING:
 #
 # The L/R mapping is detected from joint names and resolved into index
 # node pairs (_detect_lr_mapping_by_names, _resolve_lr_node_pairs, the one
-# resolver every reader of the pairs goes through), also on plain data.
+# resolver every reader of the pairs goes through; its docstring lists the
+# readers), also on plain data.
 # Bvh gathers every input.
 #
 # The facing chain, per frame, one up throughout (→ = "used by"):
@@ -893,8 +894,9 @@ def _iter_unique_lr_pairs(mapping: dict[str, str]):
 class _LRNodePairs(NamedTuple):
     """An L/R name mapping bound to nodes: what :func:`_resolve_lr_node_pairs` gives.
 
-    Every pair is in ``nodes`` index space; each reader maps the pairs
-    into the index space it needs.
+    Every pair is in ``nodes`` index space; each reader, as listed in
+    :func:`_resolve_lr_node_pairs`, maps the pairs into the index space it
+    needs.
 
     Attributes
     ----------
@@ -924,8 +926,8 @@ class _LRNodePairs(NamedTuple):
     def node_pairs(self) -> list[tuple[int, int]]:
         """Every node pair: the joint pairs, then their end-site pairs.
 
-        What :attr:`Bvh.node_lr_pairs` returns and what
-        :func:`~pybvh.transforms.mirror` swaps in node space.
+        The form of the pairs that the readers in node space take; the
+        readers are listed in :func:`_resolve_lr_node_pairs`.
         """
         return self.joint_pairs + self.end_site_pairs
 

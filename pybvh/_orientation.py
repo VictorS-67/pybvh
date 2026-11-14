@@ -920,6 +920,24 @@ class _LRNodePairs(NamedTuple):
     end_site_mismatches: list[tuple[str, int, str, int]]
     unknown_names: list[str]
 
+    @property
+    def node_pairs(self) -> list[tuple[int, int]]:
+        """Every node pair: the joint pairs, then their end-site pairs.
+
+        What :attr:`Bvh.node_lr_pairs` returns and what
+        :func:`~pybvh.transforms.mirror` swaps in node space.
+        """
+        return self.joint_pairs + self.end_site_pairs
+
+    def joint_space_pairs(self, joint_idx: npt.NDArray[np.intp]) -> list[tuple[int, int]]:
+        """The joint pairs in ``joint_angles`` index space.
+
+        *joint_idx* maps each node to its joint column (the clip's
+        ``fk_topology.joint_idx``). What :attr:`Bvh.lr_pairs` returns and
+        what :func:`~pybvh.transforms.mirror` swaps in the angles.
+        """
+        return [(int(joint_idx[left]), int(joint_idx[right])) for left, right in self.joint_pairs]
+
 
 def _resolve_lr_node_pairs(
     mapping: dict[str, str] | None,

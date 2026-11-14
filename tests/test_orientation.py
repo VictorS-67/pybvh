@@ -27,8 +27,7 @@ from pybvh._orientation import (
     _infer_rest_up,
     _infer_rest_up_and_left,
     _infer_world_up,
-    _resolve_lr_pairs,
-    _resolve_node_lr_pairs,
+    _resolve_lr_node_pairs,
     _RestSkeleton,
     _RestUp,
     _size_reference,
@@ -361,26 +360,30 @@ class TestLrPairs:
         names = [name for name, _, _ in self._NODES]
         parent_idx = np.array([parent for _, parent, _ in self._NODES])
         is_end_site = np.array([end for _, _, end in self._NODES])
-        return _resolve_node_lr_pairs(mapping, names, parent_idx, is_end_site)
+        return _resolve_lr_node_pairs(mapping, names, parent_idx, is_end_site)
 
-    def test_joint_space_pairs_follow_the_mapping(self):
-        joint_index = {"Hips": 0, "LeftArm": 1, "RightArm": 2, "LeftHand": 3, "RightHand": 4}
-        assert _resolve_lr_pairs(self._MAPPING, joint_index) == [(1, 2), (3, 4)]
+    def test_joint_pairs_follow_the_mapping(self):
+        assert self._resolve(self._MAPPING).joint_pairs == [(1, 3), (5, 8)]
 
-    def test_node_space_pairs_joints_first_then_their_end_sites(self):
-        pairs, _ = self._resolve(self._MAPPING)
-        assert pairs == [(1, 3), (5, 8), (2, 4)]
+    def test_end_site_pairs_follow_their_joint_pairs(self):
+        assert self._resolve(self._MAPPING).end_site_pairs == [(2, 4)]
 
     def test_an_end_site_mismatch_is_reported_not_decided(self):
-        _, mismatches = self._resolve(self._MAPPING)
-        assert mismatches == [("LeftHand", 2, "RightHand", 1)]
+        resolved = self._resolve(self._MAPPING)
+        assert resolved.end_site_mismatches == [("LeftHand", 2, "RightHand", 1)]
+
+    def test_an_unknown_name_is_reported_and_its_pair_skipped(self):
+        # An end site's generated name is not a joint's name.
+        resolved = self._resolve({"LeftArm": "RightArm", "LeftFoot": "EndSiteRightHand"})
+        assert resolved.joint_pairs == [(1, 3)]
+        assert resolved.unknown_names == ["EndSiteRightHand", "LeftFoot"]
 
     def test_a_symmetric_mapping_gives_each_pair_once(self):
         symmetric = {**self._MAPPING, **{r: left for left, r in self._MAPPING.items()}}
         assert self._resolve(symmetric) == self._resolve(self._MAPPING)
 
     def test_no_mapping_no_pairs(self):
-        assert self._resolve(None) == ([], [])
+        assert self._resolve(None) == ([], [], [], [])
 
 
 class TestRestLeft:

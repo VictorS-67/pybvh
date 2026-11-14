@@ -43,8 +43,8 @@ from ._orientation import (
     _iter_unique_lr_pairs,
     _lr_pairs_in_body,
     _LrMappingSource,
-    _resolve_lr_pairs,
-    _resolve_node_lr_pairs,
+    _LRNodePairs,
+    _resolve_lr_node_pairs,
     _RestSkeleton,
     _size_reference,
     _warn_facing_defaulted_at_frames,
@@ -2339,7 +2339,7 @@ class Bvh:
         named up joint it comes from them, and from the body anchor those
         pairs meet at.
         """
-        pairs = _resolve_lr_pairs(mapping, self.node_index)
+        pairs = self._lr_node_pairs_of(mapping).joint_pairs
         skeleton = self._rest_skeleton()._replace(
             lr_pairs=np.asarray(pairs, dtype=np.intp).reshape(-1, 2)
         )
@@ -2516,7 +2516,11 @@ class Bvh:
         mapping = self._lr_mapping
         if mapping is None:
             return None
-        return _resolve_lr_pairs(mapping, self.joint_index)
+        joint_idx = self.fk_topology.joint_idx
+        return [
+            (int(joint_idx[left]), int(joint_idx[right]))
+            for left, right in self._lr_node_pairs_of(mapping).joint_pairs
+        ]
 
     @property
     def node_lr_pairs(self) -> list[tuple[int, int]] | None:
@@ -2558,19 +2562,19 @@ class Bvh:
         """
         if self._lr_mapping is None:
             return None
-        pairs, _mismatches = self._node_lr_pairs_of(self._lr_mapping)
-        return pairs
+        resolved = self._lr_node_pairs_of(self._lr_mapping)
+        return resolved.joint_pairs + resolved.end_site_pairs
 
-    def _node_lr_pairs_of(
-        self, mapping: dict[str, str] | None
-    ) -> tuple[list[tuple[int, int]], list[tuple[str, int, str, int]]]:
-        """*mapping* resolved in ``nodes`` index space, and its end-site mismatches.
+    def _lr_node_pairs_of(self, mapping: dict[str, str] | None) -> _LRNodePairs:
+        """The name pairs of *mapping* bound to this clip's nodes.
 
-        What :attr:`node_lr_pairs` and :func:`~pybvh.transforms.mirror`
-        read, each with its own policy on a mismatch.
+        Every reader of the L/R pairs goes through here, with the clip's
+        own mapping or, for :func:`~pybvh.transforms.mirror`, the one it
+        mirrors with, and maps the node pairs into its own index space.
+        See :func:`~pybvh._orientation._resolve_lr_node_pairs`.
         """
         topology = self.fk_topology
-        return _resolve_node_lr_pairs(
+        return _resolve_lr_node_pairs(
             mapping,
             self._node_names(),
             topology.parent_idx,
@@ -2588,7 +2592,7 @@ class Bvh:
         no ``None`` branch. The rest skeleton holds them, for the body
         anchor rule and for rest up and rest left, which keep the body's.
         """
-        pairs = _resolve_lr_pairs(self._lr_mapping, self.node_index)
+        pairs = self._lr_node_pairs_of(self._lr_mapping).joint_pairs
         return np.asarray(pairs, dtype=np.intp).reshape(-1, 2)
 
     def _facing_lr_pairs(self) -> npt.NDArray[np.intp]:

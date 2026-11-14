@@ -19,6 +19,7 @@ from pybvh.bvhnode import BvhEndSite, BvhJoint, BvhRoot
 
 sys.path.insert(0, str(Path(__file__).parent))
 from synthetic_bvh import (
+    joint_node_lr_pairs,
     kernel_contacts,
     make_contact_rig,
     make_neg_y_up_bvh,
@@ -2252,9 +2253,7 @@ class TestFacingFrame:
         # (left - right) lies along world up: nothing of it is left on the
         # ground.
         pos = cmu_walk.node_positions(frame=3)
-        pairs = [
-            (li, ri) for li, ri in cmu_walk.node_lr_pairs if not cmu_walk.nodes[li].is_end_site()
-        ]
+        pairs = joint_node_lr_pairs(cmu_walk)
         leftward = np.mean([pos[li] - pos[ri] for li, ri in pairs], axis=0)
         turn = _rotation_onto(leftward, _axis_to_vector(cmu_walk.world_up))
         order = cmu_walk.nodes[0].rot_channels

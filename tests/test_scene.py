@@ -13,6 +13,7 @@ import warnings
 import numpy as np
 import pytest
 from synthetic_bvh import (
+    joint_node_lr_pairs,
     make_nameless_lr_bvh,
     make_neg_y_up_bvh,
     make_pos_z_up_bvh,
@@ -193,7 +194,7 @@ class TestViewCarriesSkeletonFacts:
         """The pairs the follow camera averages: the joint pairs of
         node_lr_pairs, so follow azimuths match the Bvh path."""
         view = make_scene([bvh], [coords], "front", None).views[0]
-        expected = [(li, ri) for li, ri in bvh.node_lr_pairs if not bvh.nodes[li].is_end_site()]
+        expected = joint_node_lr_pairs(bvh)
         assert view.lr_pairs.dtype == np.intp
         assert view.lr_pairs.tolist() == [list(p) for p in expected]
         assert len(expected) > 0

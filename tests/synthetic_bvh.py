@@ -556,3 +556,12 @@ def kernel_contacts(
         settings=contact_settings,
         return_info=return_info,
     )
+
+
+def joint_node_lr_pairs(bvh: Bvh) -> list[tuple[int, int]]:
+    """The joint pairs of ``bvh.node_lr_pairs``, its end-site pairs left out.
+
+    In ``nodes`` index space: what the facing and the follow camera
+    average.
+    """
+    return [(li, ri) for li, ri in bvh.node_lr_pairs if not bvh.nodes[li].is_end_site()]

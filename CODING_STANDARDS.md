@@ -46,7 +46,7 @@ Non-negotiable across every change to the codebase:
 - A mutation method takes `inplace=False` by default and returns a modified copy; with `inplace=True` it modifies `self` and returns `None`.
 - What a method hands out, the caller may mutate: `copy()` deep-copies, `to_node_table()` copies offsets. An array that must not be written is returned read-only.
 - `rot_channels` and `pos_channels` are frozen after `Bvh.__init__`; a change goes through `change_euler_order()`.
-- Nodes are resolved by identity and position, never by name: node names are not unique (two end sites of one joint share a generated name, and real files repeat joint names). A node's kind is read through `is_end_site()` and `is_root()`, never from its name: an end site's generated name is cosmetic.
+- Nodes are resolved by identity and position, never by name: node names are not unique (real files repeat joint names, and two joints of one name give two end sites of one generated name). A node's kind is read through `is_end_site()` and `is_root()`, never from its name: an end site's generated name is cosmetic.
 - Angles are radians inside the package and degrees in files and DataFrames; the conversion happens at the I/O boundary only. A docstring states the shape and unit of every array it takes or returns.
 - Names are `snake_case`; `_private` marks what is not public. A new public name is listed in the API reference under `docs/api/`.
 

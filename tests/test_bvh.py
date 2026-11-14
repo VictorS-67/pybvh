@@ -189,7 +189,7 @@ def standard_skeleton():
 def zero_frame_clip():
     """A root, a joint and an end site with no motion, the way `Bvh()` and
     an empty slice (`bvh[0:0]`) hold a skeleton: every frame array has length 0."""
-    end = BvhEndSite("EndSiteHand", offset=[0.0, 1.0, 0.0])
+    end = BvhEndSite("Hand_EndSite", offset=[0.0, 1.0, 0.0])
     hand = BvhJoint("Hand", offset=[0.0, 1.0, 0.0], rot_channels=["X", "Y", "Z"], children=[end])
     end.parent = hand
     root = BvhRoot("Hips", offset=[0.0, 0.0, 0.0], rot_channels=["Z", "Y", "X"], children=[hand])
@@ -323,27 +323,27 @@ class TestReadBvhFile:
             "Neck",
             "Neck1",
             "Head",
-            "EndSiteHead",
+            "Head_EndSite",
             "RightShoulder",
             "RightArm",
             "RightForeArm",
             "RightHand",
-            "EndSiteRightHand",
+            "RightHand_EndSite",
             "LeftShoulder",
             "LeftArm",
             "LeftForeArm",
             "LeftHand",
-            "EndSiteLeftHand",
+            "LeftHand_EndSite",
             "RightUpLeg",
             "RightLeg",
             "RightFoot",
             "RightToeBase",
-            "EndSiteRightToeBase",
+            "RightToeBase_EndSite",
             "LeftUpLeg",
             "LeftLeg",
             "LeftFoot",
             "LeftToeBase",
-            "EndSiteLeftToeBase",
+            "LeftToeBase_EndSite",
         ]
         actual_names = [n.name for n in bvh_example.nodes]
         assert actual_names == expected_names
@@ -423,7 +423,7 @@ class TestReaderSyntaxErrors:
     def test_well_formed_control(self, tmp_path):
         """The template the broken variants are cut from reads as expected."""
         bvh = read_bvh_file(self._write(tmp_path, self._hips_block()))
-        assert [n.name for n in bvh.nodes] == ["Hips", "Spine", "EndSiteSpine"]
+        assert [n.name for n in bvh.nodes] == ["Hips", "Spine", "Spine_EndSite"]
 
     @staticmethod
     def _other_root(name):
@@ -623,8 +623,8 @@ class TestNodeHierarchy:
             assert es.is_end_site() is True
             assert isinstance(es, BvhEndSite)
             assert not isinstance(es, BvhJoint)
-            # The generated 'EndSite<parent>' name is display-only
-            assert es.name.startswith("EndSite")
+            # The generated '<parent>_EndSite' name is display-only
+            assert es.name == es.parent.name + "_EndSite"
 
     def test_joints_are_bvhjoint(self, bvh_example):
         """Non-root, non-end-site nodes should be BvhJoint."""
@@ -1159,9 +1159,9 @@ class TestDataFrameConversion:
             "Hand_X",
             "Hand_Y",
             "Hand_Z",
-            "EndSiteHand_X",
-            "EndSiteHand_Y",
-            "EndSiteHand_Z",
+            "Hand_EndSite_X",
+            "Hand_EndSite_Y",
+            "Hand_EndSite_Z",
         ]
         assert all(values.shape == (0,) for values in columns.values())
 
@@ -1378,7 +1378,7 @@ class TestBvhMethods:
         assert spine["name"] == "Spine"
         assert spine["parent"] == 0
         assert "pos_channels" not in spine
-        head_tip = table[bvh_example.node_index["EndSiteHead"]]
+        head_tip = table[bvh_example.node_index["Head_EndSite"]]
         assert head_tip["parent"] == bvh_example.node_index["Head"]
         assert "rot_channels" not in head_tip
         assert [i for i, entry in enumerate(table) if "rot_channels" not in entry] == [
@@ -2448,7 +2448,7 @@ class TestJointSubsetting:
     def test_surviving_end_site_keeps_its_own_name(self):
         """An end site read from a file or built by hand keeps the name it
         has; only the end sites extract_joints synthesizes are named
-        'EndSite' + joint."""
+        joint + '_EndSite'."""
         tip = BvhEndSite("tip", offset=[0.0, 2.0, 0.0])
         hip = BvhJoint(
             "Left_Hip", offset=[1.0, -3.0, 0.0], rot_channels=["X", "Y", "Z"], children=[tip]
@@ -2466,7 +2466,7 @@ class TestJointSubsetting:
         result = bvh.extract_joints(["Hip", "Left_Hip"])
 
         assert [n.name for n in result.nodes] == ["Hip", "Left_Hip", "tip"]
-        assert [n.name for n in bvh.extract_joints(["Hip"]).nodes] == ["Hip", "EndSiteHip"]
+        assert [n.name for n in bvh.extract_joints(["Hip"]).nodes] == ["Hip", "Hip_EndSite"]
 
     def test_synthesized_end_sites_sit_after_their_joint(self, bvh_example, tmp_path):
         """The result is in depth-first order, so a write-read round trip keeps it.
@@ -2481,9 +2481,9 @@ class TestJointSubsetting:
             "Hips",
             "Spine",
             "RightArm",
-            "EndSiteRightArm",
+            "RightArm_EndSite",
             "LeftArm",
-            "EndSiteLeftArm",
+            "LeftArm_EndSite",
         ]
         sub.write(tmp_path / "sub.bvh")
         back = read_bvh_file(tmp_path / "sub.bvh")
@@ -2493,7 +2493,7 @@ class TestJointSubsetting:
     def test_linear_chain_round_trips(self, bvh_example, tmp_path):
         """A chain's synthesized end site is last either way."""
         sub = bvh_example.extract_joints(["Hips", "Spine", "Neck"])
-        assert [n.name for n in sub.nodes] == ["Hips", "Spine", "Neck", "EndSiteNeck"]
+        assert [n.name for n in sub.nodes] == ["Hips", "Spine", "Neck", "Neck_EndSite"]
         sub.write(tmp_path / "chain.bvh")
         assert sub.matches_hierarchy(read_bvh_file(tmp_path / "chain.bvh"))
 
@@ -2844,7 +2844,7 @@ class TestEndSiteForms:
         expected = read_bvh_file(multi_line)
         bvh = read_bvh_file(compact)
 
-        assert [n.name for n in bvh.nodes] == ["Hips", "Spine", "EndSiteSpine"]
+        assert [n.name for n in bvh.nodes] == ["Hips", "Spine", "Spine_EndSite"]
         np.testing.assert_array_equal(bvh.nodes[2].offset, [0.0, 8.0, 0.0])
         assert bvh == expected
         np.testing.assert_array_equal(bvh.node_positions(), expected.node_positions())
@@ -2957,9 +2957,9 @@ class TestNamesWithSpaces:
         assert [n.name for n in bvh.nodes] == [
             "Bip01 Pelvis",
             "Bip01 L Thigh",
-            "EndSiteBip01 L Thigh",
+            "Bip01 L Thigh_EndSite",
             "Bip01 R Thigh",
-            "EndSiteBip01 R Thigh",
+            "Bip01 R Thigh_EndSite",
         ]
 
     def test_a_write_keeps_the_names_and_its_bytes_are_stable(self, tmp_path):
@@ -3617,11 +3617,11 @@ class TestConstructorTreeCheck:
         """The #16 symptom: one end-site object in `children` twice."""
         hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=["Z", "Y", "X"])
         hand = self._joint("Hand", [1, 0, 0], hips)
-        tip = BvhEndSite("EndSiteHand", offset=[1, 0, 0], parent=hand)
+        tip = BvhEndSite("Hand_EndSite", offset=[1, 0, 0], parent=hand)
         hips.children = [hand]
         hand.children = [tip, tip]
         with pytest.raises(
-            ValueError, match=r"reaches nodes\[2\] \('EndSiteHand'\).*after all 3 nodes"
+            ValueError, match=r"reaches nodes\[2\] \('Hand_EndSite'\).*after all 3 nodes"
         ):
             self._bvh([hips, hand, tip])
 
@@ -3650,12 +3650,12 @@ class TestConstructorTreeCheck:
         hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=["Z", "Y", "X"])
         arm = self._joint("Arm", [1, 0, 0], hips)
         leg = self._joint("Leg", [0, -1, 0], hips)
-        tip = BvhEndSite("EndSiteLeg", offset=[0, -1, 0], parent=arm)
+        tip = BvhEndSite("Leg_EndSite", offset=[0, -1, 0], parent=arm)
         hips.children = [arm, leg]
         leg.children = [tip]
         with pytest.raises(
             ValueError,
-            match=r"nodes\[3\] \('EndSiteLeg'\) is in the children of nodes\[2\] \('Leg'\), but its parent is nodes\[1\] \('Arm'\)",
+            match=r"nodes\[3\] \('Leg_EndSite'\) is in the children of nodes\[2\] \('Leg'\), but its parent is nodes\[1\] \('Arm'\)",
         ):
             self._bvh([hips, arm, leg, tip])
 
@@ -3664,14 +3664,14 @@ class TestConstructorTreeCheck:
         hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=["Z", "Y", "X"])
         arm = self._joint("Arm", [1, 0, 0], hips)
         leg = self._joint("Leg", [0, -1, 0], hips)
-        arm_tip = BvhEndSite("EndSiteArm", offset=[1, 0, 0], parent=arm)
-        leg_tip = BvhEndSite("EndSiteLeg", offset=[0, -1, 0], parent=leg)
+        arm_tip = BvhEndSite("Arm_EndSite", offset=[1, 0, 0], parent=arm)
+        leg_tip = BvhEndSite("Leg_EndSite", offset=[0, -1, 0], parent=leg)
         hips.children = [arm, leg]
         arm.children = [arm_tip]
         leg.children = [leg_tip]
         with pytest.raises(
             ValueError,
-            match=r"reaches nodes\[3\] \('EndSiteArm'\).*where nodes\[2\] \('Leg'\) is listed.*depth-first",
+            match=r"reaches nodes\[3\] \('Arm_EndSite'\).*where nodes\[2\] \('Leg'\) is listed.*depth-first",
         ):
             self._bvh([hips, arm, leg, arm_tip, leg_tip])
         assert self._bvh([hips, arm, arm_tip, leg, leg_tip]).joint_count == 3
@@ -3949,6 +3949,14 @@ class TestAPickleFromBefore186:
     def test_it_equals_a_fresh_read_and_moves_the_same(self, clips, name):
         fresh = read_bvh_file(self.SOURCES[name])
         clip = clips[name]
+        # The pickle keeps the end-site names of its time, before #220: a
+        # fresh read under those names is the same clip.
+        table = fresh.to_node_table()
+        for entry in table:
+            if "rot_channels" not in entry:
+                entry["name"] = "EndSite" + table[entry["parent"]]["name"]
+        assert [n.name for n in clip.nodes] == [entry["name"] for entry in table]
+        fresh = fresh.copy(nodes=table)
         assert clip == fresh
         assert clip.joint_translations.shape == (clip.frame_count, 0, 3)
         for field, value in clip.fk_topology._asdict().items():
@@ -4945,7 +4953,7 @@ class TestJointNamesProperty:
     def test_excludes_end_sites(self, bvh_example):
         """No end-site names in joint_names."""
         for name in bvh_example.joint_names:
-            assert not name.startswith("EndSite")
+            assert not name.endswith("_EndSite")
 
     def test_count_matches(self, bvh_example):
         """len(joint_names) == joint_count."""
@@ -5010,7 +5018,8 @@ class TestBvhIndex:
 
     def test_end_site_on_node_axis_succeeds(self, bvh_example):
         assert (
-            bvh_example.index("EndSiteHead", space="node") == bvh_example.node_index["EndSiteHead"]
+            bvh_example.index("Head_EndSite", space="node")
+            == bvh_example.node_index["Head_EndSite"]
         )
 
     def test_unknown_axis_raises(self, bvh_example):
@@ -9701,15 +9710,15 @@ class TestJointTips:
         )
 
     def test_name_collision_resolves_by_identity(self):
-        # A real joint named 'EndSiteHand' collides with the parser-generated
+        # A real joint named 'Hand_EndSite' collides with the parser-generated
         # display name of Hand's end site. node_index (last wins) points the
         # shared name at the joint; joint_tips must keep resolving Hand's tip
         # to the actual end-site node by identity.
         hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=["Z", "Y", "X"])
         hand = BvhJoint("Hand", offset=[3, 0, 0], rot_channels=["Z", "Y", "X"])
-        hand_end = BvhEndSite("EndSiteHand", offset=[1, 0, 0])
-        cursed = BvhJoint("EndSiteHand", offset=[-3, 0, 0], rot_channels=["Z", "Y", "X"])
-        cursed_end = BvhEndSite("EndSiteEndSiteHand", offset=[-1, 0, 0])
+        hand_end = BvhEndSite("Hand_EndSite", offset=[1, 0, 0])
+        cursed = BvhJoint("Hand_EndSite", offset=[-3, 0, 0], rot_channels=["Z", "Y", "X"])
+        cursed_end = BvhEndSite("Hand_EndSite_EndSite", offset=[-1, 0, 0])
         hand_end.parent = hand
         hand.children = [hand_end]
         hand.parent = hips
@@ -9719,19 +9728,19 @@ class TestJointTips:
         hips.children = [hand, cursed]
         bvh = _tips_bvh([hips, hand, hand_end, cursed, cursed_end])
 
-        assert bvh.node_index["EndSiteHand"] == 3  # the collision, joint wins
+        assert bvh.node_index["Hand_EndSite"] == 3  # the collision, joint wins
         tips = bvh.joint_tips
-        assert "EndSiteHand" in tips  # the joint appears as a key
+        assert "Hand_EndSite" in tips  # the joint appears as a key
         assert tips["Hand"] == 2  # the real end site, by identity
-        assert tips["EndSiteHand"] == 4
+        assert tips["Hand_EndSite"] == 4
 
     def test_two_end_sites_returns_first_in_file_order(self):
         # The parser never closes a joint on 'End Site', so several end sites
         # under one joint are structurally possible; the first one wins.
         hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=["Z", "Y", "X"])
         arm = BvhJoint("Arm", offset=[3, 0, 0], rot_channels=["Z", "Y", "X"])
-        end_a = BvhEndSite("EndSiteArm", offset=[1, 0, 0])
-        end_b = BvhEndSite("EndSiteArm2", offset=[0, 1, 0])
+        end_a = BvhEndSite("Arm_EndSite", offset=[1, 0, 0])
+        end_b = BvhEndSite("Arm2_EndSite", offset=[0, 1, 0])
         end_a.parent = arm
         end_b.parent = arm
         arm.children = [end_a, end_b]

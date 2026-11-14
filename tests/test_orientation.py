@@ -127,9 +127,10 @@ class TestUpMarker:
         assert _up_marker_index(_skeleton(names, rest), 0) == 2
 
     def test_an_end_site_is_never_the_marker(self):
-        # An end site's name is generated from its parent's ('EndSite' +
-        # the parent's name), so it names no body part of its own.
-        names = ["Hips", "Spine", "EndSiteHead"]
+        # An end site's name is generated from its parent's (the parent's
+        # name + '_EndSite'), so it names no body part of its own, though
+        # it holds the parent's words.
+        names = ["Hips", "Spine", "Head_EndSite"]
         rest = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, -3.0], [0.0, 9.0, 0.0]])
         assert _up_marker_index(_skeleton(names, rest, end_sites=[2]), 0) == 1
 
@@ -346,14 +347,14 @@ class TestLrPairs:
     _NODES = [
         ("Hips", -1, False),
         ("LeftArm", 0, False),
-        ("EndSiteLeftArm", 1, True),
+        ("LeftArm_EndSite", 1, True),
         ("RightArm", 0, False),
-        ("EndSiteRightArm", 3, True),
+        ("RightArm_EndSite", 3, True),
         ("LeftHand", 0, False),
-        ("EndSiteLeftHand", 5, True),
-        ("EndSiteLeftHand", 5, True),
+        ("LeftHand_EndSite", 5, True),
+        ("LeftHand_EndSite", 5, True),
         ("RightHand", 0, False),
-        ("EndSiteRightHand", 8, True),
+        ("RightHand_EndSite", 8, True),
     ]
     _MAPPING = {"LeftArm": "RightArm", "LeftHand": "RightHand"}
 

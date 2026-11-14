@@ -75,6 +75,7 @@ from .node_tree import (
     _channel_difference,
     _check_node_list,
     _check_node_tree,
+    _end_site_name,
     _hierarchy_difference,
     _nodes_from_table_or_list,
     nodes_from_table,
@@ -3166,13 +3167,13 @@ class Bvh:
 
         Notes
         -----
-        Node names are not unique in a BVH file: the two end sites of one
-        joint share their generated display name, and joints may repeat
-        a name. Columns are labelled the way ``pandas.read_csv`` labels
+        Node names are not unique in a BVH file: joints may repeat a
+        name, and the end sites of two joints of one name then share
+        their generated display name. Columns are labelled the way ``pandas.read_csv`` labels
         repeated headers: the first node of a name keeps it, each later
         one gets ``.1``, ``.2``, ... before the axis and kind
-        (``Arm_Z_rot``, ``Arm.1_Z_rot``; ``EndSiteHand_X``,
-        ``EndSiteHand.1_X``), counted up until the label is neither
+        (``Arm_Z_rot``, ``Arm.1_Z_rot``; ``Hand_EndSite_X``,
+        ``Hand_EndSite.1_X``), counted up until the label is neither
         another node's name nor a label already given. Blender's BVH
         importer does the same with ``.001``. The suffix
         is a column label only: the node keeps its name, which
@@ -3244,9 +3245,9 @@ class Bvh:
         ``parent`` (the index of the parent's entry, ``None`` on the
         root), ``offset``, ``rot_channels`` on the root and joints and
         ``pos_channels`` on the root and translating joints; an entry
-        without ``rot_channels`` is an end site. Position is identity, so two end sites under one
-        joint and joints sharing a name are carried as they are, which
-        no name-keyed export can do. :func:`~pybvh.nodes_to_table`
+        without ``rot_channels`` is an end site. Position is identity, so
+        joints sharing a name, and their end sites, are carried as they
+        are, which no name-keyed export can do. :func:`~pybvh.nodes_to_table`
         defines the format and names its conventions;
         :func:`~pybvh.nodes_from_table` builds a tree back from it.
 
@@ -3452,8 +3453,26 @@ class Bvh:
                 return end_sites[0]
         names_at = "bvh.node_index" if space == "node" else "bvh.joint_names"
         raise ValueError(
-            f"No {space} of this clip is named {node!r}; {names_at} lists the {space}s' names."
+            f"No {space} of this clip is named {node!r}; {names_at} lists the "
+            f"{space}s' names.{self._old_end_site_name_hint(node)}"
         )
+
+    def _old_end_site_name_hint(self, name: str) -> str:
+        """The sentence that names the new form of an end-site name of before 0.10.0.
+
+        Until 0.9.0, an end site was named ``'EndSite'`` + its parent's
+        name, ``'EndSiteLeftToe'``; since 0.10.0 it is ``'LeftToe_EndSite'``
+        (``_end_site_name``). The sentence is given only when ``name`` has
+        the old form and a node of this clip carries the new name, and is
+        empty otherwise. A later release can remove it.
+        """
+        old_prefix = "EndSite"
+        if not name.startswith(old_prefix) or name == old_prefix:
+            return ""
+        new_name = _end_site_name(name[len(old_prefix) :], 1)
+        if not any(candidate.name == new_name for candidate in self.nodes):
+            return ""
+        return f" The end sites are named {new_name!r} since 0.10.0."
 
     def _end_site_in_joint_space(self, position: int) -> str:
         """The refusal of the end site at ``position`` in joint space."""
@@ -3471,7 +3490,7 @@ class Bvh:
 
         For every non-end-site joint (root included): the node-space index of the joint's end-site child — a row of :meth:`node_positions` output — or ``None`` for interior joints whose children are all joints. The tip is the bone's far end, so ``bvh.node_positions()[:, bvh.joint_tips["LeftFoot"]]`` is the toe-tip trajectory without knowing the end site's generated display name.
 
-        Resolution is identity-based on the node tree, never by name: end-site display names are cosmetic (the parser generates ``'EndSite' + parent name``) and may even collide with a real joint's name, which would make a name-keyed lookup through :attr:`node_index` silently pick the wrong node. A joint with several end-site children (nonstandard, but the parser accepts it) maps to the **first one in file order**.
+        Resolution is identity-based on the node tree, never by name: end-site display names are cosmetic (the parser generates the parent's name + ``'_EndSite'``) and may even collide with a real joint's name, which would make a name-keyed lookup through :attr:`node_index` silently pick the wrong node. A joint with several end-site children (nonstandard, but the parser accepts it) maps to the **first one in file order**.
 
         Returns
         -------
@@ -3607,7 +3626,8 @@ class Bvh:
         Parents are resolved by node identity (via
         :attr:`fk_topology`), never by name. Node names are not unique in
         general — the parser derives end-site display names from the
-        parent joint's name, so two end sites under one joint collide —
+        parent joint's name, so the end sites of two joints of one name
+        collide —
         and a name-keyed lookup would silently emit an edge pointing at
         the wrong parent, yielding a graph of the right length that
         encodes the wrong skeleton.
@@ -4475,7 +4495,7 @@ class Bvh:
         would, so writing it and reading it back keeps
         :meth:`matches_hierarchy`. A kept joint left with nothing below
         it (no kept descendant, no end site of its own) gets an end site
-        named ``'EndSite' + name``, placed right after it, at the offset
+        named ``name + '_EndSite'``, placed right after it, at the offset
         of its nearest original end-site descendant (zero when it has
         none).
 
@@ -4609,8 +4629,8 @@ class Bvh:
             kept_old_j_indices.append(column)
 
             if not survivor_below[i]:
-                # No name: the builder names it 'EndSite' + the joint's
-                # name, as the parser would.
+                # No name: the builder names it the joint's name +
+                # '_EndSite', as the parser would.
                 rows.append(
                     {"parent": row_of[id(node)], "offset": self._find_end_site_offset(node)}
                 )

@@ -110,13 +110,20 @@ BODY_LEVEL = {
     "cadence": lambda b: cadence(b, TOES),
     "stride_length": lambda b: stride_length(b, TOES),
     "gait_parameters": lambda b: gait_parameters(b, TOES),
-    "gait_parameters, one frame, the contacts given": lambda b: gait_parameters(
-        b[:1], TOES, contacts=np.zeros((1, 2))
-    ),
+    "gait_parameters, one frame, the contacts given": lambda b: _gait_parameters_one_frame(b),
     "mirror": lambda b: mirror(b),
     "mirror(lateral='x')": lambda b: mirror(b, lateral="x"),
     "mirror, the pairs of one figure given": lambda b: mirror(b, lr_mapping=FIRST_FIGURE_PAIRS),
 }
+
+
+def _gait_parameters_one_frame(clip):
+    """``gait_parameters`` on the first frame of *clip*, the contacts given.
+    The slice holds other node objects than *clip*: a toe given as a node of
+    *clip* is passed as the slice's node at the same index."""
+    part = clip[:1]
+    toes = [part.nodes[clip.nodes.index(toe)] if isinstance(toe, BvhNode) else toe for toe in TOES]
+    return gait_parameters(part, toes, contacts=np.zeros((1, 2)))
 
 
 def _ids(entries):
@@ -397,13 +404,7 @@ class TestNamingOneFigure:
         assert _body_facts(at_load) == _body_facts(then_named)
 
 
-# The body-level entry points but the one that slices the clip before it
-# reads the feet: the slice's nodes are other objects than the toes given.
-NAMED_ALIKE = {
-    name: call
-    for name, call in {**READ_WORLD_UP, **BODY_LEVEL}.items()
-    if name != "gait_parameters, one frame, the contacts given"
-}
+NAMED_ALIKE = {**READ_WORLD_UP, **BODY_LEVEL}
 
 
 class TestFiguresNamedAlike:

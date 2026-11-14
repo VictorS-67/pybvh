@@ -225,7 +225,8 @@ class FkTopology(_FkTopologyFields):
         -----
         Parents are resolved by object identity, never by name: node names
         need not be unique (the parser generates end-site display names
-        from the parent's name, so two end sites under one joint collide),
+        from the parent's name, so the end sites of two joints of one name
+        collide),
         and a name-keyed lookup would silently attach a limb to the wrong
         parent.
         """

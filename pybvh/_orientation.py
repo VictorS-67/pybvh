@@ -974,8 +974,8 @@ def _resolve_node_lr_pairs(
     Joint names are looked up among joints only — an end site whose
     generated display name collides with a joint's cannot shadow it — and
     a joint's end sites are found by position, as the end-site children
-    of that joint in node order, since two end sites under one joint
-    carry the same generated name.
+    of that joint in node order, since two joints of one name give their
+    end sites one generated name.
     """
     if not mapping:
         return [], []

@@ -3245,9 +3245,9 @@ class Bvh:
         ``parent`` (the index of the parent's entry, ``None`` on the
         root), ``offset``, ``rot_channels`` on the root and joints and
         ``pos_channels`` on the root and translating joints; an entry
-        without ``rot_channels`` is an end site. Position is identity, so two end sites under one
-        joint and joints sharing a name are carried as they are, which
-        no name-keyed export can do. :func:`~pybvh.nodes_to_table`
+        without ``rot_channels`` is an end site. Position is identity, so
+        joints sharing a name, and their end sites, are carried as they
+        are, which no name-keyed export can do. :func:`~pybvh.nodes_to_table`
         defines the format and names its conventions;
         :func:`~pybvh.nodes_from_table` builds a tree back from it.
 
@@ -3626,7 +3626,8 @@ class Bvh:
         Parents are resolved by node identity (via
         :attr:`fk_topology`), never by name. Node names are not unique in
         general — the parser derives end-site display names from the
-        parent joint's name, so two end sites under one joint collide —
+        parent joint's name, so the end sites of two joints of one name
+        collide —
         and a name-keyed lookup would silently emit an edge pointing at
         the wrong parent, yielding a graph of the right length that
         encodes the wrong skeleton.

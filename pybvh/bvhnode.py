@@ -76,8 +76,8 @@ class BvhNode:
         """The node's name, as the file spells it.
 
         Names are not unique: real files repeat joint names, and the
-        reader names an end site after its parent, so two end sites of one
-        joint share a name. pybvh builds and traverses the tree by node
+        reader names an end site after its parent, so the end sites of two
+        joints of one name share a name. pybvh builds and traverses the tree by node
         identity and position, never by name. Lookups by name do exist
         (``Bvh.index``, ``Bvh.node_index``, ``Bvh.joint_index``,
         retargeting); ``node_index`` keeps the last node of a repeated

@@ -1087,7 +1087,7 @@ class TestEveryBackendStatesItsProjection:
         assert _drawn_projection(ax) == asked
         plt.close(fig)
         samples = np.array([0, 5, 11], dtype=np.intp)
-        fig, ax = sequence_mpl(scene, style, samples, "overlay")
+        fig, ax = sequence_mpl(scene, style, samples, "overlay", anchor=0)
         assert _drawn_projection(ax) == asked
         plt.close(fig)
 
@@ -1140,7 +1140,7 @@ class TestEveryBackendStatesItsProjection:
         samples = np.array([0, 5, 11], dtype=np.intp)
         for draw in (
             lambda ax: frame_mpl(scene, style, show=False, ax=ax),
-            lambda ax: sequence_mpl(scene, style, samples, "overlay", ax=ax),
+            lambda ax: sequence_mpl(scene, style, samples, "overlay", anchor=0, ax=ax),
         ):
             fig = plt.figure()
             ax = fig.add_subplot(111, projection="3d", **make_axes)
@@ -1520,3 +1520,15 @@ class TestTheViewersOtherSizesIgnoreTheDistanceTravelled:
             assert player._points_actors[0].properties.GetPointSize() == 10
         finally:
             player.plt.close()
+
+
+def test_the_overlay_names_the_node_it_centres_on(scene):
+    """``sequence_mpl``'s overlay has no node to fall back on: centring on
+    node 0 is wrong wherever the body anchor is not the root."""
+    from pybvh.bvhplot._matplotlib import sequence_mpl
+
+    samples = np.array([0, 5, 11], dtype=np.intp)
+    with pytest.raises(ValueError, match="anchor"):
+        sequence_mpl(scene, Style("paper"), samples, "overlay")
+    fig, _ax = sequence_mpl(scene, Style("paper"), samples, "offset")
+    plt.close(fig)

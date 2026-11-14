@@ -164,9 +164,10 @@ def make_scene(
     cached :attr:`Bvh.floor_height` — the robust 2nd percentile over all
     nodes, end sites included, so the plane sits under the whole
     skeleton rather than at a joint centre. Valid for world-frame
-    coords, and for ``centered="first_ground"`` coords because that mode
-    is ground-plane-only (heights stay in world units). An outlier-low
-    frame can therefore dip a node slightly below the drawn plane; the
+    coords, and for ``centered="first_ground"`` and ``"anchor_ground"``
+    coords because those modes are ground-plane-only (heights stay in
+    world units). An outlier-low frame can therefore dip a node slightly
+    below the drawn plane; the
     alternative (the true minimum) would let a single glitched frame
     sink the plane for the whole clip. With ``canonical_floor=False``
     (coords under ``centered="anchor"``, rest-pose or caller-supplied

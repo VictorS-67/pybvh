@@ -99,6 +99,7 @@ plt.show()
 # - **`"world"`** (default): absolute positions from the BVH file. The skeleton is wherever it was recorded.
 # - **`"first_ground"`**: ground-plane centering — the first frame's body anchor is shifted over the origin in the two horizontal axes, keeping its original height above the ground. The skeleton still moves from there.
 # - **`"anchor"`**: the body anchor is at `[0, 0, 0]` in **every** frame. Only the pose changes, not the global position.
+# - **`"anchor_ground"`**: the body anchor is over the origin in **every** frame, in the two horizontal axes only. Its height above the ground stays, so a jump still goes up, but the travel is gone.
 #
 # The body anchor (`bvh.body_anchor`) is the joint that the body's measures start from: the hips on most rigs. On this clip the body anchor is the root, `Hips`, so its row is row 0 of the positions.
 #
@@ -132,6 +133,7 @@ print(coords_anchor[:5, anchor])  # all zeros
 # - `"world"` — when you need the original recording positions (e.g., analyzing room-scale trajectories).
 # - `"first_ground"` — when you want the motion to start over the origin (at its natural height) but still move naturally (common for ML training data).
 # - `"anchor"` — when you only care about the body pose, not the global position (e.g., pose classification).
+# - `"anchor_ground"` — when the travel does not matter but the height does (e.g., the kinetic energy of a jump without the energy of the walk).
 
 # %% [markdown]
 # If your dataset mixes files with different up-axis conventions (some Y-up, some Z-up), you can unify them with `bvh.reorient_world_up('+y')` — this rotates the entire animation into a new coordinate system without changing how the character looks. See the [World Up guide](https://victors-67.github.io/pybvh/guide/world-up/) for details.

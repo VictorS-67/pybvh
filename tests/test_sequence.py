@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import warnings
+from pathlib import Path
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -447,3 +450,148 @@ class TestReviewFixes:
         solo_img = next(_generate_frames(solo, style, (200, 200), AnimationOptions()))
         # ignore the 1px divider column at x=200
         assert np.array_equal(pair_img[:, :199], solo_img[:, :199])
+
+
+SYNTHETIC = Path(__file__).resolve().parent.parent / "bvh_data" / "synthetic"
+
+
+def _read_quietly(path, **kwargs):
+    """The clip, read without the world-up warnings some corpus clips give."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        return read_bvh_file(path, **kwargs)
+
+
+def _overlay_poses(clip, centered="world", n_poses=4):
+    """The node positions ``sequence(layout="overlay")`` draws, per pose,
+    shape ``(S, N, 3)``, read back from the drawn bones (the 3D segments
+    of each bone collection, oldest pose first), and the sampled frames."""
+    from mpl_toolkits.mplot3d.art3d import Line3DCollection
+
+    fig, ax = bvhplot.sequence(
+        clip,
+        layout="overlay",
+        n_poses=n_poses,
+        centered=centered,
+        style=bvhplot.Style("paper", floor=None),
+    )
+    collections = [c for c in ax.collections if isinstance(c, Line3DCollection)]
+    plt.close(fig)
+    samples = _resolve_sample_frames(clip.frame_count, n_poses, None)
+    assert len(collections) == len(samples)
+    poses = np.full((len(samples), len(clip.nodes), 3), np.nan)
+    for pose, collection in zip(poses, collections, strict=True):
+        # private, like ``_focal_length`` in test_scene_backends: mplot3d
+        # has no getter for the 3D segments; a rename fails loudly
+        segments = np.asarray(collection._segments3d)
+        for (child, parent), segment in zip(clip.node_edges, segments, strict=True):
+            pose[parent], pose[child] = segment
+    return poses, samples
+
+
+class TestTheOverlayCentresOnTheBodyAnchor:
+    """``layout="overlay"`` subtracts each pose's body-anchor position in
+    the ground plane (#215), not node 0's."""
+
+    def test_a_reference_root_overlays_as_the_control(self):
+        reference = _read_quietly(SYNTHETIC / "reference_humanoid_6ch.bvh")
+        control = _read_quietly(SYNTHETIC / "rotation_only_control.bvh")
+        ours, _ = _overlay_poses(reference)
+        theirs, _ = _overlay_poses(control)
+        # The reference root is node 0; the body follows it in node order.
+        np.testing.assert_allclose(ours[:, 1:], theirs, atol=1e-9)
+
+    @pytest.mark.parametrize("name", ["reference_humanoid_6ch.bvh", "rotation_only_control.bvh"])
+    @pytest.mark.parametrize("centered", ["world", "first_ground", "anchor_ground"])
+    def test_a_mode_that_keeps_the_height_overlays_as_anchor_ground(self, name, centered):
+        clip = _read_quietly(SYNTHETIC / name)
+        poses, samples = _overlay_poses(clip, centered=centered)
+        np.testing.assert_allclose(
+            poses, clip.node_positions(centered="anchor_ground")[samples], atol=1e-9
+        )
+
+    @pytest.mark.parametrize("name", ["reference_humanoid_6ch.bvh", "rotation_only_control.bvh"])
+    def test_anchor_overlays_unchanged(self, name):
+        # The anchor already stands at the origin, at height 0.
+        clip = _read_quietly(SYNTHETIC / name)
+        poses, samples = _overlay_poses(clip, centered="anchor")
+        np.testing.assert_allclose(
+            poses, clip.node_positions(centered="anchor")[samples], atol=1e-9
+        )
+
+    @pytest.mark.parametrize(
+        "path",
+        sorted(SYNTHETIC.glob("*.bvh")) + sorted(SYNTHETIC.parent.glob("*.bvh")),
+        ids=lambda path: path.name,
+    )
+    def test_a_clip_whose_anchor_is_its_root_overlays_as_before(self, path):
+        clip = _read_quietly(path)
+        if clip.body_anchor is not clip.root:
+            pytest.skip("the body anchor is not the root")
+        poses, samples = _overlay_poses(clip)
+        # Before #215: each pose less node 0's position in the ground plane.
+        world = clip.node_positions()[samples]
+        shifts = world[:, :1].copy()
+        shifts[..., "xyz".index(clip.world_up[1])] = 0.0
+        np.testing.assert_allclose(poses, world - shifts, atol=1e-9)
+
+    def test_a_clip_with_no_body_raises_and_the_offset_layout_draws(self):
+        clip = _read_quietly(SYNTHETIC / "two_figures_moving_root.bvh", world_up="+y")
+        with pytest.raises(ValueError, match="no body") as raised:
+            bvhplot.sequence(clip, layout="overlay", n_poses=2)
+        assert "'Hips'" in str(raised.value)
+        assert "'Hips_2'" in str(raised.value)
+        fig, _ax = bvhplot.sequence(clip, n_poses=2)
+        plt.close(fig)
+
+
+def _drawn_floor_height(clip, centered, frames):
+    """The up coordinate of the grid floor that ``sequence(layout="overlay")``
+    draws, read back from the floor's line segments (zorder 0.5)."""
+    from mpl_toolkits.mplot3d.art3d import Line3DCollection
+
+    fig, ax = bvhplot.sequence(
+        clip,
+        layout="overlay",
+        n_poses=4,
+        frames=frames,
+        centered=centered,
+        style=bvhplot.Style("paper", floor="grid"),
+    )
+    floors = [
+        c for c in ax.collections if isinstance(c, Line3DCollection) and c.get_zorder() == 0.5
+    ]
+    plt.close(fig)
+    assert len(floors) == 1
+    # private, as in _overlay_poses: mplot3d has no getter for 3D segments
+    heights = np.asarray(floors[0]._segments3d)[..., "xyz".index(clip.world_up[1])]
+    assert np.ptp(heights) < 1e-9
+    return float(heights.flat[0])
+
+
+class TestTheOverlayStandsOnTheViewsFloor:
+    """The overlay shifts each pose in the ground plane only, so it draws
+    the floor the other figures draw under the same mode: on frames in the
+    air, the poses float above it."""
+
+    FLIGHT = (200, 260)
+
+    @pytest.fixture(scope="class")
+    def jump(self):
+        # The walk, lifted by half its height over FLIGHT: frames in the air.
+        clip = _read_quietly(SYNTHETIC.parent / "cmu_12_01_walk.bvh")
+        up = "xyz".index(clip.world_up[1])
+        heights = clip.node_positions()[..., up]
+        root_pos = clip.root_pos.copy()
+        root_pos[slice(*self.FLIGHT), up] += 0.5 * float(np.ptp(heights))
+        clip.root_pos = root_pos
+        return clip
+
+    @pytest.mark.parametrize("centered", ["world", "first_ground", "anchor_ground"])
+    def test_a_mode_that_keeps_the_height_draws_the_clips_floor(self, jump, centered):
+        assert _drawn_floor_height(jump, centered, self.FLIGHT) == pytest.approx(jump.floor_height)
+
+    def test_anchor_draws_the_lowest_point_of_the_whole_clip(self, jump):
+        up = "xyz".index(jump.world_up[1])
+        lowest = float(jump.node_positions(centered="anchor")[..., up].min())
+        assert _drawn_floor_height(jump, "anchor", self.FLIGHT) == pytest.approx(lowest)

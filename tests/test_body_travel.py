@@ -49,7 +49,7 @@ class TestAReferenceRootGivesTheControlsTravel:
             atol=1e-9,
         )
 
-    @pytest.mark.parametrize("centered", ["anchor", "first_ground"])
+    @pytest.mark.parametrize("centered", ["anchor", "first_ground", "anchor_ground"])
     def test_the_centred_positions(self, reference, control, centered):
         # The reference root is node 0; the body follows it in node order.
         np.testing.assert_allclose(
@@ -58,7 +58,7 @@ class TestAReferenceRootGivesTheControlsTravel:
             atol=1e-9,
         )
 
-    @pytest.mark.parametrize("centered", ["anchor", "first_ground"])
+    @pytest.mark.parametrize("centered", ["anchor", "first_ground", "anchor_ground"])
     def test_the_centred_positions_of_one_frame(self, reference, control, centered):
         for frame in (0, 3):
             np.testing.assert_allclose(
@@ -83,7 +83,7 @@ class TestAReferenceRootGivesTheControlsTravel:
             equal_nan=True,
         )
 
-    @pytest.mark.parametrize("centered", ["anchor", "first_ground"])
+    @pytest.mark.parametrize("centered", ["anchor", "first_ground", "anchor_ground"])
     def test_frames_to_node_positions_on_the_clip(self, reference, control, centered):
         from pybvh.spatial_coord import frames_to_node_positions
 
@@ -100,11 +100,19 @@ class TestAReferenceRootGivesTheControlsTravel:
                 centered=centered,
                 joint_translations=reference.joint_translations[2],
             )[1:],
-            control.node_positions(2, centered=centered),
+            # Given one frame, frames_to_node_positions takes it as its
+            # first under "first_ground", on both clips (#215).
+            frames_to_node_positions(
+                control,
+                control.root_pos[2],
+                control.joint_angles[2],
+                centered=centered,
+                joint_translations=control.joint_translations[2],
+            ),
             atol=1e-9,
         )
 
-    @pytest.mark.parametrize("centered", ["world", "anchor", "first_ground"])
+    @pytest.mark.parametrize("centered", ["world", "anchor", "first_ground", "anchor_ground"])
     def test_the_root_block_of_the_feature_array_is_the_root_s_centred_row(
         self, reference, centered
     ):
@@ -208,7 +216,7 @@ def _with_a_body():
     return names
 
 
-@pytest.mark.parametrize("centered", ["world", "anchor", "first_ground"])
+@pytest.mark.parametrize("centered", ["world", "anchor", "first_ground", "anchor_ground"])
 @pytest.mark.parametrize("name", _with_a_body())
 def test_the_root_block_and_the_rotations_give_back_the_centred_positions(name, centered):
     # The root block is the root's row of node_positions(centered), so

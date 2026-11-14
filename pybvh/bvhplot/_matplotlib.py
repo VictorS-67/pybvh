@@ -476,6 +476,7 @@ def sequence_mpl(
     sample_frames: npt.NDArray[np.intp],
     layout: str,
     *,
+    anchor: int | None = None,
     trajectory: bool = True,
     figsize: tuple[float, float] | None = None,
     show: bool = False,
@@ -486,9 +487,11 @@ def sequence_mpl(
     ``layout="offset"``: poses at their world positions (locomotion
     spreads them naturally), orthographic, equal-scale but NON-cubic
     bounds so wide travel fills the frame instead of shrinking into a
-    cube. ``layout="overlay"``: poses superimposed with per-pose
-    horizontal root-centering, cubic bounds, in the style's projection
-    (perspective unless the style asks otherwise).
+    cube. ``layout="overlay"``: poses superimposed, each shifted so that
+    node *anchor* (the clip's body anchor) stands above the origin, its
+    height kept; cubic bounds, in the style's projection (perspective
+    unless the style asks otherwise). The overlay needs *anchor*, and
+    raises ``ValueError`` without it; the offset layout does not read it.
 
     Poses draw back-to-front (oldest first) under manual z-order — the
     correct painter's-algorithm order for the fade encoding.
@@ -500,7 +503,12 @@ def sequence_mpl(
     # no Python loop over frames.
     stack = view.coords[sample_frames]  # (S, N, 3)
     if layout == "overlay":
-        shifts = stack[:, :1, :].copy()  # (S, 1, 3) root positions
+        if anchor is None:
+            raise ValueError(
+                "sequence_mpl(layout='overlay') needs anchor=, the index of "
+                "the node each pose is centred on (the clip's body anchor)."
+            )
+        shifts = stack[:, anchor : anchor + 1, :].copy()  # (S, 1, 3) anchor positions
         shifts[..., view.up_index] = 0.0
         stack = stack - shifts
     poses = list(stack)
@@ -518,16 +526,10 @@ def sequence_mpl(
 
     ax.view_init(elev=view.elevation, azim=view.azimuth, vertical_axis=view.up_letter)
 
-    # The figure shows the sampled poses, not the clip: frame those.
-    # Overlay layouts re-center heights, so the world floor does not
-    # apply — use the poses' own lowest point (sign-aware: for a
-    # negative up axis the ground is at the coordinate maximum).
-    if layout == "offset":
-        floor_y = view.floor_height
-    else:
-        heights = stack[..., view.up_index]
-        floor_y = float(heights.min() if view.up_sign > 0 else heights.max())
-    poses_view = dataclasses.replace(view, coords=stack, floor_height=floor_y, anchor_heading=None)
+    # The figure shows the sampled poses, not the clip: frame those. The
+    # overlay shifts each pose in the ground plane only, so the view's
+    # floor holds in both layouts, and poses in the air float above it.
+    poses_view = dataclasses.replace(view, coords=stack, anchor_heading=None)
     # The offset figure is orthographic by design (D4): perspective
     # would shrink distant poses and break the left-to-right read.
     viewport = make_viewport(

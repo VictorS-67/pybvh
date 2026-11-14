@@ -2162,7 +2162,8 @@ class Bvh:
         :attr:`rest_up`, :attr:`rest_forward` and
         :attr:`has_lr_geometry`, the facing (:meth:`forward_at`,
         :meth:`left_at`, :meth:`facing_frame`), :meth:`root_trajectory`,
-        the ``centered="anchor"`` and ``"first_ground"`` modes,
+        the ``centered="anchor"``, ``"first_ground"`` and
+        ``"anchor_ground"`` modes,
         :meth:`auto_detect_feet`, :meth:`foot_contacts`,
         :meth:`ground_contacts`, :meth:`skeleton_size`, the gait
         descriptors and :meth:`mirror`. The operations that treat all nodes alike work as on any clip:
@@ -2944,6 +2945,8 @@ class Bvh:
         anchor = self._body_anchor_positions()
         if centered == "anchor":
             return world - anchor[:, np.newaxis, :]
+        if centered == "anchor_ground":
+            return world - _ground_plane_offset(anchor, self.world_up)[:, np.newaxis, :]
         # with no frames there is nothing to center on
         if self.frame_count == 0:
             return world.copy()
@@ -2980,15 +2983,24 @@ class Bvh:
             anchor position is subtracted in the two axes perpendicular
             to :attr:`world_up`; the up coordinate is untouched, so the
             motion starts above the origin at its original height.
+            ``"anchor_ground"`` – each frame's body anchor position is
+            subtracted in the two axes perpendicular to
+            :attr:`world_up`; the up coordinate is untouched, so the
+            body's travel is removed and its height kept: the anchor
+            stays above the origin, at its own height on every frame.
 
-            The two centred modes read the body anchor, which is the
+            The three centred modes read the body anchor, which is the
             root on a clip whose anchor is its root. On a root that
             stays in place with the body below it (a static root,
             ``CHANNELS 0``, or a reference node whose channels do not
             change), they centre on the body, not on the reference
             node: under ``"anchor"`` the body anchor stays at the origin and
-            the reference node moves. With *frame* given, ``"first_ground"``
-            centres on that frame's anchor, the one frame posed.
+            the reference node moves.
+
+            With *frame* given, every mode gives that frame's row of the
+            whole clip: ``node_positions(frame=k, centered=c)`` equals
+            ``node_positions(centered=c)[k]``. For one pose at the
+            origin of the ground plane, pass ``"anchor_ground"``.
         """
         _check_centered(centered)
         if frame is None:
@@ -3003,17 +3015,14 @@ class Bvh:
         actual = frame if frame >= 0 else frame + self.frame_count
         motion = self._motion()
         anchor = 0 if centered == "world" else self._body_anchor_index()
+        if centered == "first_ground":
+            # The frame's row of the whole clip: frame 0's anchor is
+            # subtracted, not this frame's.
+            start = motion["root_pos"][0] if anchor == 0 else self._frame_world_positions(0)[anchor]
+            return self._frame_world_positions(actual) - _ground_plane_offset(start, self.world_up)
         if anchor != 0:
             # Centred on the anchor's row of the frame's world positions.
-            if self._derived.node_positions is not None:
-                world_frame = self._derived.node_positions[actual]
-            else:
-                world_frame = frames_to_node_positions(
-                    self,
-                    root_pos=motion["root_pos"][actual],
-                    joint_angles=motion["joint_angles"][actual],
-                    joint_translations=motion["joint_translations"][actual],
-                )
+            world_frame = self._frame_world_positions(actual)
             if centered == "anchor":
                 return world_frame - world_frame[anchor]
             return world_frame - _ground_plane_offset(world_frame[anchor], self.world_up)
@@ -3024,21 +3033,29 @@ class Bvh:
             if centered == "anchor":
                 return world_frame - motion["root_pos"][actual]
             return world_frame - _ground_plane_offset(motion["root_pos"][actual], self.world_up)
-        if centered == "first_ground":
-            return frames_to_node_positions(
-                self,
-                root_pos=motion["root_pos"][actual],
-                joint_angles=motion["joint_angles"][actual],
-                centered="first_ground",
-                world_up=self.world_up,
-                joint_translations=motion["joint_translations"][actual],
-            )
         return frames_to_node_positions(
             self,
             root_pos=motion["root_pos"][actual],
             joint_angles=motion["joint_angles"][actual],
             centered=centered,
             joint_translations=motion["joint_translations"][actual],
+        )
+
+    def _frame_world_positions(self, frame: int) -> npt.NDArray[np.float64]:
+        """The world positions of the nodes at *frame* (``0 <= frame < F``), ``(N, 3)``.
+
+        A row of the cached world positions when the clip holds them, so
+        do not write into it; else one frame of forward kinematics, with
+        no whole-clip run.
+        """
+        if self._derived.node_positions is not None:
+            return self._derived.node_positions[frame]
+        motion = self._motion()
+        return frames_to_node_positions(
+            self,
+            root_pos=motion["root_pos"][frame],
+            joint_angles=motion["joint_angles"][frame],
+            joint_translations=motion["joint_translations"][frame],
         )
 
     def joint_positions(
@@ -3129,8 +3146,9 @@ class Bvh:
             included. This export is one-way: positions do not determine
             the joint angles, and ``df_to_bvh`` reads euler-mode frames.
         centered : str, optional
-            ``"world"`` (default), ``"anchor"``, or ``"first_ground"`` — see
-            :meth:`node_positions` for their semantics. Only used when
+            ``"world"`` (default), ``"anchor"``, ``"first_ground"`` or
+            ``"anchor_ground"`` — see :meth:`node_positions` for their
+            semantics. Only used when
             ``mode='coordinates'``.
 
         Returns

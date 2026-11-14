@@ -165,8 +165,8 @@ def to_feature_array(
         (:func:`~pybvh.spatial_coord.frames_to_node_positions`). On a
         clip whose root lies above the body, the block is the root's
         position relative to the anchor: under ``"anchor"`` it is not
-        zero, and under ``"first_ground"`` it is the root's centred row, not
-        the anchor's. For the body's travel, use
+        zero, and under ``"first_ground"`` and ``"anchor_ground"`` it is
+        the root's centred row, not the anchor's. For the body's travel, use
         ``include_joint_translations=True`` or
         :func:`~pybvh.analysis.root_trajectory`.
     include_velocities : bool, optional
@@ -254,6 +254,10 @@ def to_feature_array(
             parts.append(bvh._all_node_positions(centered)[:, 0])
         elif centered == "anchor":
             parts.append(np.zeros_like(root_pos))
+        elif centered == "anchor_ground":
+            # Each frame's root subtracted in the non-up axes only, matching
+            # node_positions(centered="anchor_ground").
+            parts.append(root_pos - _ground_plane_offset(root_pos, bvh.world_up))
         else:  # "first_ground"
             # Ground-plane centering: first-frame root subtracted in the
             # non-up axes only, matching node_positions(centered="first_ground").

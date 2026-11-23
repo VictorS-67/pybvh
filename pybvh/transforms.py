@@ -22,9 +22,6 @@ import numpy as np
 import numpy.typing as npt
 
 from . import rotations
-from ._orientation import (
-    _resolve_lr_pairs,
-)
 from .bvhnode import BvhJoint, _euler_order, _is_translating_joint
 from .tools import (
     _AXIS_CHAR_TO_IDX,
@@ -885,7 +882,10 @@ def mirror(
         Input motion.
     lr_mapping : dict or None
         ``{"LeftArm": "RightArm", ...}``.  Defaults to
-        :attr:`Bvh.lr_mapping` (auto-detected or user-set).
+        :attr:`Bvh.lr_mapping` (auto-detected or user-set). A name pair
+        whose names repeat (two figures named alike) binds its joints as
+        :attr:`Bvh.lr_pairs <pybvh.bvh.Bvh.lr_pairs>` says; a joint that
+        gets no pair there is not swapped.
     lateral : str or None
         Axis perpendicular to the mirror plane, e.g. ``'x'`` or
         ``'+x'`` (the sign is irrelevant for mirroring).
@@ -939,13 +939,19 @@ def mirror(
             "not bilaterally symmetric, mirroring does not apply."
         )
 
-    # Build joint-index pairs (indices into joint_angles axis 1).
-    # An explicitly passed mapping is resolved strictly so typos raise
-    # instead of producing silently half-mirrored output; the cached
-    # `Bvh.lr_mapping` was already validated on assignment.
+    # Bind the name pairs to nodes once, then map the joint pairs into
+    # joint_angles index space (axis 1). An explicitly passed mapping is
+    # resolved strictly so typos raise instead of producing silently
+    # half-mirrored output; the cached `Bvh.lr_mapping` was already
+    # validated on assignment.
+    resolved = target._lr_node_pairs_of(lr_mapping)
+    if explicit_mapping and resolved.unknown_names:
+        raise ValueError(
+            f"lr_mapping references unknown joint names: "
+            f"{resolved.unknown_names}. Check against `bvh.joint_names`."
+        )
     joints = [n for n in target.nodes if isinstance(n, BvhJoint)]
-    j_name2idx = {j.name: i for i, j in enumerate(joints)}
-    lr_j_pairs = _resolve_lr_pairs(lr_mapping, j_name2idx, strict=explicit_mapping)
+    lr_j_pairs = resolved.joint_space_pairs(target.fk_topology.joint_idx)
 
     # A pair swaps its translation columns, so both joints of a pair
     # translate or neither does: a one-sided pair has no column to swap
@@ -988,14 +994,14 @@ def mirror(
         lateral_char = _validate_axis_string(lateral, allow_unsigned=True)[1]
     lateral_idx = _AXIS_CHAR_TO_IDX[lateral_char]
 
-    # Build node-index pairs for offset swapping (includes end sites).
+    # Node-index pairs for offset swapping (includes end sites).
     # Shared with `Bvh.node_lr_pairs` — one pairing, two policies on an
     # unpairable joint: the property drops its end sites, mirror refuses,
     # because swapping some of a joint's tips and not others produces a
     # skeleton that is wrong rather than incomplete.
-    lr_node_pairs, end_site_mismatches = target._node_lr_pairs_of(lr_mapping)
-    if end_site_mismatches:
-        left_name, num_left, right_name, num_right = end_site_mismatches[0]
+    lr_node_pairs = resolved.node_pairs
+    if resolved.end_site_mismatches:
+        left_name, num_left, right_name, num_right = resolved.end_site_mismatches[0]
         raise ValueError(
             f"Cannot pair end sites for mirror(): joint "
             f"{left_name!r} has {num_left} end site(s) "

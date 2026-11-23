@@ -2288,7 +2288,7 @@ class TestSkeletonRetargeting:
         """Identity mapping (name→same name) should behave identically."""
         ref = bvh_example.copy()
         ref.scale(2.0, inplace=True)
-        mapping = {n.name: n.name for n in bvh_example.nodes}
+        mapping = {name: name for name in bvh_example.joint_names}
         result = bvh_example.retarget(ref, name_mapping=mapping)
         for n1, n2 in zip(result.nodes, ref.nodes, strict=True):
             np.testing.assert_array_equal(n1.offset, n2.offset)
@@ -2299,8 +2299,9 @@ class TestSkeletonRetargeting:
         scaled = bvh_example.scale(3.0)
         ref = _with_names(scaled, ["prefix:" + node.name for node in scaled.nodes])
 
-        # Build mapping: self name → prefixed name
-        mapping = {n.name: "prefix:" + n.name for n in bvh_example.nodes}
+        # Build mapping: self joint name → prefixed name; the end sites
+        # bind through their parent joint.
+        mapping = {name: "prefix:" + name for name in bvh_example.joint_names}
         result = bvh_example.retarget(ref, name_mapping=mapping)
 
         for n_result, n_ref in zip(result.nodes, ref.nodes, strict=True):
@@ -2659,6 +2660,41 @@ class TestSkeletonRetargeting:
             [0, 2, 0],
             [0, 3, 0],
         ]
+
+    @pytest.mark.parametrize("strict", [False, True])
+    def test_retarget_refuses_a_mapping_key_that_names_no_joint(self, strict):
+        source = _clip_from_rows([("Hips", None, [0, 0, 0]), ("Spine", 0, [0, 1, 0])])
+        reference = _clip_from_rows([("Hips", None, [0, 0, 1]), ("Spine", 0, [0, 2, 0])])
+        mapping = {"Hips": "Hips", "Hisp": "Hips", "Neck": "Spine"}
+        with pytest.raises(ValueError) as caught:
+            source.retarget(reference, name_mapping=mapping, strict=strict, inplace=True)
+        message = str(caught.value)
+        assert "name no joint of this clip: 'Hisp', 'Neck'" in message
+        assert "end site" not in message
+        assert _offsets(source).tolist() == [[0, 0, 0], [0, 1, 0]]
+
+    @pytest.mark.parametrize("key", ["Spine_EndSite", "EndSiteSpine"])
+    def test_retarget_refuses_a_mapping_key_that_names_an_end_site(self, key):
+        source = _clip_from_rows(
+            [
+                ("Hips", None, [0, 0, 0]),
+                ("Spine", 0, [0, 1, 0]),
+                ("Spine_EndSite", 1, [0, 1, 0], "end"),
+            ]
+        )
+        reference = _clip_from_rows(
+            [
+                ("R_Hips", None, [0, 0, 0]),
+                ("R_Spine", 0, [0, 2, 0]),
+                ("R_Spine_EndSite", 1, [0, 3, 0], "end"),
+            ]
+        )
+        mapping = {"Hips": "R_Hips", "Spine": "R_Spine", key: "R_Spine_EndSite"}
+        with pytest.raises(ValueError) as caught:
+            source.retarget(reference, name_mapping=mapping)
+        message = str(caught.value)
+        assert f"name no joint of this clip: {key!r}" in message
+        assert "an end site binds through its parent joint" in message
 
     def test_retarget_preserves_motion(self, bvh_example):
         """retarget should not modify root_pos or joint_angles."""

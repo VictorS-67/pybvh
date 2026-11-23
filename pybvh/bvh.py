@@ -3744,7 +3744,11 @@ class Bvh:
             e.g. ``{'Hips': 'mixamorig:Hips', ...}``; a non-empty mapping makes
             the binding by name. Joints not in the mapping are matched by identical
             name. If None (default) or empty, the nodes bind by position
-            on the same graph, and by name otherwise.
+            on the same graph, and by name otherwise. Each key must be a
+            joint name of this clip: a key that names no joint (a typo, or
+            an end site, which binds through its parent joint) raises
+            ``ValueError`` before anything changes, whatever ``strict``
+            is, and the error lists every such key.
         strict : bool, optional
             If True, raise ``ValueError`` when a joint in self has no
             match in ``new_skeleton``, or when a bound joint and its match
@@ -3817,10 +3821,12 @@ class Bvh:
             self.nodes, self.fk_topology.parent_idx
         )
         mapping = name_mapping or {}
+        # The checks below come before any offset is read, so a refusal
+        # changes nothing.
+        self._refuse_mapping_keys_of_no_joint(mapping, own_joints_of_name)
         target_name_of = {name: mapping.get(name, name) for name in own_joints_of_name}
 
-        # A name the binding reads must belong to one joint, on both sides;
-        # checked before any offset is read, so a refusal changes nothing.
+        # A name the binding reads must belong to one joint, on both sides.
         for name, positions in own_joints_of_name.items():
             _refuse_a_repeated_joint_name(positions, name, "bvh")
             target_name = target_name_of[name]
@@ -3865,6 +3871,36 @@ class Bvh:
                 )
             # else: keep their original offsets (lenient mode)
         return offsets
+
+    def _refuse_mapping_keys_of_no_joint(
+        self, mapping: dict[str, str], joints_of_name: dict[str, list[int]]
+    ) -> None:
+        """Raise when a key of *mapping*, the ``name_mapping`` of
+        :meth:`retarget`, names no joint of this clip; *joints_of_name*
+        holds the clip's joint names (#120).
+
+        Such a key is never read, so it is a mistake: a typo, an end site,
+        or an end-site name of before 0.10.0. The error lists every such
+        key, and says how an end site binds when a key names one.
+        """
+        unknown = [key for key in mapping if key not in joints_of_name]
+        if not unknown:
+            return
+        end_site_names = {node.name for node in self.nodes if node.is_end_site()}
+        hints = "".join(self._old_end_site_name_hint(key) for key in unknown)
+        names_an_end_site = hints or any(key in end_site_names for key in unknown)
+        listed = ", ".join(repr(key) for key in unknown)
+        message = (
+            f"Keys of name_mapping name no joint of this clip: {listed}. A key "
+            f"must be a joint name of this clip (bvh.joint_names lists them); "
+            f"fix or remove the key.{hints}"
+        )
+        if names_an_end_site:
+            message += (
+                " A key cannot name an end site: an end site binds through its "
+                "parent joint, so map the joint and remove the key."
+            )
+        raise ValueError(message)
 
     @overload
     def scale(self, scale: float, *, inplace: Literal[True]) -> None: ...

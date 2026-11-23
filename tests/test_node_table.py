@@ -49,8 +49,8 @@ def _two_end_sites_rig():
     """The #16 rig: one joint carrying two end sites with one display name."""
     root = BvhRoot("Hips", [0, 0, 0], "XYZ", "ZYX", [])
     hand = _attach(root, BvhJoint("Hand", [0, 1, 0], "ZYX", []))
-    _attach(hand, BvhEndSite("EndSiteHand", [1, 0, 0]))
-    _attach(hand, BvhEndSite("EndSiteHand", [0, 0, 2]))
+    _attach(hand, BvhEndSite("Hand_EndSite", [1, 0, 0]))
+    _attach(hand, BvhEndSite("Hand_EndSite", [0, 0, 2]))
     return [root, hand, hand.children[0], hand.children[1]]
 
 
@@ -58,10 +58,10 @@ def _collision_rig():
     """A joint named like another joint's generated end site (see
     `test_name_collisions.py`)."""
     root = BvhRoot("Hips", [0, 0, 0], "XYZ", "ZYX", [])
-    shadowed = _attach(root, BvhJoint("EndSiteHips", [1, 0, 0], "ZYX", []))
+    shadowed = _attach(root, BvhJoint("Hips_EndSite", [1, 0, 0], "ZYX", []))
     child = _attach(shadowed, BvhJoint("Child", [0, 1, 0], "ZYX", []))
-    _attach(child, BvhEndSite("EndSiteChild", [0, 1, 0]))
-    _attach(root, BvhEndSite("EndSiteHips", [0, 0, 1]))
+    _attach(child, BvhEndSite("Child_EndSite", [0, 1, 0]))
+    _attach(root, BvhEndSite("Hips_EndSite", [0, 0, 1]))
     return [root, shadowed, child, child.children[0], root.children[1]]
 
 
@@ -70,9 +70,9 @@ def _duplicate_joint_rig():
     root = BvhRoot("Hips", [0, 0, 0], "XYZ", "ZYX", [])
     first = _attach(root, BvhJoint("Arm", [1, 0, 0], "ZYX", []))
     grandchild = _attach(first, BvhJoint("ArmChild", [0, 1, 0], "ZYX", []))
-    _attach(grandchild, BvhEndSite("EndSiteArmChild", [0, 1, 0]))
+    _attach(grandchild, BvhEndSite("ArmChild_EndSite", [0, 1, 0]))
     second = _attach(root, BvhJoint("Arm", [-1, 0, 0], "XYZ", []))
-    _attach(second, BvhEndSite("EndSiteArm", [0, 1, 0]))
+    _attach(second, BvhEndSite("Arm_EndSite", [0, 1, 0]))
     return [root, first, grandchild, grandchild.children[0], second, second.children[0]]
 
 
@@ -103,8 +103,8 @@ def _two_end_sites_table():
             "offset": np.array([0.0, 1.0, 0.0]),
             "rot_channels": ["Z", "Y", "X"],
         },
-        {"name": "EndSiteHand", "parent": 1, "offset": np.array([1.0, 0.0, 0.0])},
-        {"name": "EndSiteHand", "parent": 1, "offset": np.array([0.0, 0.0, 2.0])},
+        {"name": "Hand_EndSite", "parent": 1, "offset": np.array([1.0, 0.0, 0.0])},
+        {"name": "Hand_EndSite", "parent": 1, "offset": np.array([0.0, 0.0, 2.0])},
     ]
 
 
@@ -237,7 +237,7 @@ class TestNodesFromTableRejects:
     def test_parent_index_outside_the_entries_before(self, bad_parent):
         table = _two_end_sites_table()
         table[2]["parent"] = bad_parent
-        with pytest.raises(ValueError, match=r"entry 2 \('EndSiteHand'\).*\[0, 2\)"):
+        with pytest.raises(ValueError, match=r"entry 2 \('Hand_EndSite'\).*\[0, 2\)"):
             nodes_from_table(table)
 
     @pytest.mark.parametrize("bad_parent", ["Hips", 1.0, True])
@@ -250,7 +250,7 @@ class TestNodesFromTableRejects:
     def test_parent_that_is_an_end_site(self):
         table = _two_end_sites_table()
         table[3]["parent"] = 2
-        with pytest.raises(ValueError, match=r"entry 3 \('EndSiteHand'\).*entry 2.*end site"):
+        with pytest.raises(ValueError, match=r"entry 3 \('Hand_EndSite'\).*entry 2.*end site"):
             nodes_from_table(table)
 
     def test_root_without_rot_channels(self):
@@ -260,16 +260,16 @@ class TestNodesFromTableRejects:
             nodes_from_table(table)
 
     def test_breadth_first_order(self):
-        """Hips, Arm, Leg, EndSiteArm, EndSiteLeg: valid parents, wrong order."""
+        """Hips, Arm, Leg, Arm_EndSite, Leg_EndSite: valid parents, wrong order."""
         table = [
             {"name": "Hips", "parent": None, "offset": [0, 0, 0], "rot_channels": "ZYX"},
             {"name": "Arm", "parent": 0, "offset": [1, 0, 0], "rot_channels": "ZYX"},
             {"name": "Leg", "parent": 0, "offset": [0, -1, 0], "rot_channels": "ZYX"},
-            {"name": "EndSiteArm", "parent": 1, "offset": [1, 0, 0]},
-            {"name": "EndSiteLeg", "parent": 2, "offset": [0, -1, 0]},
+            {"name": "Arm_EndSite", "parent": 1, "offset": [1, 0, 0]},
+            {"name": "Leg_EndSite", "parent": 2, "offset": [0, -1, 0]},
         ]
         with pytest.raises(
-            ValueError, match=r"entry 2 \('Leg'\).*depth-first.*entry 3 \('EndSiteArm'\)"
+            ValueError, match=r"entry 2 \('Leg'\).*depth-first.*entry 3 \('Arm_EndSite'\)"
         ):
             nodes_from_table(table)
 
@@ -323,7 +323,7 @@ class TestNodesFromTableRejects:
     def test_pos_channels_on_an_end_site(self):
         table = _two_end_sites_table()
         table[2]["pos_channels"] = ["X", "Y", "Z"]
-        with pytest.raises(ValueError, match=r"entry 2 \('EndSiteHand'\).*pos_channels.*end site"):
+        with pytest.raises(ValueError, match=r"entry 2 \('Hand_EndSite'\).*pos_channels.*end site"):
             nodes_from_table(table)
 
     def test_joint_without_a_name(self):
@@ -347,13 +347,13 @@ class TestNodesFromTableRejects:
 
     def test_children_key_from_the_hierarchy_dict(self):
         table = _two_end_sites_table()
-        table[1]["children"] = ["EndSiteHand"]
+        table[1]["children"] = ["Hand_EndSite"]
         with pytest.raises(ValueError, match=r"entry 1 \('Hand'\).*'children'"):
             nodes_from_table(table)
 
     def test_entry_that_is_not_a_dict(self):
         table = _two_end_sites_table()
-        table[2] = ["EndSiteHand", 1, [1, 0, 0]]
+        table[2] = ["Hand_EndSite", 1, [1, 0, 0]]
         with pytest.raises(ValueError, match=r"entry 2\b.*dict"):
             nodes_from_table(table)
 
@@ -379,7 +379,7 @@ class TestNodesFromTableLeniency:
         del table[2]["name"]
         del table[3]["name"]
         nodes = nodes_from_table(table)
-        assert [node.name for node in nodes[2:]] == ["EndSiteHand", "EndSiteHand"]
+        assert [node.name for node in nodes[2:]] == ["Hand_EndSite", "Hand_EndSite2"]
 
     def test_channel_strings_are_accepted(self):
         """'ZYX' and ['Z', 'Y', 'X'] both name the order, as on the nodes."""
@@ -425,8 +425,8 @@ def _translating_joint_table():
 def _translating_joint_rig():
     root = BvhRoot("Hips", [0, 0, 0], "XYZ", "ZYX", [])
     hand = _attach(root, BvhJoint("Hand", [0, 1, 0], "ZYX", [], pos_channels="XYZ"))
-    _attach(hand, BvhEndSite("EndSiteHand", [1, 0, 0]))
-    _attach(hand, BvhEndSite("EndSiteHand", [0, 0, 2]))
+    _attach(hand, BvhEndSite("Hand_EndSite", [1, 0, 0]))
+    _attach(hand, BvhEndSite("Hand_EndSite", [0, 0, 2]))
     return [root, hand, hand.children[0], hand.children[1]]
 
 
@@ -464,8 +464,8 @@ def _static_root_table():
 def _static_root_rig():
     root = BvhRoot("Hips", [0, 0, 0], (), (), [])
     hand = _attach(root, BvhJoint("Hand", [0, 1, 0], "ZYX", []))
-    _attach(hand, BvhEndSite("EndSiteHand", [1, 0, 0]))
-    _attach(hand, BvhEndSite("EndSiteHand", [0, 0, 2]))
+    _attach(hand, BvhEndSite("Hand_EndSite", [1, 0, 0]))
+    _attach(hand, BvhEndSite("Hand_EndSite", [0, 0, 2]))
     return [root, hand, hand.children[0], hand.children[1]]
 
 
@@ -545,7 +545,7 @@ class TestEntryTableRefusals:
     def test_empty_pos_channels_on_an_end_site(self, empty):
         table = _two_end_sites_table()
         table[2]["pos_channels"] = empty
-        with pytest.raises(ValueError, match=r"entry 2 \('EndSiteHand'\).*pos_channels.*end site"):
+        with pytest.raises(ValueError, match=r"entry 2 \('Hand_EndSite'\).*pos_channels.*end site"):
             nodes_from_table(table)
 
     @pytest.mark.parametrize("index, name", [(0, "Hips"), (1, "Hand")])
@@ -615,6 +615,8 @@ class TestEntryTableRoundTrip:
 # The SHA-256 of each clip's node table as JSON (offsets as lists), computed
 # on the code before #186 let a joint other than the root translate. A table
 # of today's clips must not change: pos_channels stays on the root only.
+# The digests predate the end-site names of #220, so the test hashes the
+# table with each end site under the name that code gave it.
 _TABLE_DIGESTS_BEFORE_186 = {
     "bvh_data/bvh_test1.bvh": "5470628d5644396c01a4f4e18ad91f0fb80fb7b01f386762fca3c07435bbb5c8",
     "bvh_data/bvh_test2.bvh": "7d563e900a6a5443cd5d3fd36c532c7803594a4e4e06377e1a9511bcb37a5d7f",
@@ -648,5 +650,8 @@ _TABLE_DIGESTS_BEFORE_186 = {
 @pytest.mark.parametrize("relative", sorted(_TABLE_DIGESTS_BEFORE_186))
 def test_the_node_table_of_a_fixture_clip_is_unchanged(relative):
     table = read_bvh_file(BVH_DATA.parent / relative).to_node_table()
+    for entry in table:
+        if "rot_channels" not in entry:
+            entry["name"] = "EndSite" + table[entry["parent"]]["name"]
     digest = hashlib.sha256(_as_json(table).encode()).hexdigest()
     assert digest == _TABLE_DIGESTS_BEFORE_186[relative]

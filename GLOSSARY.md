@@ -20,7 +20,7 @@ A root whose `CHANNELS` line declares no channel (`CHANNELS 0`), as Blender's ex
 The root and every interior node: a node with rotation channels, or a static root. `J` counts them.
 
 **End site**:
-A childless node with an offset and no channels: the tip of a terminal bone. Its name is generated from its parent's (`EndSite` + parent name), so the two end sites of one joint share a name.
+A childless node with an offset and no channels: the tip of a terminal bone. A BVH file gives it no name, so its name is generated from its parent's: parent name + `_EndSite` (`Hand_EndSite`). The end sites of one joint are numbered by their position under it, the first bare: `Hand_EndSite`, `Hand_EndSite2`, `Hand_EndSite3`. Generated names still repeat when joint names repeat: two joints named `Hand` each give a `Hand_EndSite`.
 _Avoid_: leaf
 
 **Offset**:

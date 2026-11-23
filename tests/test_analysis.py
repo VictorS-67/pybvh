@@ -1827,6 +1827,13 @@ class TestFootContactsPinnedGolden:
         )
 
         fields = report_fields(report)
+        # The pin was made when an end site was named 'EndSite' + its
+        # parent's name (#220). Each tested node is compared under the name
+        # of that time, so the pin itself is never rewritten (ADR 0002).
+        fields["nodes"] = tuple(
+            "EndSite" + node.parent.name if node.is_end_site() else node.name
+            for node in report.nodes
+        )
         pinned_keys = pin[f"run{run_idx}/__keys__"].tolist()
         assert sorted(fields) == pinned_keys, f"run{run_idx} ({run_name}): report fields changed"
         pinned_none = pin[f"run{run_idx}/__none__"].tolist()
@@ -2063,10 +2070,10 @@ def _make_arm_only_bvh() -> Bvh:
     hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=["Z", "Y", "X"])
     left_arm = BvhJoint("LeftArm", offset=[-3, 0, 0], rot_channels=["Z", "Y", "X"])
     left_hand = BvhJoint("LeftHand", offset=[-3, 0, 0], rot_channels=["Z", "Y", "X"])
-    left_end = BvhEndSite("EndSiteLeftHand", offset=[-1, 0, 0])
+    left_end = BvhEndSite("LeftHand_EndSite", offset=[-1, 0, 0])
     right_arm = BvhJoint("RightArm", offset=[3, 0, 0], rot_channels=["Z", "Y", "X"])
     right_hand = BvhJoint("RightHand", offset=[3, 0, 0], rot_channels=["Z", "Y", "X"])
-    right_end = BvhEndSite("EndSiteRightHand", offset=[1, 0, 0])
+    right_end = BvhEndSite("RightHand_EndSite", offset=[1, 0, 0])
 
     left_end.parent = left_hand
     left_hand.children = [left_end]

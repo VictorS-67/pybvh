@@ -49,3 +49,7 @@ They split on a repeated name (raise, or the last node), on auto-detection retur
 ## Consequences
 
 Each of these is a breaking change in v0.10.0, without a deprecation cycle under the 0.x policy, each with its migration in the CHANGELOG. A caller with an integer `i` passes `bvh.nodes[i]`. A caller with a repeated name passes the node. A caller who passed the clip's own positions as `coords=` drops the argument; one who holds other positions uses `bvh.index` and then `geometry` or `signal`. `node_index` and `joint_index` still keep the last node of a repeated name; #120 takes up the name-keyed dicts and `retarget`'s name binding.
+
+## Note, 2026-11-14: end sites are numbered
+
+The context above says that the two end sites of one joint share a generated name. Since #220 (v0.10.0) that is no longer so: an end site is named its parent's name + `_EndSite`, and the end sites of one joint are numbered by their position under it (`Hand_EndSite`, `Hand_EndSite2`, `Hand_EndSite3`). The decisions above do not change. Names still repeat: real files repeat joint names, and two joints named `Hand` each give a `Hand_EndSite`, so a repeated name still raises and lists the nodes.

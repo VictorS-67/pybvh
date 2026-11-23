@@ -455,6 +455,39 @@ def _describe_rate(frame_time: float) -> str:
     return f"{_format_fps(frame_time)} fps, frame_time {float(frame_time)!r}"
 
 
+def _joints_by_name_end_sites_by_parent(
+    nodes: Sequence[BvhNode], parent_idx: npt.NDArray[np.intp]
+) -> tuple[dict[str, list[int]], dict[int, list[int]]]:
+    """The positions in *nodes* of the joints of each name, and of the end
+    sites under each parent, in ``nodes`` order; *parent_idx* gives each
+    node's parent (``fk_topology.parent_idx``). The lookups of ``retarget``
+    by name (#120)."""
+    joints_of_name: dict[str, list[int]] = {}
+    end_sites_of: dict[int, list[int]] = {}
+    for i, node in enumerate(nodes):
+        if node.is_end_site():
+            end_sites_of.setdefault(int(parent_idx[i]), []).append(i)
+        else:
+            joints_of_name.setdefault(node.name, []).append(i)
+    return joints_of_name, end_sites_of
+
+
+def _refuse_a_repeated_joint_name(positions: list[int], name: str, skeleton: str) -> None:
+    """Raise when *name*, which ``retarget`` binds by, belongs to several
+    joints of *skeleton* (``bvh`` or ``new_skeleton``), at *positions* (#120)."""
+    if len(positions) < 2:
+        return
+    listed = ", ".join(f"{skeleton}.nodes[{position}]" for position in positions)
+    owner = "this clip" if skeleton == "bvh" else "new_skeleton"
+    raise ValueError(
+        f"{len(positions)} joints of {owner} are named {name!r}: {listed}. "
+        f"retarget binds by name here, so the name must belong to one joint. "
+        f"Rename one of them through the node table (table = "
+        f"{skeleton}.to_node_table(), change its 'name', {skeleton} = "
+        f"{skeleton}.copy(nodes=table)), then name it in name_mapping."
+    )
+
+
 class Bvh:
     """Container for BVH motion-capture data.
 
@@ -1255,7 +1288,7 @@ class Bvh:
         offsets within ``1e-6``, rotation orders), since ``other``'s
         motion is written onto ``self``'s bones; to join motion recorded
         on other bones on purpose, put it on this skeleton first,
-        ``self + other.copy(nodes=self.to_node_table())``. Then raises
+        ``self + other.retarget(self)``. Then raises
         ``ValueError`` unless the two have the same rate
         (:meth:`matches_rate`), since ``other``'s frames would play at
         ``self``'s rate: join ``other.resample(self.fps)`` to keep its
@@ -3671,6 +3704,37 @@ class Bvh:
     ) -> Bvh | None:
         """Copy joint offsets from a reference skeleton.
 
+        Each node takes the offset of the reference node bound to it:
+
+        - by position when the two skeletons have the same graph
+          (:meth:`matches_hierarchy` with ``match_offsets=False``: the same
+          node count and, node by node, the same name, the same kind and the
+          same parent, offsets not compared) and no ``name_mapping`` is
+          given. Node ``i`` takes the offset of ``new_skeleton.nodes[i]``,
+          and no name is looked up, so two end sites of one joint, or two
+          joints of one name, each take their own offset;
+        - by name otherwise: each joint takes the offset of the reference
+          joint of its name, or of the name ``name_mapping`` gives it. Names
+          are looked up among joints only, so an end site never takes a
+          joint's offset, nor a joint an end site's. Each joint name the
+          binding reads (a joint name of this clip, and the name of
+          ``new_skeleton`` it maps to) must belong to one joint of its
+          skeleton, or ``ValueError`` is raised before anything changes,
+          listing the joints of the name; a name that repeats elsewhere in
+          ``new_skeleton`` is not read. To bind such joints, rename one
+          through the node table (``table = bvh.to_node_table()``, change
+          its ``"name"``, ``bvh.copy(nodes=table)``), then name it in
+          ``name_mapping``. The binding is one to one: two joints of this
+          clip that bind to one joint of ``new_skeleton``, by a mapped name
+          or by their own, raise ``ValueError`` before anything changes,
+          whatever ``strict`` is, naming the joints and the reference
+          joint; map each to its own reference joint.
+          An end site binds through its parent: it takes the offset of the
+          end site in the same position under the reference joint that its
+          parent is bound to. When the two joints carry different numbers
+          of end sites, or its parent has no match, the end site has no
+          match.
+
         A translating joint keeps its displacement from its rest pose: its
         ``joint_translations`` move by the change of its offset,
         ``pos + (new_offset - old_offset)`` in every frame.
@@ -3681,13 +3745,21 @@ class Bvh:
             Reference skeleton whose offsets will be copied.
         name_mapping : dict, optional
             Maps self's joint names to ``new_skeleton``'s joint names,
-            e.g. ``{'Hips': 'mixamorig:Hips', ...}``.
-            Joints not in the mapping are matched by identical name.
-            If None (default), all joints are matched by name.
+            e.g. ``{'Hips': 'mixamorig:Hips', ...}``; a non-empty mapping makes
+            the binding by name. Joints not in the mapping are matched by identical
+            name. If None (default) or empty, the nodes bind by position
+            on the same graph, and by name otherwise. Each key must be a
+            joint name of this clip: a key that names no joint (a typo, or
+            an end site, which binds through its parent joint) raises
+            ``ValueError`` before anything changes, whatever ``strict``
+            is, and the error lists every such key.
         strict : bool, optional
             If True, raise ``ValueError`` when a joint in self has no
-            match in ``new_skeleton``.  If False (default), unmapped
-            joints keep their original offsets.
+            match in ``new_skeleton``, or when a bound joint and its match
+            carry different numbers of end sites; the error names the
+            joint, and for end sites the two counts. If False (default),
+            joints and end sites without a match keep their original
+            offsets.
         inplace : bool, optional
             If True, modify self and return None.
             If False (default), return a modified copy.
@@ -3706,25 +3778,15 @@ class Bvh:
         except AttributeError:
             raise ValueError("new_skeleton must be a Bvh object") from None
 
-        # Build name → index lookup for the reference skeleton
-        newnodes2idx = {n.name: i for i, n in enumerate(new_skel_nodes)}
-
-        offsets = self._offsets()
-        for i, node in enumerate(self.nodes):
-            # Determine the target name in new_skeleton
-            if name_mapping and node.name in name_mapping:
-                target_name = name_mapping[node.name]
-            else:
-                target_name = node.name
-
-            if target_name in newnodes2idx:
-                offsets[i] = new_skel_nodes[newnodes2idx[target_name]].offset
-            elif strict:
-                raise ValueError(
-                    f"Node '{node.name}' (mapped to '{target_name}') not found "
-                    f"in new_skeleton and strict=True."
-                )
-            # else: keep original offset (lenient mode)
+        if (
+            not name_mapping
+            and _hierarchy_difference(self.nodes, new_skel_nodes, atol=None) is None
+        ):
+            # The same graph: node i is the reference's node i, whatever
+            # names repeat (#120).
+            offsets = new_skeleton._offsets()
+        else:
+            offsets = self._offsets_by_name(new_skeleton, name_mapping, strict)
 
         # A translating joint keeps its displacement from its rest pose:
         # its frames move by the change of its offset (#186).
@@ -3739,6 +3801,125 @@ class Bvh:
         if inplace:
             return None
         return target
+
+    def _offsets_by_name(
+        self,
+        new_skeleton: Bvh,
+        name_mapping: dict[str, str] | None,
+        strict: bool,
+    ) -> npt.NDArray[np.float64]:
+        """This clip's offsets with each joint's replaced by the offset of
+        the reference joint of its name, or of the name *name_mapping*
+        gives it, and each end site's by the offset of the end site in the
+        same position under the joint its parent is bound to; the binding
+        of :meth:`retarget` when the graphs differ or a mapping is given.
+
+        Names are looked up among joints only, so an end site cannot take a
+        joint's place, nor a joint an end site's (#120).
+        """
+        new_skel_nodes = new_skeleton.nodes
+        ref_joints_of_name, ref_end_sites_of = _joints_by_name_end_sites_by_parent(
+            new_skel_nodes, new_skeleton.fk_topology.parent_idx
+        )
+        own_joints_of_name, own_end_sites_of = _joints_by_name_end_sites_by_parent(
+            self.nodes, self.fk_topology.parent_idx
+        )
+        mapping = name_mapping or {}
+        # The checks below come before any offset is read, so a refusal
+        # changes nothing.
+        self._refuse_mapping_keys_of_no_joint(mapping, own_joints_of_name)
+        target_name_of = {name: mapping.get(name, name) for name in own_joints_of_name}
+
+        # A name the binding reads must belong to one joint, on both sides.
+        for name, positions in own_joints_of_name.items():
+            _refuse_a_repeated_joint_name(positions, name, "bvh")
+            target_name = target_name_of[name]
+            _refuse_a_repeated_joint_name(
+                ref_joints_of_name.get(target_name, []), target_name, "new_skeleton"
+            )
+        # The binding is one to one: two joints of this clip cannot bind to
+        # one reference joint, whether by a mapped name or by their own.
+        bound_names: dict[str, list[str]] = {}
+        for name, target_name in target_name_of.items():
+            if target_name in ref_joints_of_name:
+                bound_names.setdefault(target_name, []).append(name)
+        for target_name, names in bound_names.items():
+            if len(names) > 1:
+                listed = ", ".join(repr(name) for name in names)
+                raise ValueError(
+                    f"Joints {listed} of this clip bind to one joint of "
+                    f"new_skeleton, {target_name!r}, by name_mapping or by "
+                    f"their own name; the binding is one to one. Map each "
+                    f"joint to its own joint of new_skeleton."
+                )
+        # A name that repeats here is one no joint of this clip reads.
+        ref_joint_by_name = {name: js[0] for name, js in ref_joints_of_name.items()}
+
+        offsets = self._offsets()
+        bound: dict[int, int] = {}
+        for name, positions in own_joints_of_name.items():
+            i = positions[0]  # the only one: a repeated name was refused above
+            target_name = target_name_of[name]
+            if target_name in ref_joint_by_name:
+                bound[i] = ref_joint_by_name[target_name]
+                offsets[i] = new_skel_nodes[bound[i]].offset
+            elif strict:
+                raise ValueError(
+                    f"Node '{name}' (mapped to '{target_name}') not found "
+                    f"in new_skeleton and strict=True."
+                )
+            # else: keep original offset (lenient mode)
+
+        # An end site binds through its parent, by position among that
+        # joint's end sites, as node_lr_pairs pairs them; one whose parent
+        # has no match keeps its offset (strict has raised on the parent).
+        # Every bound joint is walked, so that one without end sites is
+        # also compared with its match.
+        for parent, ref_parent in bound.items():
+            end_sites = own_end_sites_of.get(parent, [])
+            ref_end_sites = ref_end_sites_of.get(ref_parent, [])
+            if len(ref_end_sites) == len(end_sites):
+                for i, j in zip(end_sites, ref_end_sites, strict=True):
+                    offsets[i] = new_skel_nodes[j].offset
+            elif strict:
+                raise ValueError(
+                    f"Joint '{self.nodes[parent].name}' has {len(end_sites)} end "
+                    f"site(s) and its match '{new_skel_nodes[ref_parent].name}' "
+                    f"in new_skeleton has {len(ref_end_sites)}, so its end sites "
+                    f"have no match and strict=True."
+                )
+            # else: keep their original offsets (lenient mode)
+        return offsets
+
+    def _refuse_mapping_keys_of_no_joint(
+        self, mapping: dict[str, str], joints_of_name: dict[str, list[int]]
+    ) -> None:
+        """Raise when a key of *mapping*, the ``name_mapping`` of
+        :meth:`retarget`, names no joint of this clip; *joints_of_name*
+        holds the clip's joint names (#120).
+
+        Such a key is never read, so it is a mistake: a typo, an end site,
+        or an end-site name of before 0.10.0. The error lists every such
+        key, and says how an end site binds when a key names one.
+        """
+        unknown = [key for key in mapping if key not in joints_of_name]
+        if not unknown:
+            return
+        end_site_names = {node.name for node in self.nodes if node.is_end_site()}
+        hints = "".join(self._old_end_site_name_hint(key) for key in unknown)
+        names_an_end_site = hints or any(key in end_site_names for key in unknown)
+        listed = ", ".join(repr(key) for key in unknown)
+        message = (
+            f"Keys of name_mapping name no joint of this clip: {listed}. A key "
+            f"must be a joint name of this clip (bvh.joint_names lists them); "
+            f"fix or remove the key.{hints}"
+        )
+        if names_an_end_site:
+            message += (
+                " A key cannot name an end site: an end site binds through its "
+                "parent joint, so map the joint and remove the key."
+            )
+        raise ValueError(message)
 
     @overload
     def scale(self, scale: float, *, inplace: Literal[True]) -> None: ...
@@ -4291,7 +4472,7 @@ class Bvh:
         if difference.kind == "offset":
             message += (
                 " To put the other clip's motion on this clip's bones on purpose, "
-                "join other.copy(nodes=self.to_node_table()) instead, after "
+                "join other.retarget(self) instead, after "
                 "scaling the whole clip if the two are in different units."
             )
         raise ValueError(message)

@@ -2696,6 +2696,53 @@ class TestSkeletonRetargeting:
         assert f"name no joint of this clip: {key!r}" in message
         assert "an end site binds through its parent joint" in message
 
+    @pytest.mark.parametrize("strict", [False, True])
+    def test_retarget_refuses_two_keys_mapped_to_one_reference_joint(self, strict):
+        source = _clip_from_rows(
+            [
+                ("Hips", None, [0, 0, 0]),
+                ("LeftHand", 0, [1, 0, 0]),
+                ("RightHand", 0, [-1, 0, 0]),
+            ]
+        )
+        reference = _clip_from_rows([("Hips", None, [0, 0, 1]), ("Hand", 0, [2, 0, 0])])
+        mapping = {"LeftHand": "Hand", "RightHand": "Hand"}
+        with pytest.raises(ValueError) as caught:
+            source.retarget(reference, name_mapping=mapping, strict=strict, inplace=True)
+        message = str(caught.value)
+        assert "'LeftHand', 'RightHand'" in message
+        assert "one joint of new_skeleton, 'Hand'" in message
+        assert _offsets(source).tolist() == [[0, 0, 0], [1, 0, 0], [-1, 0, 0]]
+
+    def test_retarget_refuses_a_key_mapped_to_a_joint_bound_by_its_own_name(self):
+        source = _clip_from_rows(
+            [
+                ("Hips", None, [0, 0, 0]),
+                ("Hand", 0, [1, 0, 0]),
+                ("LeftHand", 0, [-1, 0, 0]),
+            ]
+        )
+        reference = _clip_from_rows([("Hips", None, [0, 0, 1]), ("Hand", 0, [2, 0, 0])])
+        with pytest.raises(ValueError) as caught:
+            source.retarget(reference, name_mapping={"LeftHand": "Hand"})
+        message = str(caught.value)
+        assert "'Hand', 'LeftHand'" in message
+        assert "one joint of new_skeleton, 'Hand'" in message
+
+    def test_retarget_accepts_two_keys_mapped_to_a_name_new_skeleton_lacks(self):
+        # Neither joint binds, so no reference joint is bound twice.
+        source = _clip_from_rows(
+            [
+                ("Hips", None, [0, 0, 0]),
+                ("LeftHand", 0, [1, 0, 0]),
+                ("RightHand", 0, [-1, 0, 0]),
+            ]
+        )
+        reference = _clip_from_rows([("Hips", None, [0, 0, 1])])
+        mapping = {"LeftHand": "Hand", "RightHand": "Hand"}
+        result = source.retarget(reference, name_mapping=mapping)
+        assert _offsets(result).tolist() == [[0, 0, 1], [1, 0, 0], [-1, 0, 0]]
+
     def test_retarget_preserves_motion(self, bvh_example):
         """retarget should not modify root_pos or joint_angles."""
         ref = bvh_example.copy()

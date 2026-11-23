@@ -3724,7 +3724,11 @@ class Bvh:
           ``new_skeleton`` is not read. To bind such joints, rename one
           through the node table (``table = bvh.to_node_table()``, change
           its ``"name"``, ``bvh.copy(nodes=table)``), then name it in
-          ``name_mapping``.
+          ``name_mapping``. The binding is one to one: two joints of this
+          clip that bind to one joint of ``new_skeleton``, by a mapped name
+          or by their own, raise ``ValueError`` before anything changes,
+          whatever ``strict`` is, naming the joints and the reference
+          joint; map each to its own reference joint.
           An end site binds through its parent: it takes the offset of the
           end site in the same position under the reference joint that its
           parent is bound to. When the two joints carry different numbers
@@ -3833,6 +3837,21 @@ class Bvh:
             _refuse_a_repeated_joint_name(
                 ref_joints_of_name.get(target_name, []), target_name, "new_skeleton"
             )
+        # The binding is one to one: two joints of this clip cannot bind to
+        # one reference joint, whether by a mapped name or by their own.
+        bound_names: dict[str, list[str]] = {}
+        for name, target_name in target_name_of.items():
+            if target_name in ref_joints_of_name:
+                bound_names.setdefault(target_name, []).append(name)
+        for target_name, names in bound_names.items():
+            if len(names) > 1:
+                listed = ", ".join(repr(name) for name in names)
+                raise ValueError(
+                    f"Joints {listed} of this clip bind to one joint of "
+                    f"new_skeleton, {target_name!r}, by name_mapping or by "
+                    f"their own name; the binding is one to one. Map each "
+                    f"joint to its own joint of new_skeleton."
+                )
         # A name that repeats here is one no joint of this clip reads.
         ref_joint_by_name = {name: js[0] for name, js in ref_joints_of_name.items()}
 

@@ -2335,20 +2335,21 @@ class TestSkeletonRetargeting:
             bvh_example.retarget(bvh_example.nodes)
         assert excinfo.value.__suppress_context__
 
-    def test_retarget_gives_two_end_sites_of_one_name_their_own_offsets(self):
-        # Issue #120's reproduction: a root with two end sites of one name.
+    def test_retarget_gives_two_end_sites_of_one_joint_their_own_offsets(self):
+        # Issue #120's reproduction, a root with two end sites, under the
+        # end-site names of #220.
         source = _clip_from_rows(
             [
                 ("Hips", None, [0, 0, 0]),
-                ("EndSiteHips", 0, [0, 1, 0], "end"),
-                ("EndSiteHips", 0, [1, 0, 0], "end"),
+                ("Hips_EndSite", 0, [0, 1, 0], "end"),
+                ("Hips_EndSite2", 0, [1, 0, 0], "end"),
             ]
         )
         reference = _clip_from_rows(
             [
                 ("Hips", None, [0, 0, 0]),
-                ("EndSiteHips", 0, [0, 2, 0], "end"),
-                ("EndSiteHips", 0, [2, 0, 0], "end"),
+                ("Hips_EndSite", 0, [0, 2, 0], "end"),
+                ("Hips_EndSite2", 0, [2, 0, 0], "end"),
             ]
         )
         result = source.retarget(reference)
@@ -2393,8 +2394,8 @@ class TestSkeletonRetargeting:
             [
                 ("Hips", None, [0, 0, 0]),
                 ("Spine", 0, [0, 1, 0]),
-                ("EndSiteSpine", 1, [0, 1, 0], "end"),
-                ("EndSiteHips", 0, [1, 0, 0], "end"),
+                ("Spine_EndSite", 1, [0, 1, 0], "end"),
+                ("Hips_EndSite", 0, [1, 0, 0], "end"),
             ]
         )
         reference = _clip_from_rows(

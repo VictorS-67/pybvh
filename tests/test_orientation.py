@@ -375,9 +375,9 @@ class TestLrPairs:
 
     def test_an_unknown_name_is_reported_and_its_pair_skipped(self):
         # An end site's generated name is not a joint's name.
-        resolved = self._resolve({"LeftArm": "RightArm", "LeftFoot": "EndSiteRightHand"})
+        resolved = self._resolve({"LeftArm": "RightArm", "LeftFoot": "RightHand_EndSite"})
         assert resolved.joint_pairs == [(1, 3)]
-        assert resolved.unknown_names == ["EndSiteRightHand", "LeftFoot"]
+        assert resolved.unknown_names == ["LeftFoot", "RightHand_EndSite"]
 
     def test_a_symmetric_mapping_gives_each_pair_once(self):
         symmetric = {**self._MAPPING, **{r: left for left, r in self._MAPPING.items()}}
